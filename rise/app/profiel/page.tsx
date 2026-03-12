@@ -36,7 +36,52 @@ export default function Profiel() {
                 className="w-full rounded-lg border border-gray-200 px-4 py-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
-  
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Vertrekdatum</label>
+                <input
+                  type="date"
+                  className="w-full rounded-lg border border-gray-200 px-4 py-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Terugkeerdatum</label>
+                <input
+                  type="date"
+                  className="w-full rounded-lg border border-gray-200 px-4 py-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Reisgezelschap</label>
+              <select className="w-full rounded-lg border border-gray-200 px-4 py-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option>Solo</option>
+                <option>Stel</option>
+                <option>Gezin met kinderen</option>
+                <option>Vriendengroep</option>
+                <option>Zakenreis</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Budget</label>
+              <div className="grid grid-cols-3 gap-3">
+                {[
+                  { value: "budget", label: "Budget", sub: "< €100/dag" },
+                  { value: "midden", label: "Midden", sub: "€100–250/dag" },
+                  { value: "luxe", label: "Luxe", sub: "> €250/dag" },
+                ].map(({ value, label, sub }) => (
+                  <label key={value} className="flex flex-col items-center gap-1 cursor-pointer rounded-xl border border-gray-200 p-4 hover:border-blue-400 hover:bg-blue-50 transition-colors has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50">
+                    <input type="radio" name="budget" value={value} className="sr-only" />
+                    <span className="font-semibold text-gray-900">{label}</span>
+                    <span className="text-xs text-gray-500">{sub}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
             <button
               type="submit"
               className="w-full rounded-full bg-blue-600 py-4 text-white font-semibold text-lg hover:bg-blue-700 transition-colors"
