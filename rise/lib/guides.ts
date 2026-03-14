@@ -1,5 +1,3 @@
-import { createClient } from "@supabase/supabase-js";
-
 export type Category = "food" | "transport" | "culture" | "nature" | "hidden gem";
 
 export type Tip = {
@@ -28,7 +26,4 @@ export const CATEGORY_LABELS: Record<Category, { label: string; icon: string; co
   "hidden gem": { label: "Hidden Gems",    icon: "💎", color: "pink"   },
 };
 
-export const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+export { supabase } from "@/lib/supabase";
