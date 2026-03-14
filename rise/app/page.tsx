@@ -43,7 +43,7 @@ export default function Home() {
           <a href="/transport" className="rounded-full border-2 border-blue-600 px-8 py-4 text-blue-600 font-semibold text-lg hover:bg-blue-50 transition-colors">
             Airport to hotel
           </a>
-          <a href="/guides/add" className="rounded-full border-2 border-blue-600 px-8 py-4 text-blue-600 font-semibold text-lg hover:bg-blue-50 transition-colors">
+          <a href="/guides" className="rounded-full border-2 border-blue-600 px-8 py-4 text-blue-600 font-semibold text-lg hover:bg-blue-50 transition-colors">
             Local guides
           </a>
         </div>
