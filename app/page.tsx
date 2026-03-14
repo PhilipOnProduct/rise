@@ -6,23 +6,23 @@ type Feature = {
 
 const features: Feature[] = [
   {
-    title: "Persoonlijk reisadvies",
-    description: "AI die jouw voorkeuren kent en meedenkt.",
+    title: "Personal travel advice",
+    description: "AI that knows your preferences and thinks along with you.",
     icon: "✈️",
   },
   {
     title: "Local guides",
-    description: "Insider tips van mensen die er wonen.",
+    description: "Insider tips from people who live there.",
     icon: "🗺️",
   },
   {
-    title: "Slimme boekingen",
-    description: "Van vliegveld naar hotel — wij regelen het.",
+    title: "Smart bookings",
+    description: "From airport to hotel — we take care of it.",
     icon: "🏨",
   },
   {
-    title: "Restauranttips",
-    description: "De beste plekken, afgestemd op jouw smaak.",
+    title: "Restaurant tips",
+    description: "The best spots, tailored to your taste.",
     icon: "🍽️",
   },
 ];
@@ -31,13 +31,13 @@ export default function Home() {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-blue-50 to-white px-8">
       
-      {/* Hero sectie */}
+      {/* Hero */}
       <div className="text-center mb-20">
         <h1 className="text-6xl font-bold text-blue-900 mb-4">Rise</h1>
-        <p className="text-2xl text-blue-500 mb-8">Jouw persoonlijke reisconcierge</p>
-        
-        <a href="/profiel" className="rounded-full bg-blue-600 px-8 py-4 text-white font-semibold text-lg hover:bg-blue-700 transition-colors">
-          Maak je reisprofiel aan
+        <p className="text-2xl text-blue-500 mb-8">Your personal travel concierge</p>
+
+        <a href="/profile" className="rounded-full bg-blue-600 px-8 py-4 text-white font-semibold text-lg hover:bg-blue-700 transition-colors">
+          Create your travel profile
         </a>
       </div>
 
