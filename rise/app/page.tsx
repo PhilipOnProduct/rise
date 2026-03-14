@@ -36,9 +36,17 @@ export default function Home() {
         <h1 className="text-6xl font-bold text-blue-900 mb-4">Rise</h1>
         <p className="text-2xl text-blue-500 mb-8">Your personal travel concierge</p>
 
-        <a href="/profile" className="rounded-full bg-blue-600 px-8 py-4 text-white font-semibold text-lg hover:bg-blue-700 transition-colors">
-          Create your travel profile
-        </a>
+        <div className="flex flex-wrap justify-center gap-4">
+          <a href="/profile" className="rounded-full bg-blue-600 px-8 py-4 text-white font-semibold text-lg hover:bg-blue-700 transition-colors">
+            Create your travel profile
+          </a>
+          <a href="/transport" className="rounded-full border-2 border-blue-600 px-8 py-4 text-blue-600 font-semibold text-lg hover:bg-blue-50 transition-colors">
+            Airport to hotel
+          </a>
+          <a href="/guides/add" className="rounded-full border-2 border-blue-600 px-8 py-4 text-blue-600 font-semibold text-lg hover:bg-blue-50 transition-colors">
+            Local guides
+          </a>
+        </div>
       </div>
 
       {/* Features */}
