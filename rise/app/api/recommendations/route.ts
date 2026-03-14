@@ -14,6 +14,9 @@ Travel profile:
 - Travel company: ${profile.travelCompany}
 - Budget: ${profile.budget || "not specified"}
 - Travel dates: ${profile.departureDate ? `${profile.departureDate} to ${profile.returnDate}` : "not specified"}
+- Dietary wishes: ${profile.dietaryWishes || "none"}
+
+IMPORTANT: strictly respect dietary wishes, do not recommend restaurants that conflict with them.
 
 Format each restaurant as:
 **[Restaurant Name]** — [Cuisine] · [Price range €/€€/€€€/€€€€]
