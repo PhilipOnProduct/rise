@@ -4,7 +4,7 @@ import { useState } from "react";
 
 type Profile = {
   name: string;
-  travelerType: string;
+  travelerTypes: string[];
   destination: string;
   departureDate: string;
   returnDate: string;
@@ -12,9 +12,17 @@ type Profile = {
   budget: string;
 };
 
+const TRAVELER_TYPES = [
+  "Adventurer — off the beaten track",
+  "Comfort traveler — good hotels and restaurants",
+  "Cultural — museums, history, architecture",
+  "Foodie — food comes first",
+  "Relaxer — sun, beach, doing nothing",
+];
+
 const defaultProfile: Profile = {
   name: "",
-  travelerType: "Adventurer — off the beaten track",
+  travelerTypes: [],
   destination: "",
   departureDate: "",
   returnDate: "",
@@ -25,14 +33,55 @@ const defaultProfile: Profile = {
 export default function ProfilePage() {
   const [profile, setProfile] = useState<Profile>(defaultProfile);
   const [saved, setSaved] = useState<Profile | null>(null);
+  const [recommendations, setRecommendations] = useState<string>("");
+  const [loading, setLoading] = useState(false);
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setSaved({ ...profile });
+    const submittedProfile = { ...profile };
+    setSaved(submittedProfile);
+    setRecommendations("");
+    setLoading(true);
+
+    const res = await fetch("/api/recommendations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(submittedProfile),
+    });
+
+    if (!res.body) {
+      setLoading(false);
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      setRecommendations((prev) => prev + decoder.decode(value));
+    }
+
+    setLoading(false);
+  }
+
+  // Render markdown-style bold (**text**) as <strong>
+  function renderText(text: string) {
+    const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g);
+    return parts.map((part, i) => {
+      if (part.startsWith("**") && part.endsWith("**")) {
+        return <strong key={i}>{part.slice(2, -2)}</strong>;
+      }
+      if (part.startsWith("*") && part.endsWith("*")) {
+        return <em key={i}>{part.slice(1, -1)}</em>;
+      }
+      return part;
+    });
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-blue-50 to-white px-8">
+    <main className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-blue-50 to-white px-8 py-16">
       <div className="w-full max-w-lg bg-white rounded-2xl border border-blue-100 shadow-sm p-10">
 
         <h1 className="text-3xl font-bold text-blue-900 mb-2">Your travel profile</h1>
@@ -52,18 +101,42 @@ export default function ProfilePage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">What kind of traveler are you?</label>
-            <select
-              value={profile.travelerType}
-              onChange={(e) => setProfile({ ...profile, travelerType: e.target.value })}
-              className="w-full rounded-lg border border-gray-200 px-4 py-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option>Adventurer — off the beaten track</option>
-              <option>Comfort traveler — good hotels and restaurants</option>
-              <option>Cultural — museums, history, architecture</option>
-              <option>Foodie — food comes first</option>
-              <option>Relaxer — sun, beach, doing nothing</option>
-            </select>
+            <label className="block text-sm font-medium text-gray-700 mb-2">What kind of traveler are you? <span className="text-gray-400 font-normal">(select all that apply)</span></label>
+            <div className="flex flex-col gap-2">
+              {TRAVELER_TYPES.map((type) => {
+                const checked = profile.travelerTypes.includes(type);
+                return (
+                  <label
+                    key={type}
+                    className={`flex items-center gap-3 cursor-pointer rounded-xl border px-4 py-3 transition-colors ${
+                      checked
+                        ? "border-blue-500 bg-blue-50"
+                        : "border-gray-200 hover:border-blue-400 hover:bg-blue-50"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => {
+                        const next = checked
+                          ? profile.travelerTypes.filter((t) => t !== type)
+                          : [...profile.travelerTypes, type];
+                        setProfile({ ...profile, travelerTypes: next });
+                      }}
+                      className="sr-only"
+                    />
+                    <span className={`w-5 h-5 flex-shrink-0 rounded border-2 flex items-center justify-center transition-colors ${checked ? "border-blue-500 bg-blue-500" : "border-gray-300"}`}>
+                      {checked && (
+                        <svg className="w-3 h-3 text-white" viewBox="0 0 12 12" fill="none">
+                          <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      )}
+                    </span>
+                    <span className="text-gray-900">{type}</span>
+                  </label>
+                );
+              })}
+            </div>
           </div>
 
           <div>
@@ -146,9 +219,10 @@ export default function ProfilePage() {
 
           <button
             type="submit"
-            className="w-full rounded-full bg-blue-600 py-4 text-white font-semibold text-lg hover:bg-blue-700 transition-colors"
+            disabled={loading}
+            className="w-full rounded-full bg-blue-600 py-4 text-white font-semibold text-lg hover:bg-blue-700 transition-colors disabled:opacity-60"
           >
-            Save profile
+            {loading ? "Finding restaurants…" : "Save profile & get recommendations"}
           </button>
 
         </form>
@@ -158,13 +232,28 @@ export default function ProfilePage() {
             <h2 className="text-lg font-semibold text-green-800 mb-3">Profile saved!</h2>
             <dl className="flex flex-col gap-2 text-sm text-gray-700">
               <div className="flex justify-between"><dt className="font-medium">Name</dt><dd>{saved.name || "—"}</dd></div>
-              <div className="flex justify-between"><dt className="font-medium">Traveler type</dt><dd>{saved.travelerType}</dd></div>
+              <div className="flex justify-between"><dt className="font-medium">Traveler type</dt><dd>{saved.travelerTypes.length ? saved.travelerTypes.join(", ") : "—"}</dd></div>
               <div className="flex justify-between"><dt className="font-medium">Destination</dt><dd>{saved.destination || "—"}</dd></div>
               <div className="flex justify-between"><dt className="font-medium">Departure date</dt><dd>{saved.departureDate || "—"}</dd></div>
               <div className="flex justify-between"><dt className="font-medium">Return date</dt><dd>{saved.returnDate || "—"}</dd></div>
               <div className="flex justify-between"><dt className="font-medium">Travel company</dt><dd>{saved.travelCompany}</dd></div>
               <div className="flex justify-between"><dt className="font-medium">Budget</dt><dd>{saved.budget || "—"}</dd></div>
             </dl>
+
+            </div>
+        )}
+
+        {(recommendations || loading) && (
+          <div className="mt-6 rounded-xl border border-orange-100 bg-orange-50 p-6">
+            <h2 className="text-lg font-semibold text-orange-900 mb-4">Restaurant recommendations</h2>
+            <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">
+              {recommendations.split("\n").map((line, i) => (
+                <p key={i} className={line === "" ? "mt-3" : ""}>{renderText(line)}</p>
+              ))}
+              {loading && (
+                <span className="inline-block w-2 h-4 bg-orange-400 animate-pulse ml-0.5 align-middle" />
+              )}
+            </div>
           </div>
         )}
 
