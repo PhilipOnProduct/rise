@@ -10,6 +10,7 @@ type Profile = {
   returnDate: string;
   travelCompany: string;
   budget: string;
+  dietaryWishes: string;
 };
 
 const TRAVELER_TYPES = [
@@ -28,6 +29,7 @@ const defaultProfile: Profile = {
   returnDate: "",
   travelCompany: "Solo",
   budget: "",
+  dietaryWishes: "",
 };
 
 export default function ProfilePage() {
@@ -42,6 +44,12 @@ export default function ProfilePage() {
     setSaved(submittedProfile);
     setRecommendations("");
     setLoading(true);
+
+    await fetch("/api/profile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(submittedProfile),
+    });
 
     const res = await fetch("/api/recommendations", {
       method: "POST",
@@ -217,6 +225,17 @@ export default function ProfilePage() {
             </div>
           </div>
 
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Dietary wishes <span className="text-gray-400 font-normal">(optional)</span></label>
+            <input
+              type="text"
+              placeholder="e.g. vegetarian, no shellfish, halal…"
+              value={profile.dietaryWishes}
+              onChange={(e) => setProfile({ ...profile, dietaryWishes: e.target.value })}
+              className="w-full rounded-lg border border-gray-200 px-4 py-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
           <button
             type="submit"
             disabled={loading}
@@ -238,6 +257,7 @@ export default function ProfilePage() {
               <div className="flex justify-between"><dt className="font-medium">Return date</dt><dd>{saved.returnDate || "—"}</dd></div>
               <div className="flex justify-between"><dt className="font-medium">Travel company</dt><dd>{saved.travelCompany}</dd></div>
               <div className="flex justify-between"><dt className="font-medium">Budget</dt><dd>{saved.budget || "—"}</dd></div>
+              <div className="flex justify-between"><dt className="font-medium">Dietary wishes</dt><dd>{saved.dietaryWishes || "—"}</dd></div>
             </dl>
 
             </div>
