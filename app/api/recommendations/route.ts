@@ -1,7 +1,9 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest } from "next/server";
+import { logAiInteraction } from "@/lib/ai-logger";
 
 const client = new Anthropic();
+const MODEL = "claude-sonnet-4-20250514";
 
 export async function POST(req: NextRequest) {
   const profile = await req.json();
@@ -25,8 +27,9 @@ Format each restaurant as:
 
 Keep descriptions concise and practical.`;
 
-  const stream = await client.messages.stream({
-    model: "claude-sonnet-4-20250514",
+  const startTime = Date.now();
+  const stream = client.messages.stream({
+    model: MODEL,
     max_tokens: 1024,
     messages: [{ role: "user", content: prompt }],
   });
@@ -34,15 +37,32 @@ Keep descriptions concise and practical.`;
   const encoder = new TextEncoder();
   const readable = new ReadableStream({
     async start(controller) {
+      let output = "";
       for await (const event of stream) {
         if (
           event.type === "content_block_delta" &&
           event.delta.type === "text_delta"
         ) {
           controller.enqueue(encoder.encode(event.delta.text));
+          output += event.delta.text;
         }
       }
       controller.close();
+
+      try {
+        const final = await stream.finalMessage();
+        await logAiInteraction({
+          feature: "recommendations",
+          model: MODEL,
+          input: profile,
+          output,
+          latency_ms: Date.now() - startTime,
+          input_tokens: final.usage.input_tokens,
+          output_tokens: final.usage.output_tokens,
+        });
+      } catch (err) {
+        console.error("[recommendations] Logging failed:", err);
+      }
     },
   });
 
