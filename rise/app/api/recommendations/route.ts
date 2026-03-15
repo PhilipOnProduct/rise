@@ -54,6 +54,7 @@ Keep descriptions concise and practical.`;
         await logAiInteraction({
           feature: "recommendations",
           model: MODEL,
+          prompt,
           input: profile,
           output,
           latency_ms: Date.now() - startTime,
