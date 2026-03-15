@@ -6,6 +6,7 @@ import { CATEGORIES, CATEGORY_LABELS, type Category } from "@/lib/guides";
 export default function AddGuidePage() {
   const [form, setForm] = useState({
     name: "",
+    email: "",
     city: "",
     category: "" as Category | "",
     title: "",
@@ -48,7 +49,8 @@ export default function AddGuidePage() {
         <div className="w-full max-w-lg bg-white rounded-2xl border border-blue-100 shadow-sm p-10 text-center">
           <div className="text-5xl mb-4">🙌</div>
           <h1 className="text-2xl font-bold text-blue-900 mb-2">Thanks, {form.name}!</h1>
-          <p className="text-gray-500 mb-6">Your tip for <span className="font-medium text-gray-800">{form.city}</span> has been added.</p>
+          <p className="text-gray-500 mb-2">Your tip for <span className="font-medium text-gray-800">{form.city}</span> has been added.</p>
+          <p className="text-sm text-green-600 font-medium mb-6">+10 points awarded to your guide profile!</p>
           <div className="flex flex-col gap-3">
             <a
               href={`/guides/${citySlug}`}
@@ -57,7 +59,10 @@ export default function AddGuidePage() {
               See all {form.city} tips
             </a>
             <button
-              onClick={() => { setSubmitted(false); setForm({ name: "", city: "", category: "", title: "", description: "" }); }}
+              onClick={() => {
+                setSubmitted(false);
+                setForm({ name: "", email: "", city: "", category: "", title: "", description: "" });
+              }}
               className="rounded-full border border-gray-200 px-6 py-3 text-gray-600 font-medium hover:bg-gray-50 transition-colors"
             >
               Add another tip
@@ -100,6 +105,19 @@ export default function AddGuidePage() {
                 className="w-full rounded-lg border border-gray-200 px-4 py-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+            <input
+              type="email"
+              placeholder="you@example.com"
+              value={form.email}
+              onChange={(e) => set("email", e.target.value)}
+              required
+              className="w-full rounded-lg border border-gray-200 px-4 py-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <p className="text-xs text-gray-400 mt-1">Used to track your guide profile and points.</p>
           </div>
 
           <div>
