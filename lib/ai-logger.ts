@@ -3,6 +3,7 @@ import { supabase } from "@/lib/supabase";
 type LogEntry = {
   feature: string;
   model: string;
+  prompt: string;
   input: object;
   output: string;
   latency_ms: number;

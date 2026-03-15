@@ -76,6 +76,7 @@ Format your response as:
         await logAiInteraction({
           feature: "transport",
           model: MODEL,
+          prompt,
           input: { airport, hotel, city },
           output,
           latency_ms: Date.now() - startTime,
