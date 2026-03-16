@@ -26,8 +26,6 @@ export default function LeaderboardPage() {
     <main className="min-h-screen bg-[#0a0a0a] px-6 py-14">
       <div className="max-w-xl mx-auto">
 
-        <a href="/guides" className="text-gray-600 text-sm hover:text-gray-400 transition-colors mb-8 inline-block">← Guides</a>
-
         <div className="mb-10">
           <h1 className="text-4xl font-extrabold tracking-tight mb-2">🏆 Leaderboard</h1>
           <p className="text-gray-400">Top local guides ranked by points.</p>

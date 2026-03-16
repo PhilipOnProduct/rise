@@ -81,7 +81,6 @@ export default function AdminPage() {
       <div className="max-w-5xl mx-auto">
 
         <div className="mb-10">
-          <a href="/" className="text-gray-600 text-sm hover:text-gray-400 transition-colors mb-4 inline-block">← Rise</a>
           <h1 className="text-4xl font-extrabold tracking-tight">AI Logs</h1>
           <p className="text-gray-500 mt-1">{logs.length} interactions logged</p>
         </div>

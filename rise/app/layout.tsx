@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { DM_Sans } from "next/font/google";
 import "./globals.css";
+import Nav from "@/app/components/Nav";
 
 const dmSans = DM_Sans({
   subsets: ["latin"],
@@ -18,7 +19,10 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={dmSans.variable}>
-      <body className="antialiased bg-[#0a0a0a] text-white">{children}</body>
+      <body className="antialiased bg-[#0a0a0a] text-white">
+        <Nav />
+        {children}
+      </body>
     </html>
   );
 }
