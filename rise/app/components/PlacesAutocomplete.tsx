@@ -100,15 +100,8 @@ export default function PlacesAutocomplete({
           .map((s) => {
             const p = s.placePrediction;
             if (!p) return null;
-            // structuredFormat.mainText and secondaryText are FormattableText objects
-            // with a `.text` string property. Fall back to p.text?.text (full prediction text).
-            const mainText =
-              (p.structuredFormat?.mainText as unknown as { text: string } | null | undefined)?.text
-              ?? (p.text as unknown as { text: string } | null | undefined)?.text
-              ?? String(p.text ?? "");
-            const secondaryText =
-              (p.structuredFormat?.secondaryText as unknown as { text: string } | null | undefined)?.text
-              ?? "";
+            const mainText = ((p as any).text?.text as string | undefined) ?? String((p as any).text ?? "");
+            const secondaryText = "";
             return {
               placeId: p.placeId,
               mainText,
