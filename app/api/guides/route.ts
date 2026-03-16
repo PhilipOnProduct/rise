@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Award 10 points for submitting a tip
-  await awardPoints(guideId, 10);
+  if (guideId) await awardPoints(guideId, 10);
 
   return NextResponse.json(data, { status: 201 });
 }

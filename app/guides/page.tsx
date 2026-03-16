@@ -17,8 +17,6 @@ export default function GuidesPage() {
     <main className="min-h-screen bg-[#0a0a0a] px-6 flex flex-col items-center justify-center">
       <div className="w-full max-w-lg">
 
-        <a href="/" className="text-gray-600 text-sm hover:text-gray-400 transition-colors mb-12 inline-block">← Rise</a>
-
         <div className="mb-10">
           <h1 className="text-5xl font-extrabold tracking-tight mb-3">Local guides</h1>
           <p className="text-gray-400 text-lg">Insider tips from people who actually live there.</p>
