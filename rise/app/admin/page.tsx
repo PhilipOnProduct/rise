@@ -18,8 +18,8 @@ type Log = {
 };
 
 const FEATURE_COLORS: Record<string, string> = {
-  recommendations: "bg-orange-100 text-orange-700",
-  transport: "bg-blue-100 text-blue-700",
+  recommendations: "bg-orange-500/20 text-orange-400",
+  transport: "bg-blue-500/20 text-blue-400",
 };
 
 function formatDate(iso: string) {
@@ -43,10 +43,7 @@ export default function AdminPage() {
   useEffect(() => {
     fetch("/api/admin/logs")
       .then((r) => r.json())
-      .then((data) => {
-        setLogs(data);
-        setLoading(false);
-      });
+      .then((data) => { setLogs(data); setLoading(false); });
   }, []);
 
   async function updateLog(id: string, patch: Partial<Pick<Log, "rating" | "notes">>) {
@@ -58,10 +55,6 @@ export default function AdminPage() {
     if (!res.ok) return;
     const updated: Log = await res.json();
     setLogs((prev) => prev.map((l) => (l.id === id ? updated : l)));
-  }
-
-  async function handleRating(id: string, rating: "good" | "bad") {
-    await updateLog(id, { rating });
   }
 
   async function handleSaveNotes(id: string) {
@@ -81,155 +74,114 @@ export default function AdminPage() {
     });
   }
 
+  const inputCls = "w-full bg-[#0a0a0a] border border-[#2a2a2a] focus:border-[#00D64F] outline-none rounded-xl px-4 py-3 text-white text-xs placeholder-[#444] transition-colors resize-none font-mono";
+
   return (
-    <main className="min-h-screen bg-gray-50 px-6 py-12">
+    <main className="min-h-screen bg-[#0a0a0a] px-6 py-14">
       <div className="max-w-5xl mx-auto">
 
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">AI Logs</h1>
+        <div className="mb-10">
+          <a href="/" className="text-gray-600 text-sm hover:text-gray-400 transition-colors mb-4 inline-block">← Rise</a>
+          <h1 className="text-4xl font-extrabold tracking-tight">AI Logs</h1>
           <p className="text-gray-500 mt-1">{logs.length} interactions logged</p>
         </div>
 
-        {loading && <p className="text-gray-400 text-sm">Loading…</p>}
+        {loading && <p className="text-gray-600 text-sm">Loading…</p>}
+        {!loading && logs.length === 0 && <p className="text-gray-600 text-sm">No logs yet.</p>}
 
-        {!loading && logs.length === 0 && (
-          <p className="text-gray-400 text-sm">No logs yet.</p>
-        )}
-
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-2">
           {logs.map((log) => {
             const isExpanded = expandedId === log.id;
-            const notesDirty = pendingNotes[log.id] !== undefined &&
-              pendingNotes[log.id] !== (log.notes ?? "");
+            const notesDirty = pendingNotes[log.id] !== undefined && pendingNotes[log.id] !== (log.notes ?? "");
 
             return (
-              <div
-                key={log.id}
-                className="bg-white rounded-xl border border-gray-200 overflow-hidden"
-              >
-                {/* Row — always visible */}
+              <div key={log.id} className="bg-[#111] border border-[#1e1e1e] rounded-2xl overflow-hidden">
+
+                {/* Row */}
                 <button
                   onClick={() => toggleExpand(log.id)}
-                  className="w-full text-left px-5 py-4 flex items-center gap-4 hover:bg-gray-50 transition-colors"
+                  className="w-full text-left px-5 py-4 flex items-center gap-4 hover:bg-[#161616] transition-colors"
                 >
-                  {/* Feature badge */}
-                  <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold ${FEATURE_COLORS[log.feature] ?? "bg-gray-100 text-gray-600"}`}>
+                  <span className={`shrink-0 rounded-lg px-2.5 py-0.5 text-xs font-bold ${FEATURE_COLORS[log.feature] ?? "bg-[#2a2a2a] text-gray-400"}`}>
                     {log.feature}
                   </span>
-
-                  {/* Model */}
-                  <span className="shrink-0 text-xs text-gray-400 font-mono hidden sm:block">
+                  <span className="shrink-0 text-xs text-gray-600 font-mono hidden sm:block">
                     {log.model.replace("claude-", "")}
                   </span>
-
-                  {/* Output preview */}
-                  <span className="flex-1 text-sm text-gray-600 truncate">
+                  <span className="flex-1 text-sm text-gray-400 truncate">
                     {truncate(log.output, 120)}
                   </span>
-
-                  {/* Stats */}
-                  <span className="shrink-0 text-xs text-gray-400 hidden md:block">
-                    {log.latency_ms}ms
-                  </span>
-                  <span className="shrink-0 text-xs text-gray-400 hidden md:block">
-                    {log.input_tokens}↑ {log.output_tokens}↓
-                  </span>
-
-                  {/* Date */}
-                  <span className="shrink-0 text-xs text-gray-400 hidden lg:block">
-                    {formatDate(log.created_at)}
-                  </span>
-
-                  {/* Rating */}
+                  <span className="shrink-0 text-xs text-gray-600 hidden md:block">{log.latency_ms}ms</span>
+                  <span className="shrink-0 text-xs text-gray-600 hidden md:block">{log.input_tokens}↑ {log.output_tokens}↓</span>
+                  <span className="shrink-0 text-xs text-gray-600 hidden lg:block">{formatDate(log.created_at)}</span>
                   <span className="shrink-0 text-base">
                     {log.rating === "good" ? "✅" : log.rating === "bad" ? "❌" : "·"}
                   </span>
-
-                  {/* Chevron */}
-                  <span className="shrink-0 text-gray-300 text-sm">
-                    {isExpanded ? "▲" : "▼"}
-                  </span>
+                  <span className="shrink-0 text-gray-600 text-xs">{isExpanded ? "▲" : "▼"}</span>
                 </button>
 
-                {/* Expanded panel */}
+                {/* Expanded */}
                 {isExpanded && (
-                  <div className="border-t border-gray-100 px-5 py-5 flex flex-col gap-6">
+                  <div className="border-t border-[#1e1e1e] px-5 py-6 flex flex-col gap-6">
 
-                    {/* Meta row */}
+                    {/* Meta */}
                     <div className="flex flex-wrap gap-4 text-xs text-gray-500">
-                      <span><strong>Model:</strong> {log.model}</span>
-                      <span><strong>Latency:</strong> {log.latency_ms}ms</span>
-                      <span><strong>Tokens:</strong> {log.input_tokens} in / {log.output_tokens} out</span>
-                      <span><strong>Date:</strong> {formatDate(log.created_at)}</span>
+                      <span><strong className="text-gray-400">Model:</strong> {log.model}</span>
+                      <span><strong className="text-gray-400">Latency:</strong> {log.latency_ms}ms</span>
+                      <span><strong className="text-gray-400">Tokens:</strong> {log.input_tokens} in / {log.output_tokens} out</span>
+                      <span><strong className="text-gray-400">Date:</strong> {formatDate(log.created_at)}</span>
                     </div>
 
                     {/* Prompt */}
                     <div>
-                      <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Prompt</h3>
-                      <pre className="bg-gray-50 border border-gray-100 rounded-lg p-4 text-xs text-gray-700 overflow-x-auto whitespace-pre-wrap">
-                        {log.prompt}
-                      </pre>
+                      <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-2">Prompt</h3>
+                      <pre className="bg-[#0a0a0a] border border-[#1e1e1e] rounded-xl p-4 text-xs text-gray-400 overflow-x-auto whitespace-pre-wrap font-mono">{log.prompt}</pre>
                     </div>
 
                     {/* Input */}
                     <div>
-                      <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Input</h3>
-                      <pre className="bg-gray-50 border border-gray-100 rounded-lg p-4 text-xs text-gray-700 overflow-x-auto whitespace-pre-wrap">
-                        {JSON.stringify(log.input, null, 2)}
-                      </pre>
+                      <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-2">Input</h3>
+                      <pre className="bg-[#0a0a0a] border border-[#1e1e1e] rounded-xl p-4 text-xs text-gray-400 overflow-x-auto whitespace-pre-wrap font-mono">{JSON.stringify(log.input, null, 2)}</pre>
                     </div>
 
                     {/* Output */}
                     <div>
-                      <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Output</h3>
-                      <pre className="bg-gray-50 border border-gray-100 rounded-lg p-4 text-xs text-gray-700 overflow-x-auto whitespace-pre-wrap">
-                        {log.output}
-                      </pre>
+                      <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-2">Output</h3>
+                      <pre className="bg-[#0a0a0a] border border-[#1e1e1e] rounded-xl p-4 text-xs text-gray-400 overflow-x-auto whitespace-pre-wrap font-mono">{log.output}</pre>
                     </div>
 
                     {/* Rating */}
                     <div>
-                      <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Rating</h3>
+                      <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">Rating</h3>
                       <div className="flex gap-3">
-                        <button
-                          onClick={() => handleRating(log.id, "good")}
-                          className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium border transition-colors ${
-                            log.rating === "good"
-                              ? "bg-green-100 border-green-300 text-green-800"
-                              : "border-gray-200 text-gray-600 hover:bg-gray-50"
-                          }`}
-                        >
-                          ✅ Good
-                        </button>
-                        <button
-                          onClick={() => handleRating(log.id, "bad")}
-                          className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium border transition-colors ${
-                            log.rating === "bad"
-                              ? "bg-red-100 border-red-300 text-red-800"
-                              : "border-gray-200 text-gray-600 hover:bg-gray-50"
-                          }`}
-                        >
-                          ❌ Bad
-                        </button>
+                        {(["good", "bad"] as const).map((r) => (
+                          <button key={r}
+                            onClick={() => updateLog(log.id, { rating: r })}
+                            className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold border transition-colors ${
+                              log.rating === r
+                                ? r === "good" ? "border-green-500/50 bg-green-500/10 text-green-400" : "border-red-500/50 bg-red-500/10 text-red-400"
+                                : "border-[#2a2a2a] text-gray-500 hover:border-[#3a3a3a] hover:text-white"
+                            }`}>
+                            {r === "good" ? "✅ Good" : "❌ Bad"}
+                          </button>
+                        ))}
                       </div>
                     </div>
 
                     {/* Notes */}
                     <div>
-                      <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Notes</h3>
+                      <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">Notes</h3>
                       <textarea
                         rows={3}
                         value={pendingNotes[log.id] ?? log.notes ?? ""}
-                        onChange={(e) =>
-                          setPendingNotes((p) => ({ ...p, [log.id]: e.target.value }))
-                        }
+                        onChange={(e) => setPendingNotes((p) => ({ ...p, [log.id]: e.target.value }))}
                         placeholder="Add notes about this response…"
-                        className="w-full rounded-lg border border-gray-200 px-4 py-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                        className={inputCls}
                       />
                       <button
                         onClick={() => handleSaveNotes(log.id)}
                         disabled={savingIds.has(log.id) || !notesDirty}
-                        className="mt-2 rounded-full bg-blue-600 px-5 py-2 text-sm text-white font-medium hover:bg-blue-700 transition-colors disabled:opacity-40"
+                        className="mt-2 rounded-xl bg-[#00D64F] text-black px-5 py-2 text-sm font-bold hover:bg-[#00c248] transition-colors disabled:opacity-30"
                       >
                         {savingIds.has(log.id) ? "Saving…" : "Save notes"}
                       </button>
@@ -241,6 +193,7 @@ export default function AdminPage() {
             );
           })}
         </div>
+
       </div>
     </main>
   );

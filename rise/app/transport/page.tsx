@@ -2,6 +2,21 @@
 
 import { useState } from "react";
 
+function renderLine(line: string, i: number) {
+  if (line.startsWith("## ")) {
+    return <h2 key={i} className="text-base font-bold text-gray-900 mt-6 mb-2">{line.slice(3)}</h2>;
+  }
+  if (line.trim() === "---") return <hr key={i} className="border-gray-200 my-4" />;
+  if (line.trim() === "") return <div key={i} className="mt-2" />;
+  const parts = line.split(/(\*\*[^*]+\*\*)/g);
+  const rendered = parts.map((part, j) =>
+    part.startsWith("**") && part.endsWith("**")
+      ? <strong key={j}>{part.slice(2, -2)}</strong>
+      : part
+  );
+  return <p key={i} className="text-sm text-gray-700 leading-relaxed">{rendered}</p>;
+}
+
 export default function TransportPage() {
   const [airport, setAirport] = useState("");
   const [hotel, setHotel] = useState("");
@@ -20,109 +35,64 @@ export default function TransportPage() {
       body: JSON.stringify({ airport, hotel, city }),
     });
 
-    if (!res.body) {
-      setLoading(false);
-      return;
-    }
+    if (!res.body) { setLoading(false); return; }
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
-
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       setResult((prev) => prev + decoder.decode(value));
     }
-
     setLoading(false);
   }
 
-  function renderLine(line: string, i: number) {
-    // Headings
-    if (line.startsWith("## ")) {
-      return <h2 key={i} className="text-lg font-bold text-blue-900 mt-6 mb-2">{line.slice(3)}</h2>;
-    }
-    // Horizontal rule
-    if (line.trim() === "---") {
-      return <hr key={i} className="border-blue-100 my-4" />;
-    }
-    // Empty line → spacing
-    if (line.trim() === "") {
-      return <div key={i} className="mt-2" />;
-    }
-    // Inline bold (**text**)
-    const parts = line.split(/(\*\*[^*]+\*\*)/g);
-    const rendered = parts.map((part, j) =>
-      part.startsWith("**") && part.endsWith("**")
-        ? <strong key={j}>{part.slice(2, -2)}</strong>
-        : part
-    );
-    return <p key={i} className="text-sm text-gray-800 leading-relaxed">{rendered}</p>;
-  }
+  const inputCls = "w-full bg-[#111] border border-[#2a2a2a] focus:border-[#00D64F] outline-none rounded-xl px-5 py-4 text-white placeholder-[#444] transition-colors text-sm";
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-blue-50 to-white px-8 py-16">
-      <div className="w-full max-w-lg bg-white rounded-2xl border border-blue-100 shadow-sm p-10">
+    <main className="min-h-screen bg-[#0a0a0a] px-6 py-14">
+      <div className="max-w-xl mx-auto">
 
-        <h1 className="text-3xl font-bold text-blue-900 mb-2">Airport to hotel</h1>
-        <p className="text-gray-500 mb-8">Compare public transport vs taxi for your journey.</p>
+        <a href="/" className="text-gray-600 text-sm hover:text-gray-400 transition-colors mb-8 inline-block">← Rise</a>
+
+        <div className="mb-10">
+          <h1 className="text-4xl font-extrabold tracking-tight mb-2">Airport → Hotel</h1>
+          <p className="text-gray-400">Compare public transport vs taxi for your journey.</p>
+        </div>
 
         <form className="flex flex-col gap-5" onSubmit={handleSubmit}>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Departure airport</label>
-            <input
-              type="text"
-              placeholder="e.g. Amsterdam Schiphol (AMS)"
-              value={airport}
-              onChange={(e) => setAirport(e.target.value)}
-              required
-              className="w-full rounded-lg border border-gray-200 px-4 py-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+            <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">Departure airport</label>
+            <input type="text" placeholder="e.g. Amsterdam Schiphol (AMS)"
+              value={airport} onChange={(e) => setAirport(e.target.value)} required className={inputCls} />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Destination city</label>
-            <input
-              type="text"
-              placeholder="e.g. Amsterdam"
-              value={city}
-              onChange={(e) => setCity(e.target.value)}
-              required
-              className="w-full rounded-lg border border-gray-200 px-4 py-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+            <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">Destination city</label>
+            <input type="text" placeholder="e.g. Amsterdam"
+              value={city} onChange={(e) => setCity(e.target.value)} required className={inputCls} />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Hotel name or area</label>
-            <input
-              type="text"
-              placeholder="e.g. Hotel V Nesplein, or city centre"
-              value={hotel}
-              onChange={(e) => setHotel(e.target.value)}
-              required
-              className="w-full rounded-lg border border-gray-200 px-4 py-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+            <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">Hotel or area</label>
+            <input type="text" placeholder="e.g. Hotel V Nesplein, or city centre"
+              value={hotel} onChange={(e) => setHotel(e.target.value)} required className={inputCls} />
           </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-full bg-blue-600 py-4 text-white font-semibold text-lg hover:bg-blue-700 transition-colors disabled:opacity-60"
-          >
-            {loading ? "Comparing options…" : "Compare transport options"}
+          <button type="submit" disabled={loading}
+            className="w-full rounded-2xl bg-[#00D64F] text-black font-bold py-5 text-lg hover:bg-[#00c248] transition-colors disabled:opacity-40 mt-2">
+            {loading ? "Comparing options…" : "Compare transport →"}
           </button>
 
         </form>
 
         {(result || loading) && (
-          <div className="mt-8 rounded-xl border border-blue-100 bg-blue-50 p-6">
-            <h2 className="text-base font-semibold text-blue-900 mb-4">Your transport options</h2>
+          <div className="mt-8 bg-white rounded-2xl p-7">
+            <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-5">Your options</h2>
             <div>
               {result.split("\n").map((line, i) => renderLine(line, i))}
-              {loading && (
-                <span className="inline-block w-2 h-4 bg-blue-400 animate-pulse ml-0.5 align-middle" />
-              )}
+              {loading && <span className="inline-block w-2 h-4 bg-[#00D64F] animate-pulse ml-0.5 align-middle rounded-sm" />}
             </div>
           </div>
         )}
