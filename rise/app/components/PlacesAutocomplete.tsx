@@ -96,15 +96,6 @@ export default function PlacesAutocomplete({
         const { suggestions: raw } =
           await google.maps.places.AutocompleteSuggestion.fetchAutocompleteSuggestions(request);
 
-        if (raw.length > 0) {
-          const p = raw[0].placePrediction;
-          console.log("[PlacesAutocomplete] raw suggestion[0]:", JSON.stringify({
-            placeId: p?.placeId,
-            text: p?.text,
-            structuredFormat: p?.structuredFormat,
-          }, null, 2));
-        }
-
         const mapped: Suggestion[] = raw
           .map((s) => {
             const p = s.placePrediction;
