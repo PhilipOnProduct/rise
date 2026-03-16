@@ -81,7 +81,7 @@ export default function PlacesAutocomplete({
 
     debounceRef.current = setTimeout(async () => {
       try {
-        const request: google.maps.places.AutocompletionRequest = {
+        const request = {
           input: value,
           sessionToken: tokenRef.current ?? undefined,
           ...(types?.length && { includedPrimaryTypes: types }),
