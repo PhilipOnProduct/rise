@@ -108,6 +108,16 @@ export default function DashboardPage() {
           <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-5">Explore more</h2>
           <div className="flex flex-col gap-3">
             <a
+              href="/itinerary"
+              className="flex items-center justify-between rounded-xl bg-[#00D64F]/10 border border-[#00D64F]/30 px-5 py-4 hover:bg-[#00D64F]/20 transition-colors group"
+            >
+              <div>
+                <div className="font-semibold text-white">Day-by-day itinerary</div>
+                <div className="text-xs text-[#00D64F]/70 mt-0.5">AI-planned · drag to reschedule</div>
+              </div>
+              <span className="text-[#00D64F] group-hover:text-white transition-colors">→</span>
+            </a>
+            <a
               href="/profile"
               className="flex items-center justify-between rounded-xl bg-[#1a1a1a] px-5 py-4 hover:bg-[#222] transition-colors group"
             >
