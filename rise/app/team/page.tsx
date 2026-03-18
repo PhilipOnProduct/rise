@@ -1273,11 +1273,23 @@ function OSTTab() {
       await streamChat(
         TEAM_MODEL, OST_SYSTEM,
         [{ role: "user", content: feedback }],
-        1024,
+        4000,
         (chunk) => { raw += chunk; }
       );
-      const jsonStr = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
-      setTree(JSON.parse(jsonStr));
+      const stripped = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+      let parsed: OSTTree | null = null;
+      try {
+        parsed = JSON.parse(stripped);
+      } catch {
+        // Fallback: extract the largest JSON object between first { and last }
+        const start = stripped.indexOf("{");
+        const end = stripped.lastIndexOf("}");
+        if (start !== -1 && end > start) {
+          try { parsed = JSON.parse(stripped.slice(start, end + 1)); } catch { /* give up */ }
+        }
+      }
+      if (!parsed) throw new Error("Could not parse JSON from response");
+      setTree(parsed);
       setStatus("Tree generated — double-click any node to edit.");
     } catch (err) {
       console.error("[ost generate]", err);
