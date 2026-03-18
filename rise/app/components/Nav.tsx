@@ -28,14 +28,17 @@ const sections: NavSection[] = [
   },
   {
     label: "Admin",
-    links: [{ href: "/admin", label: "AI Logs" }],
+    links: [
+      { href: "/admin", label: "AI Logs" },
+      { href: "/team", label: "Team" },
+    ],
   },
 ];
 
 function getActiveSection(pathname: string): string | null {
   if (pathname.startsWith("/dashboard") || pathname.startsWith("/transport") || pathname.startsWith("/welcome") || pathname.startsWith("/profile")) return "Traveller";
   if (pathname.startsWith("/guides") || pathname.startsWith("/guides/add") || pathname.startsWith("/guides/leaderboard")) return "Local Guide";
-  if (pathname.startsWith("/admin")) return "Admin";
+  if (pathname.startsWith("/admin") || pathname.startsWith("/team")) return "Admin";
   return null;
 }
 
