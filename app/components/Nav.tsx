@@ -16,6 +16,7 @@ const sections: NavSection[] = [
       { href: "/dashboard", label: "My trip" },
       { href: "/transport", label: "Airport → Hotel" },
       { href: "/welcome", label: "Plan a new trip" },
+      { href: "/feedback", label: "Send feedback" },
     ],
   },
   {
@@ -37,7 +38,7 @@ const sections: NavSection[] = [
 ];
 
 function getActiveSection(pathname: string): string | null {
-  if (pathname.startsWith("/dashboard") || pathname.startsWith("/transport") || pathname.startsWith("/welcome") || pathname.startsWith("/profile")) return "Traveller";
+  if (pathname.startsWith("/dashboard") || pathname.startsWith("/transport") || pathname.startsWith("/welcome") || pathname.startsWith("/profile") || pathname.startsWith("/feedback")) return "Traveller";
   if (pathname.startsWith("/guides") || pathname.startsWith("/guides/add") || pathname.startsWith("/guides/leaderboard")) return "Local Guide";
   if (pathname.startsWith("/admin") || pathname.startsWith("/team")) return "Admin";
   return null;
