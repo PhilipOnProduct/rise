@@ -129,7 +129,7 @@ async function streamChat(
 async function saveTeamConversation(problem: string, msgs: TeamMessages): Promise<string | null> {
   const { data, error } = await supabase
     .from("team_conversations")
-    .insert({ type: "team", title: problem.slice(0, 60), messages: msgs })
+    .insert({ type: "team", title: problem, messages: msgs })
     .select("id")
     .single();
   if (error) { console.error("[team] save error", error); return null; }
@@ -429,7 +429,7 @@ function PastConversations({
                   onClick={() => { onLoad(row); setOpen(false); }}
                   className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-[#1a1a1a] transition-colors group"
                 >
-                  <p className="text-sm text-gray-300 group-hover:text-white truncate">{row.title}</p>
+                  <p className="text-sm text-gray-300 group-hover:text-white break-words">{row.title}</p>
                   <p className="text-xs text-gray-600 mt-0.5">
                     {new Date(row.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
                     {hasPrd && <span className="ml-2 text-[#00D64F]">· PRD</span>}

@@ -61,6 +61,9 @@ export default function PlacesAutocomplete({
   // Only show suggestions after the user has actively typed — prevents the
   // dropdown from opening immediately when a pre-filled value is passed in.
   const hasTypedRef = useRef(false);
+  // Suppresses the suggestions fetch for one cycle after a selection is made,
+  // preventing the dropdown from reopening when onSelect updates the value.
+  const justSelectedRef = useRef(false);
 
   useEffect(() => {
     ensureMapsLoaded()
@@ -74,6 +77,10 @@ export default function PlacesAutocomplete({
   }, []);
 
   useEffect(() => {
+    if (justSelectedRef.current) {
+      justSelectedRef.current = false;
+      return;
+    }
     if (!ready || !hasTypedRef.current || value.trim().length < 2) {
       setSuggestions([]);
       setOpen(false);
@@ -132,6 +139,7 @@ export default function PlacesAutocomplete({
       const description = s.secondaryText
         ? `${s.mainText}, ${s.secondaryText}`
         : s.mainText;
+      justSelectedRef.current = true;
       onChange(description);
       onSelect(description);
       setSuggestions([]);

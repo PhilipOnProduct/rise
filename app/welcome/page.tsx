@@ -78,7 +78,7 @@ export default function WelcomePage() {
 
     (async () => {
       try {
-        const res = await fetch("/api/recommendations", {
+        const res = await fetch("/api/activities-stream", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           signal: controller.signal,
@@ -86,10 +86,6 @@ export default function WelcomePage() {
             destination,
             departureDate: departureDate || "",
             returnDate: returnDate || "",
-            travelCompany: "not specified",
-            travelerTypes: [],
-            budget: "not specified",
-            dietaryWishes: "",
           }),
         });
         if (!res.body) return;
@@ -229,7 +225,7 @@ export default function WelcomePage() {
   const headings: Record<number, string> = {
     1: "When are you going?",
     2: "Where are you staying?",
-    3: "Here's a taste of what Rise can do.",
+    3: `What to do in ${destination}.`,
     4: "Tell us about yourself.",
     5: "Save your trip plan.",
   };
@@ -237,7 +233,7 @@ export default function WelcomePage() {
   const subs: Record<number, string> = {
     1: `Great choice. Now let's lock in the dates for ${destination}.`,
     2: "Your hotel helps us give you better transport and local advice.",
-    3: `Live AI restaurant picks for ${destination} — just for you.`,
+    3: "AI activity ideas tailored to your trip — before you commit to anything.",
     4: "A few quick questions so we can personalise your experience.",
     5: "Your personalised plan is ready. Create an account to save it.",
   };
@@ -344,7 +340,7 @@ export default function WelcomePage() {
               {previewLoading && !previewText && (
                 <div className="flex items-center gap-3 text-gray-400">
                   <div className="w-4 h-4 rounded-full border-2 border-[#00D64F] border-t-transparent animate-spin flex-shrink-0" />
-                  <span>Finding the best restaurants in {destination}…</span>
+                  <span>Planning your {destination} trip…</span>
                 </div>
               )}
               {previewText && (
@@ -410,7 +406,7 @@ export default function WelcomePage() {
           {step === 5 && (
             <div className="flex flex-col gap-6">
               <p className="text-gray-500 text-sm -mt-4">
-                Your personalised restaurant picks, transport advice, and trip summary are waiting. Create your account to save everything.
+                Your activity plan, transport advice, and trip summary are ready. Create your account to save everything.
               </p>
               <div>
                 <label className="block text-sm font-semibold text-gray-400 uppercase tracking-widest mb-3">
