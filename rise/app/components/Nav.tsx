@@ -31,6 +31,7 @@ const sections: NavSection[] = [
     links: [
       { href: "/admin", label: "AI Logs" },
       { href: "/team", label: "Team" },
+      { href: "/team?tab=ost", label: "Opportunity tree" },
     ],
   },
 ];
