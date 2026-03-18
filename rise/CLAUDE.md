@@ -35,6 +35,8 @@ Rise is an AI-powered trip planning app. It helps travellers plan trips day-by-d
 - **AI activity suggestions** (`/api/activities`) — POSTs destination to Claude, returns 20 categorised activities as JSON.
 - **Airport → Hotel transport** (`/transport`) — Streaming AI advice comparing public transport vs taxi for a given airport/hotel/city.
 - **Travel profile & restaurant recommendations** (`/profile`) — Collects traveller type, destination, dates, company, budget, dietary wishes. Streams personalised restaurant picks from Claude.
+- **User feedback** (`/feedback`) — Full-page form. Page field auto-filled with current URL (editable). Saves to `user_feedback` Supabase table. Confirmation screen after submit.
+- **Floating feedback button** — Fixed bottom-right on every page except `/welcome` and `/team*`. Opens a popup with textarea + send. Auto-captures current pathname. Shows "Thanks!" confirmation then closes.
 
 ### Local guide flows
 - **Browse guides** (`/guides`) — City search landing page.
@@ -49,11 +51,19 @@ Rise is an AI-powered trip planning app. It helps travellers plan trips day-by-d
 
 ### Admin
 - **AI Logs** (`/admin`) — Table of all Claude API calls with prompt, input, output, latency, token counts, and per-log rating/notes for evaluation.
+- **User feedback** (`/feedback-admin`) — All `user_feedback` entries ordered by most recent, with page URL, feedback text, and date.
+
+### Product team (`/team`) — four tabs
+- **Product team tab** — Multi-agent discussion: Sarah (PM) frames the problem, Alex/Maya/Luca respond in parallel, Sarah synthesises. Generates PRD. Sarah's memory persisted in `agent_memory` table. Saves to `team_conversations` (type=`"team"`).
+- **PM tab** — 1-on-1 conversation with Sarah (PM). Chat UI with streaming responses. On mount, fetches full CLAUDE.md content from `/api/rise-context` and injects it into the system prompt. Saves conversations to `team_conversations` (type=`"pm"`). Objectives panel below chat: manual text input + "Save objective" button stores agreed objectives to `objectives` table; each objective shows title, status badge (active/completed/paused), click badge to cycle status.
+- **Product coach tab** — 1-on-1 with a product coach (Claude Opus 4.6). Full conversation history maintained; saved to `team_conversations` (type=`"coach"`).
+- **Opportunity tree tab** — HTML5 canvas OST visualiser. Oval nodes, Bézier edges, hover glow, double-click to edit text, PNG download. AI generation from user feedback via non-streaming Claude call. Default example tree shown on load.
 
 ### Infrastructure
 - **Password protection** — Edge middleware (`middleware.ts`) redirects unauthenticated users to `/api/auth`. GET shows the form; POST sets an `httpOnly` cookie.
 - **AI logging** (`lib/ai-logger.ts`) — Wraps every Claude call; logs to Supabase `ai_logs` table.
 - **Shared Supabase client** (`lib/supabase.ts`) — Single client instance used everywhere.
+- **Rise context API** (`/api/rise-context`) — Server-side GET route that reads and returns `CLAUDE.md` as JSON using Node `fs`. Used by the PM tab to inject the full product context into the system prompt.
 
 ---
 
@@ -63,14 +73,17 @@ Rise is an AI-powered trip planning app. It helps travellers plan trips day-by-d
 rise/
 ├── app/
 │   ├── page.tsx                  # Homepage / marketing landing
-│   ├── layout.tsx                # Root layout — DM Sans font, Nav component
+│   ├── layout.tsx                # Root layout — DM Sans font, Nav, FeedbackButton
 │   ├── globals.css               # Dark CSS variables, fadeSlideUp animation, date picker fix
 │   ├── welcome/page.tsx          # 6-step onboarding wizard (step 0 = landing, steps 1–5 = wizard)
 │   ├── dashboard/page.tsx        # Trip summary dashboard
 │   ├── itinerary/page.tsx        # Day-view itinerary — drag/drop, dismiss, add items
 │   ├── profile/page.tsx          # Travel profile + restaurant recs
 │   ├── transport/page.tsx        # Airport → Hotel advice
+│   ├── feedback/page.tsx         # Full-page user feedback form
+│   ├── feedback-admin/page.tsx   # Admin view of all user_feedback entries
 │   ├── admin/page.tsx            # AI log viewer
+│   ├── team/page.tsx             # Product agents — Product team / PM / Coach / OST tabs
 │   ├── guides/
 │   │   ├── page.tsx              # City search
 │   │   ├── add/page.tsx          # Submit a tip
@@ -86,25 +99,75 @@ rise/
 │   │   ├── recommendations/route.ts  # POST: streaming restaurant recs
 │   │   ├── transport/route.ts    # POST: streaming transport advice
 │   │   ├── profile/route.ts      # POST: save profile to Supabase
+│   │   ├── feedback/route.ts     # POST: save user_feedback  GET: last 10 entries
+│   │   ├── rise-context/route.ts # GET: returns CLAUDE.md content as JSON
 │   │   ├── guides/
 │   │   │   ├── route.ts          # GET: tips by city  POST: add tip + award points
 │   │   │   └── leaderboard/route.ts  # GET: top 10 guides
 │   │   ├── tips/[id]/
 │   │   │   ├── view/route.ts     # POST: increment view count, award milestone points
 │   │   │   └── rate/route.ts     # POST: rate a tip, award guide points
+│   │   ├── team/
+│   │   │   └── chat/route.ts     # POST: non-streaming Claude call for product agents
 │   │   └── admin/logs/
 │   │       ├── route.ts          # GET: all AI logs
 │   │       └── [id]/route.ts     # PATCH: update rating/notes
 │   └── components/
 │       ├── Nav.tsx               # Sticky top nav with dropdowns + mobile hamburger
+│       ├── FeedbackButton.tsx    # Floating feedback button (hidden on /welcome and /team*)
 │       └── PlacesAutocomplete.tsx  # Google Places (New API) autocomplete input
 ├── lib/
 │   ├── supabase.ts               # Shared Supabase client — always import from here
 │   ├── ai-logger.ts              # Claude call wrapper with Supabase logging
 │   └── guides.ts                 # Shared types (Guide, Tip, Level) and helpers (getLevel, LEVEL_BADGE)
 ├── middleware.ts                 # Edge middleware — password protection
-├── proxy.ts                      # Legacy (unused) — can be deleted
 └── CLAUDE.md                     # This file
+```
+
+---
+
+## Supabase Tables
+
+| Table | Purpose |
+|---|---|
+| `travelers` | Onboarding data — destination, dates, hotel, activities, account |
+| `guides` | Local guide profiles — email, name, points |
+| `tips` | Guide tips — city, content, view count, guide_id |
+| `tip_ratings` | One row per rating event — tip_id, value |
+| `ai_logs` | Every Claude API call — prompt, input, output, latency, tokens, rating, notes |
+| `team_conversations` | Product agent conversations — type (`team`/`coach`/`pm`), title, messages JSON, prd |
+| `agent_memory` | Sarah's rolling memory of past product discussions — id=`"sarah"`, content |
+| `prd_feedback` | Feedback on generated PRDs — conversation_id, feedback text |
+| `objectives` | PM 1-on-1 agreed objectives — title, status (`active`/`completed`/`paused`) |
+| `user_feedback` | Floating button + /feedback form submissions — page URL, feedback text |
+
+**Required SQL for `objectives` table** (run in Supabase dashboard if not yet created):
+```sql
+create table objectives (
+  id uuid primary key default gen_random_uuid(),
+  title text not null,
+  status text not null default 'active',
+  created_at timestamptz default now()
+);
+```
+
+**Required SQL for `user_feedback` table:**
+```sql
+create table user_feedback (
+  id uuid primary key default gen_random_uuid(),
+  page text not null,
+  feedback text not null,
+  created_at timestamptz default now()
+);
+```
+
+**Required SQL for `team_conversations` type constraint** (add `pm` if constraint exists):
+```sql
+alter table team_conversations
+  drop constraint if exists team_conversations_type_check;
+alter table team_conversations
+  add constraint team_conversations_type_check
+  check (type in ('team', 'coach', 'pm'));
 ```
 
 ---
@@ -132,6 +195,17 @@ rise/
 - Always wrap Claude calls with `logAiInteraction` from `lib/ai-logger.ts` so every interaction is logged to `/admin`.
 - When Claude returns JSON, strip markdown code fences before parsing: `.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim()`
 - Set `max_tokens` generously for structured JSON responses — truncated JSON causes parse failures. Use 8000+ for multi-day itineraries.
+- JSON parse fallback: if primary parse fails, try extracting between `indexOf("{")` and `lastIndexOf("}")` before giving up.
+
+### Supabase error logging
+Supabase `PostgrestError` properties are non-enumerable — `console.error(error)` prints `{}`. Use the `dbErr()` helper in `app/team/page.tsx` to extract `.message`, `.code`, `.details`, `.hint`:
+```ts
+function dbErr(err: unknown): string {
+  if (!err || typeof err !== "object") return String(err);
+  const e = err as Record<string, unknown>;
+  return [e.message, e.code, e.details, e.hint].filter(Boolean).join(" | ") || JSON.stringify(err);
+}
+```
 
 ### PlacesAutocomplete
 - `hasTypedRef` — prevents the dropdown from opening on mount when a pre-filled value is passed in. Only flips `true` on the input's own `onChange`.
@@ -148,6 +222,11 @@ rise/
 - Use `next/link` (`Link`) for internal navigation, not `<a href>`.
 - Step animations: `key={animKey}` on the container + `animate-step` CSS class triggers `fadeSlideUp` keyframe defined in `globals.css`.
 - Use `AbortController` + `signal` for streaming fetch calls inside `useEffect` so the stream is cancelled cleanly on unmount or dependency change.
+
+### Canvas (OST visualiser)
+- Two-effect pattern: Effect 1 resizes canvas on tree change (expensive — avoids running on hover). Effect 2 redraws on tree or hoveredId change using stored layout refs.
+- Use `devicePixelRatio` for sharp rendering: set `canvas.width/height` in physical pixels, then `ctx.setTransform(dpr, 0, 0, dpr, 0, 0)`.
+- Hit-testing uses ellipse equation: `((px-cx)/(w/2))² + ((py-cy)/(h/2))² ≤ 1`.
 
 ### localStorage keys
 | Key | Contents |
