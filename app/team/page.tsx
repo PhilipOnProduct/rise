@@ -26,6 +26,13 @@ type ConversationRow = {
   created_at: string;
 };
 
+type PrdFeedback = {
+  id: string;
+  conversation_id: string;
+  feedback: string;
+  created_at: string;
+};
+
 // ── Constants ──────────────────────────────────────────────────────────────────
 
 const RISE_CONTEXT =
@@ -185,6 +192,23 @@ async function saveSarahMemory(content: string): Promise<void> {
   if (error) console.error("[memory] save error", error);
 }
 
+async function savePrdFeedback(conversationId: string, feedback: string): Promise<void> {
+  const { error } = await supabase
+    .from("prd_feedback")
+    .insert({ conversation_id: conversationId, feedback });
+  if (error) console.error("[feedback] save error", error);
+}
+
+async function loadPrdFeedback(conversationId: string): Promise<PrdFeedback[]> {
+  const { data, error } = await supabase
+    .from("prd_feedback")
+    .select("id, conversation_id, feedback, created_at")
+    .eq("conversation_id", conversationId)
+    .order("created_at", { ascending: true });
+  if (error) { console.error("[feedback] load error", error); return []; }
+  return data as PrdFeedback[];
+}
+
 // ── Download PRD ───────────────────────────────────────────────────────────────
 
 async function fetchPrdSlug(problem: string, prdContent: string): Promise<string> {
@@ -332,17 +356,40 @@ function PastConversations({
   const [open, setOpen] = useState(false);
   const [rows, setRows] = useState<ConversationRow[]>([]);
   const [loading, setLoading] = useState(false);
+  // Feedback state (team only)
+  const [feedbackMap, setFeedbackMap] = useState<Record<string, string[]>>({});
+  const [draftMap, setDraftMap] = useState<Record<string, string>>({});
+  const [openFeedbackId, setOpenFeedbackId] = useState<string | null>(null);
+  const [savingId, setSavingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     const data = await loadConversations(type);
     setRows(data);
+    if (type === "team") {
+      const prdRows = data.filter((r) => r.prd);
+      const results = await Promise.all(prdRows.map((r) => loadPrdFeedback(r.id)));
+      const map: Record<string, string[]> = {};
+      prdRows.forEach((r, i) => { map[r.id] = results[i].map((f) => f.feedback); });
+      setFeedbackMap(map);
+    }
     setLoading(false);
   }, [type]);
 
   useEffect(() => {
     if (open) load();
   }, [open, load]);
+
+  async function handleSaveFeedback(rowId: string) {
+    const text = (draftMap[rowId] ?? "").trim();
+    if (!text) return;
+    setSavingId(rowId);
+    await savePrdFeedback(rowId, text);
+    setFeedbackMap((prev) => ({ ...prev, [rowId]: [...(prev[rowId] ?? []), text] }));
+    setDraftMap((prev) => ({ ...prev, [rowId]: "" }));
+    setOpenFeedbackId(null);
+    setSavingId(null);
+  }
 
   if (!open) {
     return (
@@ -368,20 +415,82 @@ function PastConversations({
         <p className="text-xs text-gray-600 py-2">No past conversations yet.</p>
       )}
       {!loading && rows.length > 0 && (
-        <div className="flex flex-col gap-0.5">
-          {rows.map((row) => (
-            <button
-              key={row.id}
-              onClick={() => { onLoad(row); setOpen(false); }}
-              className="text-left px-3 py-2.5 rounded-xl hover:bg-[#1a1a1a] transition-colors group"
-            >
-              <p className="text-sm text-gray-300 group-hover:text-white truncate">{row.title}</p>
-              <p className="text-xs text-gray-600 mt-0.5">
-                {new Date(row.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
-                {row.prd && <span className="ml-2 text-[#00D64F]">· PRD</span>}
-              </p>
-            </button>
-          ))}
+        <div className="flex flex-col gap-1">
+          {rows.map((row) => {
+            const hasPrd = type === "team" && !!row.prd;
+            const existingFeedback = feedbackMap[row.id] ?? [];
+            const isOpenFeedback = openFeedbackId === row.id;
+            const draft = draftMap[row.id] ?? "";
+
+            return (
+              <div key={row.id}>
+                {/* Title row — click to load */}
+                <button
+                  onClick={() => { onLoad(row); setOpen(false); }}
+                  className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-[#1a1a1a] transition-colors group"
+                >
+                  <p className="text-sm text-gray-300 group-hover:text-white truncate">{row.title}</p>
+                  <p className="text-xs text-gray-600 mt-0.5">
+                    {new Date(row.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                    {hasPrd && <span className="ml-2 text-[#00D64F]">· PRD</span>}
+                  </p>
+                </button>
+
+                {/* Feedback section — team rows with PRD only */}
+                {hasPrd && (
+                  <div className="px-3 pb-3">
+                    {/* Existing feedback items */}
+                    {existingFeedback.length > 0 && (
+                      <div className="flex flex-col gap-2 mb-2">
+                        {existingFeedback.map((fb, i) => (
+                          <div key={i} className="border-l-2 border-[#00D64F] pl-3 py-0.5">
+                            <p className="text-xs font-semibold text-gray-600 uppercase tracking-widest mb-1">Your feedback</p>
+                            <p className="text-xs text-gray-400 leading-relaxed whitespace-pre-wrap">{fb}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Feedback form or trigger */}
+                    {isOpenFeedback ? (
+                      <div className="flex flex-col gap-2 mt-1">
+                        <textarea
+                          rows={3}
+                          autoFocus
+                          value={draft}
+                          onChange={(e) => setDraftMap((prev) => ({ ...prev, [row.id]: e.target.value }))}
+                          placeholder="What would you improve or change about this PRD?"
+                          className="w-full bg-[#0a0a0a] border border-[#2a2a2a] focus:border-[#00D64F] outline-none rounded-xl px-4 py-3 text-white placeholder-[#444] transition-colors text-xs resize-none"
+                        />
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleSaveFeedback(row.id)}
+                            disabled={!draft.trim() || savingId === row.id}
+                            className="text-xs font-semibold bg-[#00D64F] text-black rounded-xl px-4 py-2 hover:bg-[#00c248] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            {savingId === row.id ? "Saving…" : "Save feedback"}
+                          </button>
+                          <button
+                            onClick={() => { setOpenFeedbackId(null); setDraftMap((prev) => ({ ...prev, [row.id]: "" })); }}
+                            className="text-xs text-gray-600 hover:text-gray-300 transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setOpenFeedbackId(row.id)}
+                        className="text-xs text-gray-600 hover:text-[#00D64F] transition-colors"
+                      >
+                        + Add feedback
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

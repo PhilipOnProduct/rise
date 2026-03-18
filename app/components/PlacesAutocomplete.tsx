@@ -58,6 +58,9 @@ export default function PlacesAutocomplete({
   const [ready, setReady] = useState(false);
   const tokenRef = useRef<google.maps.places.AutocompleteSessionToken | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Only show suggestions after the user has actively typed — prevents the
+  // dropdown from opening immediately when a pre-filled value is passed in.
+  const hasTypedRef = useRef(false);
 
   useEffect(() => {
     ensureMapsLoaded()
@@ -71,7 +74,7 @@ export default function PlacesAutocomplete({
   }, []);
 
   useEffect(() => {
-    if (!ready || value.trim().length < 2) {
+    if (!ready || !hasTypedRef.current || value.trim().length < 2) {
       setSuggestions([]);
       setOpen(false);
       return;
@@ -167,7 +170,7 @@ export default function PlacesAutocomplete({
       <input
         type="text"
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => { hasTypedRef.current = true; onChange(e.target.value); }}
         onKeyDown={handleKeyDown}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
         placeholder={placeholder}
