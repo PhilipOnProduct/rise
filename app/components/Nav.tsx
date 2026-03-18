@@ -33,6 +33,7 @@ const sections: NavSection[] = [
       { href: "/admin", label: "AI Logs" },
       { href: "/team", label: "Team" },
       { href: "/team?tab=ost", label: "Opportunity tree" },
+      { href: "/feedback-admin", label: "Feedback" },
     ],
   },
 ];
@@ -40,7 +41,7 @@ const sections: NavSection[] = [
 function getActiveSection(pathname: string): string | null {
   if (pathname.startsWith("/dashboard") || pathname.startsWith("/transport") || pathname.startsWith("/welcome") || pathname.startsWith("/profile") || pathname.startsWith("/feedback")) return "Traveller";
   if (pathname.startsWith("/guides") || pathname.startsWith("/guides/add") || pathname.startsWith("/guides/leaderboard")) return "Local Guide";
-  if (pathname.startsWith("/admin") || pathname.startsWith("/team")) return "Admin";
+  if (pathname.startsWith("/admin") || pathname.startsWith("/team") || pathname.startsWith("/feedback-admin")) return "Admin";
   return null;
 }
 

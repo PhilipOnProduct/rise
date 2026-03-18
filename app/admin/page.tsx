@@ -2,13 +2,6 @@
 
 import { useEffect, useState } from "react";
 
-type FeedbackEntry = {
-  id: string;
-  page: string;
-  feedback: string;
-  created_at: string;
-};
-
 type Log = {
   id: string;
   feature: string;
@@ -46,15 +39,11 @@ export default function AdminPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [pendingNotes, setPendingNotes] = useState<Record<string, string>>({});
   const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
-  const [feedbackEntries, setFeedbackEntries] = useState<FeedbackEntry[]>([]);
 
   useEffect(() => {
     fetch("/api/admin/logs")
       .then((r) => r.json())
       .then((data) => { setLogs(data); setLoading(false); });
-    fetch("/api/feedback")
-      .then((r) => r.json())
-      .then((data) => { if (Array.isArray(data)) setFeedbackEntries(data); });
   }, []);
 
   async function updateLog(id: string, patch: Partial<Pick<Log, "rating" | "notes">>) {
@@ -202,30 +191,6 @@ export default function AdminPage() {
               </div>
             );
           })}
-        </div>
-
-        {/* Recent feedback */}
-        <div className="mt-16">
-          <div className="mb-6">
-            <h2 className="text-2xl font-extrabold tracking-tight">Recent feedback</h2>
-            <p className="text-gray-500 mt-1">{feedbackEntries.length} entries</p>
-          </div>
-
-          {feedbackEntries.length === 0 ? (
-            <p className="text-gray-600 text-sm">No feedback yet.</p>
-          ) : (
-            <div className="flex flex-col gap-3">
-              {feedbackEntries.map((entry) => (
-                <div key={entry.id} className="bg-[#111] border border-[#1e1e1e] rounded-2xl px-5 py-4">
-                  <div className="flex items-start justify-between gap-4 mb-2">
-                    <span className="text-xs font-mono text-[#00D64F]/70 truncate">{entry.page}</span>
-                    <span className="shrink-0 text-xs text-gray-600">{formatDate(entry.created_at)}</span>
-                  </div>
-                  <p className="text-sm text-gray-300 whitespace-pre-wrap">{entry.feedback}</p>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
 
       </div>
