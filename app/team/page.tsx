@@ -33,6 +33,200 @@ type PrdFeedback = {
   created_at: string;
 };
 
+// ── OST Types ──────────────────────────────────────────────────────────────────
+
+type OSTAssumption = { id: string; text: string };
+type OSTSolution = { id: string; text: string; assumptions: OSTAssumption[] };
+type OSTSubOpportunity = { id: string; text: string; solutions: OSTSolution[] };
+type OSTOpportunity = { id: string; text: string; sub_opportunities: OSTSubOpportunity[]; solutions: OSTSolution[] };
+type OSTTree = { outcome: string; opportunities: OSTOpportunity[] };
+
+type LayoutNode = {
+  id: string;
+  text: string;
+  kind: "outcome" | "opportunity" | "solution" | "assumption";
+  children: LayoutNode[];
+  x: number;
+  y: number;
+  subtreeW: number;
+};
+
+// ── OST Constants ──────────────────────────────────────────────────────────────
+
+const OST_W = 130, OST_H = 46, OST_VGAP = 68, OST_HGAP = 18, OST_PAD = 40;
+
+const OST_COLORS: Record<LayoutNode["kind"], { fill: string; stroke: string; text: string }> = {
+  outcome:     { fill: "#00D64F", stroke: "#00b340", text: "#000000" },
+  opportunity: { fill: "#1a6b3c", stroke: "#00D64F", text: "#ffffff" },
+  solution:    { fill: "#1e1e1e", stroke: "#444444", text: "#cccccc" },
+  assumption:  { fill: "#2a1a00", stroke: "#7a5000", text: "#ffb84d" },
+};
+
+const OST_SYSTEM =
+  "You are a product researcher building an Opportunity Solution Tree for Rise, a travel concierge app. " +
+  "Rise: onboarding wizard, AI activity suggestions, airport-hotel transport, local guides with points, day-view itinerary. " +
+  "Business model: commission on bookings. Early MVP. " +
+  "Return ONLY valid JSON, no markdown: " +
+  "{\"outcome\":\"...\",\"opportunities\":[{\"id\":\"opp1\",\"text\":\"...\",\"sub_opportunities\":[{\"id\":\"sub1\",\"text\":\"...\",\"solutions\":[{\"id\":\"sol1\",\"text\":\"...\",\"assumptions\":[{\"id\":\"ass1\",\"text\":\"...\"}]}]}],\"solutions\":[{\"id\":\"sol2\",\"text\":\"...\",\"assumptions\":[]}]}]}. " +
+  "Max 8 words per node. Opportunities are unmet user needs, not features. Max 3 top-level opportunities. Max 2 sub-opportunities each. Max 2 solutions per opportunity.";
+
+const OST_DEFAULT: OSTTree = {
+  outcome: "Increase traveler engagement and bookings",
+  opportunities: [
+    {
+      id: "opp1", text: "Users lack trip structure after onboarding",
+      sub_opportunities: [
+        {
+          id: "sub1", text: "No clear next step post-wizard",
+          solutions: [
+            { id: "sol1", text: "Day-view itinerary on dashboard", assumptions: [{ id: "ass1", text: "Users want structured plans" }] },
+          ],
+        },
+      ],
+      solutions: [
+        { id: "sol2", text: "AI pre-populates itinerary on load", assumptions: [{ id: "ass2", text: "AI suggestions are accurate enough" }] },
+      ],
+    },
+    {
+      id: "opp2", text: "Local tips feel disconnected from trip",
+      sub_opportunities: [
+        {
+          id: "sub2", text: "Tips not tied to travel dates",
+          solutions: [
+            { id: "sol3", text: "Add tips to itinerary time slots", assumptions: [{ id: "ass3", text: "Guides update tips regularly" }] },
+          ],
+        },
+      ],
+      solutions: [],
+    },
+    {
+      id: "opp3", text: "Users lose momentum post-onboarding",
+      sub_opportunities: [],
+      solutions: [
+        { id: "sol4", text: "Push notifications for trip milestones", assumptions: [{ id: "ass4", text: "Users allow notifications" }] },
+        { id: "sol5", text: "Email drip with local tips", assumptions: [] },
+      ],
+    },
+  ],
+};
+
+// ── OST Layout & Drawing helpers ───────────────────────────────────────────────
+
+function ostBuild(tree: OSTTree): LayoutNode {
+  const makeSol = (s: OSTSolution): LayoutNode => ({
+    id: s.id, text: s.text, kind: "solution",
+    children: s.assumptions.map(a => ({ id: a.id, text: a.text, kind: "assumption" as const, children: [], x: 0, y: 0, subtreeW: 0 })),
+    x: 0, y: 0, subtreeW: 0,
+  });
+  return {
+    id: "outcome", text: tree.outcome, kind: "outcome",
+    children: tree.opportunities.map(opp => ({
+      id: opp.id, text: opp.text, kind: "opportunity" as const,
+      children: [
+        ...opp.sub_opportunities.map(sub => ({
+          id: sub.id, text: sub.text, kind: "opportunity" as const,
+          children: sub.solutions.map(makeSol),
+          x: 0, y: 0, subtreeW: 0,
+        })),
+        ...opp.solutions.map(makeSol),
+      ],
+      x: 0, y: 0, subtreeW: 0,
+    })),
+    x: 0, y: 0, subtreeW: 0,
+  };
+}
+
+function ostComputeWidth(n: LayoutNode): void {
+  n.children.forEach(ostComputeWidth);
+  const total = n.children.reduce((s, c) => s + c.subtreeW, 0);
+  n.subtreeW = Math.max(OST_W + OST_HGAP, total);
+}
+
+function ostMaxDepth(n: LayoutNode): number {
+  return n.children.length ? 1 + Math.max(...n.children.map(ostMaxDepth)) : 1;
+}
+
+function ostAssignPos(n: LayoutNode, left: number, depth = 0): void {
+  n.y = OST_PAD + depth * (OST_H + OST_VGAP) + OST_H / 2;
+  n.x = left + n.subtreeW / 2;
+  let cl = left;
+  for (const c of n.children) { ostAssignPos(c, cl, depth + 1); cl += c.subtreeW; }
+}
+
+function ostFind(n: LayoutNode, px: number, py: number): LayoutNode | null {
+  if (((px - n.x) / (OST_W / 2)) ** 2 + ((py - n.y) / (OST_H / 2)) ** 2 <= 1) return n;
+  for (const c of n.children) { const f = ostFind(c, px, py); if (f) return f; }
+  return null;
+}
+
+function ostWrap(ctx: CanvasRenderingContext2D, text: string, cx: number, cy: number) {
+  const maxW = OST_W - 18, lineH = 13;
+  const words = text.split(" ");
+  const lines: string[] = [];
+  let cur = "";
+  for (const w of words) {
+    const t = cur ? `${cur} ${w}` : w;
+    if (ctx.measureText(t).width > maxW && cur) { lines.push(cur); cur = w; } else cur = t;
+  }
+  if (cur) lines.push(cur);
+  const totalH = (lines.length - 1) * lineH;
+  lines.forEach((l, i) => ctx.fillText(l, cx, cy - totalH / 2 + i * lineH));
+}
+
+function ostDrawNode(ctx: CanvasRenderingContext2D, n: LayoutNode, hovered: boolean) {
+  const c = OST_COLORS[n.kind];
+  ctx.save();
+  if (hovered) { ctx.shadowColor = "#00D64F"; ctx.shadowBlur = 14; }
+  ctx.beginPath();
+  ctx.ellipse(n.x, n.y, OST_W / 2, OST_H / 2, 0, 0, Math.PI * 2);
+  ctx.fillStyle = c.fill;
+  ctx.fill();
+  ctx.strokeStyle = hovered ? "#00D64F" : c.stroke;
+  ctx.lineWidth = hovered ? 2.5 : 1.5;
+  ctx.stroke();
+  ctx.restore();
+  ctx.fillStyle = c.text;
+  ctx.font = "bold 10px 'DM Sans', Arial, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ostWrap(ctx, n.text, n.x, n.y);
+}
+
+function ostDrawEdge(ctx: CanvasRenderingContext2D, p: LayoutNode, c: LayoutNode) {
+  const py = p.y + OST_H / 2, cy = c.y - OST_H / 2, my = (py + cy) / 2;
+  ctx.beginPath();
+  ctx.moveTo(p.x, py);
+  ctx.bezierCurveTo(p.x, my, c.x, my, c.x, cy);
+  ctx.strokeStyle = "#333333";
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+}
+
+function ostDraw(ctx: CanvasRenderingContext2D, root: LayoutNode, hovId: string | null) {
+  const edges = (n: LayoutNode) => { n.children.forEach(c => { ostDrawEdge(ctx, n, c); edges(c); }); };
+  const nodes = (n: LayoutNode) => { ostDrawNode(ctx, n, n.id === hovId); n.children.forEach(nodes); };
+  edges(root);
+  nodes(root);
+}
+
+function ostUpdateText(tree: OSTTree, id: string, text: string): OSTTree {
+  if (id === "outcome") return { ...tree, outcome: text };
+  const updateSols = (sols: OSTSolution[]): OSTSolution[] =>
+    sols.map(s => s.id === id ? { ...s, text } : { ...s, assumptions: s.assumptions.map(a => a.id === id ? { ...a, text } : a) });
+  return {
+    ...tree,
+    opportunities: tree.opportunities.map(opp =>
+      opp.id === id ? { ...opp, text } : {
+        ...opp,
+        sub_opportunities: opp.sub_opportunities.map(sub =>
+          sub.id === id ? { ...sub, text } : { ...sub, solutions: updateSols(sub.solutions) }
+        ),
+        solutions: updateSols(opp.solutions),
+      }
+    ),
+  };
+}
+
 // ── Constants ──────────────────────────────────────────────────────────────────
 
 const RISE_CONTEXT =
@@ -996,14 +1190,201 @@ function ProductCoachTab() {
   );
 }
 
+// ── Opportunity Solution Tree Tab ──────────────────────────────────────────────
+
+function OSTTab() {
+  const [tree, setTree] = useState<OSTTree>(OST_DEFAULT);
+  const [feedback, setFeedback] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [status, setStatus] = useState("Showing example tree — paste user feedback to generate.");
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const layoutRef = useRef<LayoutNode | null>(null);
+  const sizeRef = useRef<{ w: number; h: number; dpr: number } | null>(null);
+
+  // Recompute layout + resize canvas when tree changes
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const root = ostBuild(tree);
+    ostComputeWidth(root);
+    ostAssignPos(root, OST_PAD);
+    const depth = ostMaxDepth(root);
+    const w = root.subtreeW + OST_PAD * 2;
+    const h = depth * (OST_H + OST_VGAP) + OST_PAD * 2;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+    canvas.style.width = `${w}px`;
+    canvas.style.height = `${h}px`;
+    layoutRef.current = root;
+    sizeRef.current = { w, h, dpr };
+  }, [tree]);
+
+  // Redraw on tree or hoveredId change
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const root = layoutRef.current;
+    const size = sizeRef.current;
+    if (!canvas || !root || !size) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.setTransform(size.dpr, 0, 0, size.dpr, 0, 0);
+    ctx.fillStyle = "#0a0a0a";
+    ctx.fillRect(0, 0, size.w, size.h);
+    ostDraw(ctx, root, hoveredId);
+  }, [tree, hoveredId]);
+
+  function handleMouseMove(e: React.MouseEvent<HTMLCanvasElement>) {
+    const canvas = canvasRef.current;
+    const root = layoutRef.current;
+    if (!canvas || !root) return;
+    const rect = canvas.getBoundingClientRect();
+    const node = ostFind(root, e.clientX - rect.left, e.clientY - rect.top);
+    const id = node?.id ?? null;
+    if (id !== hoveredId) {
+      setHoveredId(id);
+      canvas.style.cursor = id ? "pointer" : "default";
+    }
+  }
+
+  function handleMouseLeave() {
+    setHoveredId(null);
+    if (canvasRef.current) canvasRef.current.style.cursor = "default";
+  }
+
+  function handleDblClick(e: React.MouseEvent<HTMLCanvasElement>) {
+    const canvas = canvasRef.current;
+    const root = layoutRef.current;
+    if (!canvas || !root) return;
+    const rect = canvas.getBoundingClientRect();
+    const node = ostFind(root, e.clientX - rect.left, e.clientY - rect.top);
+    if (!node) return;
+    const newText = window.prompt("Edit node text:", node.text);
+    if (newText?.trim()) setTree(prev => ostUpdateText(prev, node.id, newText.trim()));
+  }
+
+  async function generate() {
+    if (!feedback.trim() || generating) return;
+    setGenerating(true);
+    setStatus("Generating opportunity tree…");
+    try {
+      let raw = "";
+      await streamChat(
+        TEAM_MODEL, OST_SYSTEM,
+        [{ role: "user", content: feedback }],
+        1024,
+        (chunk) => { raw += chunk; }
+      );
+      const jsonStr = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+      setTree(JSON.parse(jsonStr));
+      setStatus("Tree generated — double-click any node to edit.");
+    } catch (err) {
+      console.error("[ost generate]", err);
+      setStatus("Generation failed — showing example tree.");
+      setTree(OST_DEFAULT);
+    }
+    setGenerating(false);
+  }
+
+  function downloadPng() {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const url = canvas.toDataURL("image/png");
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "opportunity-solution-tree.png";
+    a.click();
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-base font-bold text-white">Opportunity solution tree</h2>
+        <button
+          onClick={downloadPng}
+          className="rounded-xl border border-[#2a2a2a] text-gray-300 hover:text-white hover:border-[#444] font-semibold px-4 py-2 transition-colors text-sm"
+        >
+          Download PNG ↓
+        </button>
+      </div>
+
+      {/* Legend */}
+      <div className="flex flex-wrap gap-5">
+        {(
+          [
+            { label: "Outcome",     fill: "#00D64F", border: "#00b340" },
+            { label: "Opportunity", fill: "#1a6b3c", border: "#00D64F" },
+            { label: "Solution",    fill: "#1e1e1e", border: "#444444" },
+            { label: "Assumption",  fill: "#2a1a00", border: "#7a5000" },
+          ] as const
+        ).map(({ label, fill, border }) => (
+          <div key={label} className="flex items-center gap-2">
+            <div
+              className="w-4 h-4 rounded-full flex-shrink-0"
+              style={{ background: fill, border: `1.5px solid ${border}` }}
+            />
+            <span className="text-xs text-gray-400">{label}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Input */}
+      <div className="flex flex-col gap-3">
+        <label className="text-xs font-bold text-gray-500 uppercase tracking-widest">
+          Paste user feedback or research
+        </label>
+        <textarea
+          rows={4}
+          value={feedback}
+          onChange={(e) => setFeedback(e.target.value)}
+          placeholder="e.g. 'Users feel lost after onboarding. They don't know what to do next. Several mentioned wanting a plan for each day…'"
+          className="w-full bg-[#111] border border-[#2a2a2a] focus:border-[#00D64F] outline-none rounded-xl px-5 py-4 text-white placeholder-[#444] transition-colors text-sm resize-none"
+        />
+        <div className="flex items-center gap-3">
+          <button
+            onClick={generate}
+            disabled={!feedback.trim() || generating}
+            className="rounded-2xl bg-[#00D64F] text-black font-bold px-8 py-4 hover:bg-[#00c248] transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm"
+          >
+            {generating ? "Generating…" : "Generate OST →"}
+          </button>
+        </div>
+        <p className="text-xs text-gray-600">{status}</p>
+      </div>
+
+      {/* Canvas */}
+      <div className="overflow-x-auto rounded-2xl border border-[#1e1e1e] bg-[#0a0a0a]">
+        <canvas
+          ref={canvasRef}
+          onMouseMove={handleMouseMove}
+          onMouseLeave={handleMouseLeave}
+          onDoubleClick={handleDblClick}
+        />
+      </div>
+
+    </div>
+  );
+}
+
 // ── Page ───────────────────────────────────────────────────────────────────────
 
 export default function TeamPage() {
-  const [activeTab, setActiveTab] = useState<"team" | "coach">("team");
+  const [activeTab, setActiveTab] = useState<"team" | "coach" | "ost">("team");
+
+  // Pre-select tab from ?tab= query param
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get("tab");
+    if (tab === "ost" || tab === "coach" || tab === "team") setActiveTab(tab);
+  }, []);
 
   const tabs = [
     { id: "team" as const, label: "Product team" },
     { id: "coach" as const, label: "Product coach" },
+    { id: "ost" as const, label: "Opportunity tree" },
   ];
 
   return (
@@ -1032,7 +1413,9 @@ export default function TeamPage() {
           ))}
         </div>
 
-        {activeTab === "team" ? <ProductTeamTab /> : <ProductCoachTab />}
+        {activeTab === "team" && <ProductTeamTab />}
+        {activeTab === "coach" && <ProductCoachTab />}
+        {activeTab === "ost" && <OSTTab />}
 
       </div>
     </main>
