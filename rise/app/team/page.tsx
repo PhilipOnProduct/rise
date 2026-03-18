@@ -429,6 +429,24 @@ async function updateObjectiveStatus(id: string, status: ObjectiveStatus): Promi
   if (error) console.error("[objectives] update error", dbErr(error));
 }
 
+async function loadLatestOstSnapshot(): Promise<OSTTree | null> {
+  const { data, error } = await supabase
+    .from("ost_snapshots")
+    .select("tree")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .single();
+  if (error || !data) return null;
+  return data.tree as OSTTree;
+}
+
+async function saveOstSnapshot(tree: OSTTree, objectiveId: string): Promise<void> {
+  const { error } = await supabase
+    .from("ost_snapshots")
+    .insert({ tree, objective_id: objectiveId });
+  if (error) console.error("[ost_snapshots] save error", dbErr(error));
+}
+
 async function loadConversations(type: "team" | "coach"): Promise<ConversationRow[]> {
   const { data, error } = await supabase
     .from("team_conversations")
@@ -1286,6 +1304,7 @@ function PMTab() {
   const [savingObj, setSavingObj] = useState(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [riseContext, setRiseContext] = useState("");
+  const [ostNotification, setOstNotification] = useState("");
   const conversationIdRef = useRef<string | null>(null);
   const lastUserMessageRef = useRef<string>("");
   const endRef = useRef<HTMLDivElement>(null);
@@ -1359,6 +1378,66 @@ function PMTab() {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
   }
 
+  async function updateOstFromObjective(title: string, objectiveId: string) {
+    try {
+      // 1. Fetch last 10 feedback entries
+      const feedbackRes = await fetch("/api/feedback");
+      const feedbackData = await feedbackRes.json();
+      const feedbackText = Array.isArray(feedbackData)
+        ? feedbackData.map((f: { page: string; feedback: string }) => `- [${f.page}] ${f.feedback}`).join("\n")
+        : "(no feedback available)";
+
+      // 2. Get current OST
+      const currentOst = await loadLatestOstSnapshot() ?? OST_DEFAULT;
+
+      // 3. Ask Claude to update the OST
+      const prompt = `You are updating an Opportunity Solution Tree (OST) for a product team.
+
+New objective just saved: "${title}"
+
+Recent user feedback:
+${feedbackText}
+
+Current OST (JSON):
+${JSON.stringify(currentOst, null, 2)}
+
+Update the OST to reflect the new objective and any relevant insights from the feedback. Return ONLY valid JSON matching the OSTTree structure (outcome string, opportunities array with label/sub array with label/solutions array with label/assumptions array with label). No markdown, no explanation.`;
+
+      const res = await fetch("/api/team/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-6",
+          system: "You are a product strategy assistant. Return only valid JSON.",
+          messages: [{ role: "user", content: prompt }],
+          max_tokens: 4000,
+        }),
+      });
+
+      if (!res.ok) return;
+      const raw: string = await res.json();
+      let updated: OSTTree | null = null;
+      try {
+        const clean = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+        updated = JSON.parse(clean);
+      } catch {
+        const start = raw.indexOf("{");
+        const end = raw.lastIndexOf("}");
+        if (start !== -1 && end !== -1) {
+          try { updated = JSON.parse(raw.slice(start, end + 1)); } catch { /* give up */ }
+        }
+      }
+
+      if (updated) {
+        await saveOstSnapshot(updated, objectiveId);
+        setOstNotification("OST updated based on new objective");
+        setTimeout(() => setOstNotification(""), 5000);
+      }
+    } catch (err) {
+      console.error("[ost] update error", err);
+    }
+  }
+
   async function handleSaveObjective() {
     const title = objInput.trim();
     if (!title) return;
@@ -1367,6 +1446,8 @@ function PMTab() {
     if (obj) {
       setObjectives((prev) => [obj, ...prev]);
       setObjInput("");
+      // Fire-and-forget OST update
+      updateOstFromObjective(title, obj.id);
     }
     setSavingObj(false);
   }
@@ -1480,6 +1561,13 @@ function PMTab() {
           <p className="text-xs text-gray-600">Objectives you and Sarah have agreed on. Click a status badge to cycle it.</p>
         </div>
 
+        {ostNotification && (
+          <div className="flex items-center gap-2 bg-[#00D64F]/10 border border-[#00D64F]/25 rounded-xl px-4 py-2.5">
+            <span className="text-xs text-[#00D64F]">✓</span>
+            <p className="text-xs text-[#00D64F]">{ostNotification}</p>
+          </div>
+        )}
+
         {/* Save input */}
         <div className="flex gap-3 items-end">
           <input
@@ -1540,6 +1628,16 @@ function OSTTab() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const layoutRef = useRef<LayoutNode | null>(null);
   const sizeRef = useRef<{ w: number; h: number; dpr: number } | null>(null);
+
+  // Load latest OST snapshot on mount
+  useEffect(() => {
+    loadLatestOstSnapshot().then((snapshot) => {
+      if (snapshot) {
+        setTree(snapshot);
+        setStatus("Loaded latest OST snapshot.");
+      }
+    });
+  }, []);
 
   // Recompute layout + resize canvas when tree changes
   useEffect(() => {

@@ -55,9 +55,9 @@ Rise is an AI-powered trip planning app. It helps travellers plan trips day-by-d
 
 ### Product team (`/team`) — four tabs
 - **Product team tab** — Multi-agent discussion: Sarah (PM) frames the problem, Alex/Maya/Luca respond in parallel, Sarah synthesises. Generates PRD. Sarah's memory persisted in `agent_memory` table. Saves to `team_conversations` (type=`"team"`).
-- **PM tab** — 1-on-1 conversation with Sarah (PM). Chat UI with streaming responses. On mount, fetches full CLAUDE.md content from `/api/rise-context` and injects it into the system prompt. Saves conversations to `team_conversations` (type=`"pm"`). Objectives panel below chat: manual text input + "Save objective" button stores agreed objectives to `objectives` table; each objective shows title, status badge (active/completed/paused), click badge to cycle status.
+- **PM tab** — 1-on-1 conversation with Sarah (PM). Chat UI with streaming responses. On mount, fetches full CLAUDE.md content from `/api/rise-context` and injects it into the system prompt. Saves conversations to `team_conversations` (type=`"pm"`). Objectives panel below chat: manual text input + "Save objective" button stores agreed objectives to `objectives` table; each objective shows title, status badge (active/completed/paused), click badge to cycle status. When an objective is saved, triggers a fire-and-forget OST update: fetches last 10 feedback entries, loads the current OST snapshot, asks Claude to revise the tree, saves the result to `ost_snapshots`, and shows a transient "OST updated" notification.
 - **Product coach tab** — 1-on-1 with a product coach (Claude Opus 4.6). Full conversation history maintained; saved to `team_conversations` (type=`"coach"`).
-- **Opportunity tree tab** — HTML5 canvas OST visualiser. Oval nodes, Bézier edges, hover glow, double-click to edit text, PNG download. AI generation from user feedback via non-streaming Claude call. Default example tree shown on load.
+- **Opportunity tree tab** — HTML5 canvas OST visualiser. Oval nodes, Bézier edges, hover glow, double-click to edit text, PNG download. AI generation from user feedback via non-streaming Claude call. On mount, loads the latest snapshot from `ost_snapshots` Supabase table; falls back to a default example tree if none exists.
 
 ### Infrastructure
 - **Password protection** — Edge middleware (`middleware.ts`) redirects unauthenticated users to `/api/auth`. GET shows the form; POST sets an `httpOnly` cookie.
@@ -139,6 +139,7 @@ rise/
 | `agent_memory` | Sarah's rolling memory of past product discussions — id=`"sarah"`, content |
 | `prd_feedback` | Feedback on generated PRDs — conversation_id, feedback text |
 | `objectives` | PM 1-on-1 agreed objectives — title, status (`active`/`completed`/`paused`) |
+| `ost_snapshots` | Versioned OST trees — tree (jsonb), objective_id (FK), created_at |
 | `user_feedback` | Floating button + /feedback form submissions — page URL, feedback text |
 
 **Required SQL for `objectives` table** (run in Supabase dashboard if not yet created):
@@ -158,6 +159,16 @@ create table user_feedback (
   page text not null,
   feedback text not null,
   created_at timestamptz default now()
+);
+```
+
+**Required SQL for `ost_snapshots` table:**
+```sql
+create table ost_snapshots (
+  id uuid default gen_random_uuid() primary key,
+  tree jsonb not null,
+  objective_id uuid references objectives(id),
+  created_at timestamp with time zone default now()
 );
 ```
 
@@ -227,6 +238,7 @@ function dbErr(err: unknown): string {
 - Two-effect pattern: Effect 1 resizes canvas on tree change (expensive — avoids running on hover). Effect 2 redraws on tree or hoveredId change using stored layout refs.
 - Use `devicePixelRatio` for sharp rendering: set `canvas.width/height` in physical pixels, then `ctx.setTransform(dpr, 0, 0, dpr, 0, 0)`.
 - Hit-testing uses ellipse equation: `((px-cx)/(w/2))² + ((py-cy)/(h/2))² ≤ 1`.
+- On mount, `OSTTab` calls `loadLatestOstSnapshot()` and replaces the default tree if a snapshot exists. OST snapshots are saved to the `ost_snapshots` table (jsonb tree + objective_id FK) whenever an objective is saved in `PMTab`.
 
 ### localStorage keys
 | Key | Contents |
