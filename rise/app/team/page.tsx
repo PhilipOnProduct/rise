@@ -19,10 +19,18 @@ type TeamMessages = {
 
 type ConversationRow = {
   id: string;
-  type: "team" | "coach";
+  type: "team" | "coach" | "pm";
   title: string;
   messages: TeamMessages | { history: CoachMessage[] };
   prd: string | null;
+  created_at: string;
+};
+
+type ObjectiveStatus = "active" | "completed" | "paused";
+type Objective = {
+  id: string;
+  title: string;
+  status: ObjectiveStatus;
   created_at: string;
 };
 
@@ -237,6 +245,18 @@ const RISE_CONTEXT =
 
 const TEAM_MODEL = "claude-sonnet-4-6";
 const COACH_MODEL = "claude-opus-4-6";
+const PM_MODEL = "claude-sonnet-4-6";
+
+const PM_SYSTEM =
+  "You are Sarah, the Product Manager for Rise, a travel concierge app. " +
+  "You are having a 1-on-1 conversation with Philip, the founder. " +
+  "Your role is to help him clarify thinking, discuss ideas and issues, and agree on clear objectives to work on. " +
+  "When Philip and you agree on an objective together, confirm it explicitly and tell him you'll save it. " +
+  "Keep responses concise and conversational — this is a 1-on-1, not a formal meeting. " +
+  "Be direct, ask good questions, and push back when needed. " +
+  "Rise context: onboarding wizard, AI restaurant recommendations, airport-hotel transport, local guides with points system, " +
+  "day-view itinerary, admin dashboard with AI logs, product team agents, OST, PRD feedback system. " +
+  "Business model: commission on bookings. Early MVP, no real paying users yet.";
 
 const AGENTS: Record<
   AgentId,
@@ -355,6 +375,52 @@ async function upsertCoachConversation(
     .single();
   if (error) { console.error("[coach] insert error", error); return null; }
   return data.id as string;
+}
+
+async function upsertPMConversation(
+  id: string | null,
+  firstMessage: string,
+  history: CoachMessage[]
+): Promise<string | null> {
+  if (id) {
+    const { error } = await supabase
+      .from("team_conversations")
+      .update({ messages: { history } })
+      .eq("id", id);
+    if (error) console.error("[pm] update error", error);
+    return id;
+  }
+  const { data, error } = await supabase
+    .from("team_conversations")
+    .insert({ type: "pm", title: firstMessage.slice(0, 60), messages: { history } })
+    .select("id")
+    .single();
+  if (error) { console.error("[pm] insert error", error); return null; }
+  return data.id as string;
+}
+
+async function loadObjectives(): Promise<Objective[]> {
+  const { data, error } = await supabase
+    .from("objectives")
+    .select("id, title, status, created_at")
+    .order("created_at", { ascending: false });
+  if (error) { console.error("[objectives] load error", error); return []; }
+  return data as Objective[];
+}
+
+async function saveObjective(title: string): Promise<Objective | null> {
+  const { data, error } = await supabase
+    .from("objectives")
+    .insert({ title, status: "active" })
+    .select("id, title, status, created_at")
+    .single();
+  if (error) { console.error("[objectives] save error", error); return null; }
+  return data as Objective;
+}
+
+async function updateObjectiveStatus(id: string, status: ObjectiveStatus): Promise<void> {
+  const { error } = await supabase.from("objectives").update({ status }).eq("id", id);
+  if (error) console.error("[objectives] update error", error);
 }
 
 async function loadConversations(type: "team" | "coach"): Promise<ConversationRow[]> {
@@ -1190,6 +1256,264 @@ function ProductCoachTab() {
   );
 }
 
+// ── PM 1-on-1 Tab ─────────────────────────────────────────────────────────────
+
+const STATUS_CYCLE: Record<ObjectiveStatus, ObjectiveStatus> = {
+  active: "completed",
+  completed: "paused",
+  paused: "active",
+};
+
+const STATUS_STYLES: Record<ObjectiveStatus, string> = {
+  active:    "bg-[#00D64F]/15 text-[#00D64F] border border-[#00D64F]/30",
+  completed: "bg-gray-500/10 text-gray-400 border border-gray-700",
+  paused:    "bg-yellow-500/10 text-yellow-400 border border-yellow-700/40",
+};
+
+function PMTab() {
+  const [messages, setMessages] = useState<CoachMessage[]>([]);
+  const [input, setInput] = useState("");
+  const [thinking, setThinking] = useState(false);
+  const [pmError, setPmError] = useState("");
+  const [objectives, setObjectives] = useState<Objective[]>([]);
+  const [objInput, setObjInput] = useState("");
+  const [savingObj, setSavingObj] = useState(false);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+  const conversationIdRef = useRef<string | null>(null);
+  const lastUserMessageRef = useRef<string>("");
+  const endRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    loadObjectives().then(setObjectives);
+  }, []);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  async function sendMessage(text: string, history: CoachMessage[]) {
+    setThinking(true);
+    setPmError("");
+    let assistantText = "";
+    setMessages([...history, { role: "assistant", content: "" }]);
+
+    try {
+      await streamChat(
+        PM_MODEL,
+        PM_SYSTEM,
+        history,
+        1024,
+        (chunk) => {
+          assistantText += chunk;
+          setMessages([...history, { role: "assistant", content: assistantText }]);
+        }
+      );
+
+      const allMessages: CoachMessage[] = [...history, { role: "assistant", content: assistantText }];
+      const firstUserMsg = allMessages.find((m) => m.role === "user")?.content ?? "PM session";
+      const id = await upsertPMConversation(conversationIdRef.current, firstUserMsg, allMessages);
+      if (id) conversationIdRef.current = id;
+
+    } catch (err) {
+      console.error("PM error:", err);
+      setMessages(history);
+      setPmError(errorMessage(err));
+    }
+    setThinking(false);
+  }
+
+  async function send() {
+    const text = input.trim();
+    if (!text || thinking) return;
+    setInput("");
+    lastUserMessageRef.current = text;
+    const history: CoachMessage[] = [...messages, { role: "user", content: text }];
+    setMessages(history);
+    await sendMessage(text, history);
+  }
+
+  async function retry() {
+    if (thinking || !lastUserMessageRef.current) return;
+    const history = messages.filter((m) => m.role === "user" || m.content !== "");
+    const lastUser = history.findLastIndex((m) => m.role === "user");
+    const historyUpToUser = history.slice(0, lastUser + 1);
+    await sendMessage(lastUserMessageRef.current, historyUpToUser);
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+  }
+
+  async function handleSaveObjective() {
+    const title = objInput.trim();
+    if (!title) return;
+    setSavingObj(true);
+    const obj = await saveObjective(title);
+    if (obj) {
+      setObjectives((prev) => [obj, ...prev]);
+      setObjInput("");
+    }
+    setSavingObj(false);
+  }
+
+  async function handleToggleStatus(obj: Objective) {
+    const next = STATUS_CYCLE[obj.status];
+    setTogglingId(obj.id);
+    await updateObjectiveStatus(obj.id, next);
+    setObjectives((prev) => prev.map((o) => o.id === obj.id ? { ...o, status: next } : o));
+    setTogglingId(null);
+  }
+
+  return (
+    <div className="flex flex-col gap-8">
+
+      {/* Chat */}
+      <div className="flex flex-col gap-4">
+
+        {/* Intro */}
+        {messages.length === 0 && (
+          <div className="bg-[#111] border border-[#1e1e1e] rounded-2xl p-6">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0" style={{ background: "#5a4fcf" }}>
+                SM
+              </div>
+              <div>
+                <p className="text-sm font-bold text-white">Sarah · PM</p>
+                <p className="text-xs text-gray-600">1-on-1 with Philip</p>
+              </div>
+            </div>
+            <p className="text-sm text-gray-400 leading-relaxed">
+              Hey Philip — what's on your mind? We can work through a problem, align on priorities, or agree on what to focus on next.
+            </p>
+          </div>
+        )}
+
+        {/* Messages */}
+        {messages.length > 0 && (
+          <div className="flex flex-col gap-4">
+            {messages.map((msg, i) =>
+              msg.role === "user" ? (
+                <div key={i} className="flex justify-end">
+                  <div className="bg-[#00D64F]/10 border border-[#00D64F]/20 rounded-2xl rounded-tr-sm px-5 py-3.5 max-w-xl">
+                    <p className="text-sm text-white leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                  </div>
+                </div>
+              ) : (
+                <div key={i} className="flex gap-4">
+                  <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs flex-shrink-0" style={{ background: "#5a4fcf" }}>
+                    SM
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-sm font-bold text-white">Sarah</span>
+                      <span className="text-xs text-gray-600 bg-[#1a1a1a] px-2 py-0.5 rounded-full">PM</span>
+                      {thinking && i === messages.length - 1 && !msg.content && <ThinkingDots />}
+                    </div>
+                    {msg.content ? (
+                      <div className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap">{msg.content}</div>
+                    ) : (
+                      <div className="text-sm text-gray-600 italic">Thinking…</div>
+                    )}
+                  </div>
+                </div>
+              )
+            )}
+            <div ref={endRef} />
+          </div>
+        )}
+
+        {/* Input */}
+        <div className="flex flex-col gap-2 sticky bottom-0 bg-[#0a0a0a] pt-2 pb-4">
+          {pmError && (
+            <div className="flex items-center justify-between gap-4 bg-red-950/40 border border-red-800/40 rounded-xl px-4 py-3">
+              <p className="text-sm text-red-400">{pmError}</p>
+              <button
+                onClick={retry}
+                disabled={thinking}
+                className="text-sm font-semibold text-red-300 hover:text-white transition-colors flex-shrink-0 disabled:opacity-50"
+              >
+                Retry →
+              </button>
+            </div>
+          )}
+          <div className="flex gap-3 items-end">
+            <textarea
+              rows={2}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Message Sarah… (Enter to send, Shift+Enter for newline)"
+              disabled={thinking}
+              className="flex-1 bg-[#111] border border-[#2a2a2a] focus:border-[#00D64F] outline-none rounded-xl px-5 py-4 text-white placeholder-[#444] transition-colors text-sm resize-none disabled:opacity-50"
+            />
+            <button
+              onClick={send}
+              disabled={!input.trim() || thinking}
+              className="rounded-2xl bg-[#00D64F] text-black font-bold px-6 py-4 hover:bg-[#00c248] transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm flex-shrink-0"
+            >
+              {thinking ? "…" : "Send →"}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Objectives */}
+      <div className="border-t border-[#1a1a1a] pt-8 flex flex-col gap-5">
+
+        <div>
+          <h2 className="text-base font-bold text-white mb-1">Agreed objectives</h2>
+          <p className="text-xs text-gray-600">Objectives you and Sarah have agreed on. Click a status badge to cycle it.</p>
+        </div>
+
+        {/* Save input */}
+        <div className="flex gap-3 items-end">
+          <input
+            type="text"
+            value={objInput}
+            onChange={(e) => setObjInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") handleSaveObjective(); }}
+            placeholder="Add an agreed objective…"
+            className="flex-1 bg-[#111] border border-[#2a2a2a] focus:border-[#00D64F] outline-none rounded-xl px-5 py-3.5 text-white placeholder-[#444] transition-colors text-sm"
+          />
+          <button
+            onClick={handleSaveObjective}
+            disabled={!objInput.trim() || savingObj}
+            className="rounded-2xl bg-[#00D64F] text-black font-bold px-5 py-3.5 hover:bg-[#00c248] transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm flex-shrink-0"
+          >
+            {savingObj ? "Saving…" : "Save objective"}
+          </button>
+        </div>
+
+        {/* List */}
+        {objectives.length === 0 ? (
+          <p className="text-sm text-gray-600">No objectives saved yet.</p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {objectives.map((obj) => (
+              <div key={obj.id} className="bg-[#111] border border-[#1e1e1e] rounded-2xl px-5 py-4 flex items-start justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-white leading-relaxed">{obj.title}</p>
+                  <p className="text-xs text-gray-600 mt-1">
+                    {new Date(obj.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleToggleStatus(obj)}
+                  disabled={togglingId === obj.id}
+                  className={`shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full capitalize transition-opacity disabled:opacity-50 ${STATUS_STYLES[obj.status]}`}
+                >
+                  {obj.status}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+    </div>
+  );
+}
+
 // ── Opportunity Solution Tree Tab ──────────────────────────────────────────────
 
 function OSTTab() {
@@ -1384,17 +1708,18 @@ function OSTTab() {
 // ── Page ───────────────────────────────────────────────────────────────────────
 
 export default function TeamPage() {
-  const [activeTab, setActiveTab] = useState<"team" | "coach" | "ost">("team");
+  const [activeTab, setActiveTab] = useState<"team" | "pm" | "coach" | "ost">("team");
 
   // Pre-select tab from ?tab= query param
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get("tab");
-    if (tab === "ost" || tab === "coach" || tab === "team") setActiveTab(tab);
+    if (tab === "ost" || tab === "coach" || tab === "team" || tab === "pm") setActiveTab(tab);
   }, []);
 
   const tabs = [
     { id: "team" as const, label: "Product team" },
+    { id: "pm" as const, label: "PM" },
     { id: "coach" as const, label: "Product coach" },
     { id: "ost" as const, label: "Opportunity tree" },
   ];
@@ -1426,6 +1751,7 @@ export default function TeamPage() {
         </div>
 
         {activeTab === "team" && <ProductTeamTab />}
+        {activeTab === "pm" && <PMTab />}
         {activeTab === "coach" && <ProductCoachTab />}
         {activeTab === "ost" && <OSTTab />}
 
