@@ -253,10 +253,7 @@ const PM_SYSTEM =
   "Your role is to help him clarify thinking, discuss ideas and issues, and agree on clear objectives to work on. " +
   "When Philip and you agree on an objective together, confirm it explicitly and tell him you'll save it. " +
   "Keep responses concise and conversational — this is a 1-on-1, not a formal meeting. " +
-  "Be direct, ask good questions, and push back when needed. " +
-  "Rise context: onboarding wizard, AI restaurant recommendations, airport-hotel transport, local guides with points system, " +
-  "day-view itinerary, admin dashboard with AI logs, product team agents, OST, PRD feedback system. " +
-  "Business model: commission on bookings. Early MVP, no real paying users yet.";
+  "Be direct, ask good questions, and push back when needed.";
 
 const AGENTS: Record<
   AgentId,
@@ -300,6 +297,15 @@ const COACH_SYSTEM =
   `Shreyas Doshi, and Teresa Torres. I expect you to ask me questions when warranted, fill in important missing ` +
   `information, and challenge my assumptions. I am seeking learning and truth, not affirmation.\n\n` +
   `Rise context: ${RISE_CONTEXT}`;
+
+// ── Supabase error serializer ──────────────────────────────────────────────────
+// Supabase PostgrestError has non-enumerable properties, so `console.error(err)`
+// prints `{}`. Extract them explicitly.
+function dbErr(err: unknown): string {
+  if (!err || typeof err !== "object") return String(err);
+  const e = err as Record<string, unknown>;
+  return [e.message, e.code, e.details, e.hint].filter(Boolean).join(" | ") || JSON.stringify(err);
+}
 
 // ── API error ──────────────────────────────────────────────────────────────────
 
@@ -346,13 +352,13 @@ async function saveTeamConversation(problem: string, msgs: TeamMessages): Promis
     .insert({ type: "team", title: problem, messages: msgs })
     .select("id")
     .single();
-  if (error) { console.error("[team] save error", error); return null; }
+  if (error) { console.error("[team] save error", dbErr(error)); return null; }
   return data.id as string;
 }
 
 async function updateTeamPrd(id: string, prd: string): Promise<void> {
   const { error } = await supabase.from("team_conversations").update({ prd }).eq("id", id);
-  if (error) console.error("[team] prd update error", error);
+  if (error) console.error("[team] prd update error", dbErr(error));
 }
 
 async function upsertCoachConversation(
@@ -365,7 +371,7 @@ async function upsertCoachConversation(
       .from("team_conversations")
       .update({ messages: { history } })
       .eq("id", id);
-    if (error) console.error("[coach] update error", error);
+    if (error) console.error("[coach] update error", dbErr(error));
     return id;
   }
   const { data, error } = await supabase
@@ -373,7 +379,7 @@ async function upsertCoachConversation(
     .insert({ type: "coach", title: firstMessage.slice(0, 60), messages: { history } })
     .select("id")
     .single();
-  if (error) { console.error("[coach] insert error", error); return null; }
+  if (error) { console.error("[coach] insert error", dbErr(error)); return null; }
   return data.id as string;
 }
 
@@ -387,7 +393,7 @@ async function upsertPMConversation(
       .from("team_conversations")
       .update({ messages: { history } })
       .eq("id", id);
-    if (error) console.error("[pm] update error", error);
+    if (error) console.error("[pm] update error", dbErr(error));
     return id;
   }
   const { data, error } = await supabase
@@ -395,7 +401,7 @@ async function upsertPMConversation(
     .insert({ type: "pm", title: firstMessage.slice(0, 60), messages: { history } })
     .select("id")
     .single();
-  if (error) { console.error("[pm] insert error", error); return null; }
+  if (error) { console.error("[pm] insert error", dbErr(error)); return null; }
   return data.id as string;
 }
 
@@ -404,7 +410,7 @@ async function loadObjectives(): Promise<Objective[]> {
     .from("objectives")
     .select("id, title, status, created_at")
     .order("created_at", { ascending: false });
-  if (error) { console.error("[objectives] load error", error); return []; }
+  if (error) { console.error("[objectives] load error", dbErr(error)); return []; }
   return data as Objective[];
 }
 
@@ -414,13 +420,13 @@ async function saveObjective(title: string): Promise<Objective | null> {
     .insert({ title, status: "active" })
     .select("id, title, status, created_at")
     .single();
-  if (error) { console.error("[objectives] save error", error); return null; }
+  if (error) { console.error("[objectives] save error", dbErr(error)); return null; }
   return data as Objective;
 }
 
 async function updateObjectiveStatus(id: string, status: ObjectiveStatus): Promise<void> {
   const { error } = await supabase.from("objectives").update({ status }).eq("id", id);
-  if (error) console.error("[objectives] update error", error);
+  if (error) console.error("[objectives] update error", dbErr(error));
 }
 
 async function loadConversations(type: "team" | "coach"): Promise<ConversationRow[]> {
@@ -430,7 +436,7 @@ async function loadConversations(type: "team" | "coach"): Promise<ConversationRo
     .eq("type", type)
     .order("created_at", { ascending: false })
     .limit(10);
-  if (error) { console.error("[conversations] load error", error); return []; }
+  if (error) { console.error("[conversations] load error", dbErr(error)); return []; }
   return data as ConversationRow[];
 }
 
@@ -440,7 +446,7 @@ async function loadSarahMemory(): Promise<string> {
     .select("content")
     .eq("id", "sarah")
     .single();
-  if (error) { console.error("[memory] load error", error); return ""; }
+  if (error) { console.error("[memory] load error", dbErr(error)); return ""; }
   return (data?.content as string) ?? "";
 }
 
@@ -449,14 +455,14 @@ async function saveSarahMemory(content: string): Promise<void> {
     .from("agent_memory")
     .upsert({ id: "sarah", content })
     .eq("id", "sarah");
-  if (error) console.error("[memory] save error", error);
+  if (error) console.error("[memory] save error", dbErr(error));
 }
 
 async function savePrdFeedback(conversationId: string, feedback: string): Promise<void> {
   const { error } = await supabase
     .from("prd_feedback")
     .insert({ conversation_id: conversationId, feedback });
-  if (error) console.error("[feedback] save error", error);
+  if (error) console.error("[feedback] save error", dbErr(error));
 }
 
 async function loadPrdFeedback(conversationId: string): Promise<PrdFeedback[]> {
@@ -465,7 +471,7 @@ async function loadPrdFeedback(conversationId: string): Promise<PrdFeedback[]> {
     .select("id, conversation_id, feedback, created_at")
     .eq("conversation_id", conversationId)
     .order("created_at", { ascending: true });
-  if (error) { console.error("[feedback] load error", error); return []; }
+  if (error) { console.error("[feedback] load error", dbErr(error)); return []; }
   return data as PrdFeedback[];
 }
 
@@ -1279,12 +1285,17 @@ function PMTab() {
   const [objInput, setObjInput] = useState("");
   const [savingObj, setSavingObj] = useState(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [riseContext, setRiseContext] = useState("");
   const conversationIdRef = useRef<string | null>(null);
   const lastUserMessageRef = useRef<string>("");
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadObjectives().then(setObjectives);
+    fetch("/api/rise-context")
+      .then((r) => r.json())
+      .then((d) => { if (d.content) setRiseContext(d.content); })
+      .catch(() => { /* fall back to base system prompt silently */ });
   }, []);
 
   useEffect(() => {
@@ -1297,10 +1308,14 @@ function PMTab() {
     let assistantText = "";
     setMessages([...history, { role: "assistant", content: "" }]);
 
+    const pmSystem = riseContext
+      ? `${PM_SYSTEM}\n\nFull Rise product context (CLAUDE.md):\n${riseContext}`
+      : PM_SYSTEM;
+
     try {
       await streamChat(
         PM_MODEL,
-        PM_SYSTEM,
+        pmSystem,
         history,
         1024,
         (chunk) => {
