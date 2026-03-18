@@ -1,18 +1,31 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import PlacesAutocomplete from "@/app/components/PlacesAutocomplete";
 
-type Activity = {
-  id: number;
-  name: string;
-  category: string;
-  description: string;
-  emoji: string;
-};
+const TOTAL_WIZARD_STEPS = 5; // steps 1–5
 
-const TOTAL_STEPS = 5;
+const COMPANY_OPTIONS = [
+  { id: "solo", label: "Solo", emoji: "🧳" },
+  { id: "couple", label: "Couple", emoji: "💑" },
+  { id: "family", label: "Family", emoji: "👨‍👩‍👧" },
+  { id: "friends", label: "Friends", emoji: "👯" },
+  { id: "business", label: "Business", emoji: "💼" },
+];
+
+const STYLE_OPTIONS = [
+  "Foodie",
+  "Culture lover",
+  "Adventure seeker",
+  "Luxury traveler",
+  "Budget traveler",
+  "Nature lover",
+  "Nightlife",
+  "Shopping",
+  "History buff",
+  "Beach lover",
+];
 
 function tomorrow() {
   const d = new Date();
@@ -28,34 +41,86 @@ function addDays(dateStr: string, days: number) {
 
 export default function WelcomePage() {
   const router = useRouter();
-  const [step, setStep] = useState(1);
-  const [animKey, setAnimKey] = useState(1);
+  const [step, setStep] = useState(0);
+  const [animKey, setAnimKey] = useState(0);
 
+  // Trip data
   const [destination, setDestination] = useState("");
   const [destinationBias, setDestinationBias] = useState<{ lat: number; lng: number } | null>(null);
   const [departureDate, setDepartureDate] = useState("");
   const [returnDate, setReturnDate] = useState("");
   const [hotel, setHotel] = useState("");
-  const [activities, setActivities] = useState<Activity[]>([]);
-  const [selectedIds, setSelectedIds] = useState<number[]>([]);
-  const [loadingActivities, setLoadingActivities] = useState(false);
+  const [travelCompany, setTravelCompany] = useState("");
+  const [travelerTypes, setTravelerTypes] = useState<string[]>([]);
+
+  // Account
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // AI Preview (step 3)
+  const [previewText, setPreviewText] = useState("");
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const previewAbortRef = useRef<AbortController | null>(null);
+
   useEffect(() => {
     if (departureDate) setReturnDate(addDays(departureDate, 7));
   }, [departureDate]);
+
+  // Fire streaming preview when entering step 3
+  useEffect(() => {
+    if (step !== 3) return;
+
+    const controller = new AbortController();
+    previewAbortRef.current = controller;
+    setPreviewLoading(true);
+    setPreviewText("");
+
+    (async () => {
+      try {
+        const res = await fetch("/api/recommendations", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
+          body: JSON.stringify({
+            destination,
+            departureDate: departureDate || "",
+            returnDate: returnDate || "",
+            travelCompany: "not specified",
+            travelerTypes: [],
+            budget: "not specified",
+            dietaryWishes: "",
+          }),
+        });
+        if (!res.body) return;
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          setPreviewText((prev) => prev + decoder.decode(value, { stream: true }));
+        }
+      } catch (e: unknown) {
+        if (e instanceof Error && e.name !== "AbortError") {
+          console.error("[preview]", e);
+        }
+      }
+      setPreviewLoading(false);
+    })();
+
+    return () => {
+      controller.abort();
+    };
+  }, [step, destination, departureDate, returnDate]);
 
   function goTo(next: number) {
     setStep(next);
     setAnimKey((k) => k + 1);
   }
 
-  // After destination is selected, geocode it to bias the hotel autocomplete
   function handleDestinationSelect(place: string) {
     setDestination(place);
-    if (!window.google?.maps) return;
+    if (typeof window === "undefined" || !window.google?.maps) return;
     const geocoder = new google.maps.Geocoder();
     geocoder.geocode({ address: place }, (results, status) => {
       if (status === "OK" && results?.[0]) {
@@ -65,81 +130,122 @@ export default function WelcomePage() {
     });
   }
 
-  async function fetchActivities() {
-    setLoadingActivities(true);
-    try {
-      const res = await fetch("/api/activities", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ destination }),
-      });
-      const data = await res.json();
-      setActivities(Array.isArray(data) ? data : []);
-    } catch {
-      setActivities([]);
-    }
-    setLoadingActivities(false);
-  }
-
-  function toggleActivity(id: number) {
-    setSelectedIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+  function toggleStyle(style: string) {
+    setTravelerTypes((prev) =>
+      prev.includes(style) ? prev.filter((s) => s !== style) : [...prev, style]
     );
   }
 
   async function handleFinish() {
     setSaving(true);
-    const selectedActivities = activities.filter((a) => selectedIds.includes(a.id));
     let travelerId: string | null = null;
     try {
       const res = await fetch("/api/travelers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, destination, departureDate, returnDate, hotel, activities: selectedActivities }),
+        body: JSON.stringify({
+          name,
+          email,
+          destination,
+          departureDate,
+          returnDate,
+          hotel,
+          activities: [],
+        }),
       });
       if (res.ok) {
         const data = await res.json();
         travelerId = data.id;
       }
     } catch {}
-    const travelerData = { id: travelerId, name, email, destination, departureDate, returnDate, hotel, activities: selectedActivities };
+    const travelerData = {
+      id: travelerId,
+      name,
+      email,
+      destination,
+      departureDate,
+      returnDate,
+      hotel,
+      travelCompany,
+      travelerTypes,
+      activities: [],
+    };
     localStorage.setItem("rise_traveler", JSON.stringify(travelerData));
     localStorage.setItem("rise_onboarded", "true");
     setSaving(false);
     router.push("/dashboard");
   }
 
+  // ── Step 0: Full-screen landing ────────────────────────────────────────────
+
+  if (step === 0) {
+    return (
+      <main className="min-h-screen bg-[#0a0a0a] flex flex-col items-center justify-center px-6">
+        <div className="w-full max-w-xl animate-step" key={animKey}>
+          <p className="text-[#00D64F] font-extrabold text-xl tracking-tight mb-16">Rise</p>
+          <h1 className="text-5xl md:text-6xl font-extrabold tracking-tight leading-tight mb-4">
+            Where to?
+          </h1>
+          <p className="text-gray-500 text-lg mb-10">
+            Tell us your destination and we'll build your trip.
+          </p>
+          <PlacesAutocomplete
+            value={destination}
+            onChange={setDestination}
+            onSelect={(place) => handleDestinationSelect(place)}
+            placeholder="e.g. Tokyo, Japan"
+            types={["(cities)"]}
+            autoFocus
+            onEnter={() => { if (destination.trim()) goTo(1); }}
+            className="w-full bg-transparent border-b-2 border-[#2a2a2a] focus:border-[#00D64F] outline-none text-3xl font-semibold text-white placeholder-[#2a2a2a] py-3 transition-colors"
+          />
+          <button
+            onClick={() => goTo(1)}
+            disabled={!destination.trim()}
+            className="mt-10 w-full rounded-2xl bg-[#00D64F] text-black font-bold text-lg py-5 hover:bg-[#00c248] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            Start planning →
+          </button>
+        </div>
+      </main>
+    );
+  }
+
+  // ── Wizard steps 1–5 ───────────────────────────────────────────────────────
+
   const canContinue: Record<number, boolean> = {
-    1: destination.trim().length > 0,
-    2: departureDate.length > 0 && returnDate.length > 0,
-    3: hotel.trim().length > 0,
+    1: destination.trim().length > 0 && departureDate.length > 0 && returnDate.length > 0,
+    2: hotel.trim().length > 0,
+    3: true,
     4: true,
     5: name.trim().length > 0 && email.trim().length > 0,
   };
 
   async function handleContinue() {
-    if (step === 3) { goTo(4); fetchActivities(); }
-    else if (step === 5) { await handleFinish(); }
-    else { goTo(step + 1); }
+    if (step === 5) { await handleFinish(); return; }
+    goTo(step + 1);
   }
 
-  const stepHeadings = [
-    "Where are you going?",
-    "When are you travelling?",
-    "Where are you staying?",
-    "What do you want to do?",
-    "Almost done.",
-  ];
-  const stepSubs = [
-    "Enter your destination city or country.",
-    "Pick your dates. We'll plan around them.",
-    "Your hotel helps us give better transport advice.",
-    `Pick the activities you're excited about in ${destination}.`,
-    "Create your Rise account to save your trip.",
-  ];
+  const headings: Record<number, string> = {
+    1: "When are you going?",
+    2: "Where are you staying?",
+    3: "Here's a taste of what Rise can do.",
+    4: "Tell us about yourself.",
+    5: "Save your trip plan.",
+  };
 
-  const underlineInput = "w-full bg-transparent border-b-2 border-[#2a2a2a] focus:border-[#00D64F] outline-none text-3xl font-semibold text-white placeholder-[#333] py-3 transition-colors";
-  const darkInput = "w-full bg-[#111] border border-[#2a2a2a] focus:border-[#00D64F] outline-none rounded-xl px-5 py-4 text-white text-lg placeholder-[#444] transition-colors";
+  const subs: Record<number, string> = {
+    1: `Great choice. Now let's lock in the dates for ${destination}.`,
+    2: "Your hotel helps us give you better transport and local advice.",
+    3: `Live AI restaurant picks for ${destination} — just for you.`,
+    4: "A few quick questions so we can personalise your experience.",
+    5: "Your personalised plan is ready. Create an account to save it.",
+  };
+
+  const darkInput =
+    "w-full bg-[#111] border border-[#444] focus:border-[#00D64F] outline-none rounded-xl px-5 py-4 text-white text-lg placeholder-[#555] transition-colors";
+  const underlineInput =
+    "w-full bg-transparent border-b-2 border-[#2a2a2a] focus:border-[#00D64F] outline-none text-3xl font-semibold text-white placeholder-[#333] py-3 transition-colors";
 
   return (
     <main className="min-h-screen bg-[#0a0a0a] flex flex-col">
@@ -148,23 +254,19 @@ export default function WelcomePage() {
       <div className="w-full h-1 bg-[#1a1a1a]">
         <div
           className="h-1 bg-[#00D64F] transition-all duration-500 ease-out"
-          style={{ width: `${(step / TOTAL_STEPS) * 100}%` }}
+          style={{ width: `${(step / TOTAL_WIZARD_STEPS) * 100}%` }}
         />
       </div>
 
       {/* Header */}
       <div className="flex items-center justify-between px-6 pt-5 pb-2">
-        {step > 1 ? (
-          <button
-            onClick={() => goTo(step - 1)}
-            className="text-gray-400 hover:text-white transition-colors text-sm font-medium"
-          >
-            ← Back
-          </button>
-        ) : (
-          <a href="/" className="text-gray-600 hover:text-gray-400 transition-colors text-sm">Rise</a>
-        )}
-        <span className="text-gray-600 text-sm">{step} / {TOTAL_STEPS}</span>
+        <button
+          onClick={() => goTo(step - 1)}
+          className="text-gray-400 hover:text-white transition-colors text-sm font-medium"
+        >
+          ← Back
+        </button>
+        <span className="text-gray-600 text-sm">{step} / {TOTAL_WIZARD_STEPS}</span>
       </div>
 
       {/* Step content */}
@@ -173,30 +275,31 @@ export default function WelcomePage() {
 
           <div className="mb-10">
             <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight leading-tight mb-3">
-              {stepHeadings[step - 1]}
+              {headings[step]}
             </h1>
-            <p className="text-gray-400 text-lg">{stepSubs[step - 1]}</p>
+            <p className="text-gray-400 text-lg">{subs[step]}</p>
           </div>
 
-          {/* Step 1: Destination with Places autocomplete */}
+          {/* Step 1: Destination (editable) + Dates */}
           {step === 1 && (
-            <PlacesAutocomplete
-              value={destination}
-              onChange={setDestination}
-              onSelect={handleDestinationSelect}
-              placeholder="e.g. Tokyo, Japan"
-              types={["(cities)"]}
-              autoFocus
-              onEnter={() => canContinue[1] && handleContinue()}
-              className={underlineInput}
-            />
-          )}
-
-          {/* Step 2: Dates */}
-          {step === 2 && (
             <div className="flex flex-col gap-6">
               <div>
-                <label className="block text-sm font-semibold text-gray-400 uppercase tracking-widest mb-3">Departure</label>
+                <label className="block text-sm font-semibold text-gray-400 uppercase tracking-widest mb-3">
+                  Destination
+                </label>
+                <PlacesAutocomplete
+                  value={destination}
+                  onChange={setDestination}
+                  onSelect={handleDestinationSelect}
+                  placeholder="e.g. Tokyo, Japan"
+                  types={["(cities)"]}
+                  className={darkInput}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-400 uppercase tracking-widest mb-3">
+                  Departure
+                </label>
                 <input
                   type="date"
                   value={departureDate}
@@ -206,7 +309,9 @@ export default function WelcomePage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-400 uppercase tracking-widest mb-3">Return</label>
+                <label className="block text-sm font-semibold text-gray-400 uppercase tracking-widest mb-3">
+                  Return
+                </label>
                 <input
                   type="date"
                   value={returnDate}
@@ -218,8 +323,8 @@ export default function WelcomePage() {
             </div>
           )}
 
-          {/* Step 3: Hotel with Places autocomplete biased toward destination */}
-          {step === 3 && (
+          {/* Step 2: Hotel */}
+          {step === 2 && (
             <PlacesAutocomplete
               value={hotel}
               onChange={setHotel}
@@ -228,53 +333,89 @@ export default function WelcomePage() {
               types={["establishment"]}
               locationBias={destinationBias}
               autoFocus
-              onEnter={() => canContinue[3] && handleContinue()}
+              onEnter={() => canContinue[2] && handleContinue()}
               className={underlineInput}
             />
           )}
 
-          {/* Step 4: Activities */}
-          {step === 4 && (
-            <div>
-              {loadingActivities ? (
-                <div className="flex flex-col items-center gap-4 py-16">
-                  <div className="w-10 h-10 rounded-full border-2 border-[#00D64F] border-t-transparent animate-spin" />
-                  <p className="text-gray-400">Finding activities in {destination}…</p>
+          {/* Step 3: AI Preview */}
+          {step === 3 && (
+            <div className="rounded-2xl border border-[#1e1e1e] bg-[#111] p-6 min-h-[280px]">
+              {previewLoading && !previewText && (
+                <div className="flex items-center gap-3 text-gray-400">
+                  <div className="w-4 h-4 rounded-full border-2 border-[#00D64F] border-t-transparent animate-spin flex-shrink-0" />
+                  <span>Finding the best restaurants in {destination}…</span>
                 </div>
-              ) : (
-                <>
-                  {selectedIds.length > 0 && (
-                    <p className="text-[#00D64F] text-sm font-semibold mb-4">{selectedIds.length} selected</p>
+              )}
+              {previewText && (
+                <div className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">
+                  {previewText}
+                  {previewLoading && (
+                    <span className="inline-block w-1.5 h-4 bg-[#00D64F] ml-0.5 align-middle animate-pulse" />
                   )}
-                  <div className="grid grid-cols-2 gap-3 max-h-[420px] overflow-y-auto pr-1">
-                    {activities.map((a) => {
-                      const sel = selectedIds.includes(a.id);
-                      return (
-                        <button
-                          key={a.id}
-                          onClick={() => toggleActivity(a.id)}
-                          className={`text-left rounded-2xl border p-4 transition-all ${
-                            sel ? "border-[#00D64F] bg-[#00D64F]/10" : "border-[#1e1e1e] bg-[#111] hover:border-[#333]"
-                          }`}
-                        >
-                          <div className="text-2xl mb-2">{a.emoji}</div>
-                          <div className="font-semibold text-sm text-white leading-snug mb-1">{a.name}</div>
-                          <div className="text-xs text-gray-500">{a.description}</div>
-                          {sel && <div className="mt-2 text-[#00D64F] text-xs font-bold">✓ Selected</div>}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </>
+                </div>
               )}
             </div>
           )}
 
-          {/* Step 5: Account */}
+          {/* Step 4: Travel preferences */}
+          {step === 4 && (
+            <div className="flex flex-col gap-8">
+              <div>
+                <label className="block text-sm font-semibold text-gray-400 uppercase tracking-widest mb-4">
+                  Who are you travelling with?
+                </label>
+                <div className="flex flex-wrap gap-3">
+                  {COMPANY_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.id}
+                      onClick={() => setTravelCompany(travelCompany === opt.id ? "" : opt.id)}
+                      className={`flex items-center gap-2 px-4 py-3 rounded-2xl border text-sm font-semibold transition-all ${
+                        travelCompany === opt.id
+                          ? "border-[#00D64F] bg-[#00D64F]/10 text-white"
+                          : "border-[#1e1e1e] bg-[#111] text-gray-400 hover:border-[#333] hover:text-white"
+                      }`}
+                    >
+                      <span>{opt.emoji}</span>
+                      <span>{opt.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-400 uppercase tracking-widest mb-1">
+                  What's your travel style?
+                </label>
+                <p className="text-gray-600 text-sm mb-4">Pick as many as you like.</p>
+                <div className="flex flex-wrap gap-2">
+                  {STYLE_OPTIONS.map((style) => (
+                    <button
+                      key={style}
+                      onClick={() => toggleStyle(style)}
+                      className={`px-4 py-2 rounded-xl border text-sm font-semibold transition-all ${
+                        travelerTypes.includes(style)
+                          ? "border-[#00D64F] bg-[#00D64F]/10 text-white"
+                          : "border-[#1e1e1e] bg-[#111] text-gray-400 hover:border-[#333] hover:text-white"
+                      }`}
+                    >
+                      {style}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Step 5: Account creation */}
           {step === 5 && (
             <div className="flex flex-col gap-6">
+              <p className="text-gray-500 text-sm -mt-4">
+                Your personalised restaurant picks, transport advice, and trip summary are waiting. Create your account to save everything.
+              </p>
               <div>
-                <label className="block text-sm font-semibold text-gray-400 uppercase tracking-widest mb-3">Your name</label>
+                <label className="block text-sm font-semibold text-gray-400 uppercase tracking-widest mb-3">
+                  Your name
+                </label>
                 <input
                   type="text"
                   placeholder="e.g. Sofia"
@@ -285,7 +426,9 @@ export default function WelcomePage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-400 uppercase tracking-widest mb-3">Email</label>
+                <label className="block text-sm font-semibold text-gray-400 uppercase tracking-widest mb-3">
+                  Email
+                </label>
                 <input
                   type="email"
                   placeholder="you@example.com"
@@ -297,13 +440,19 @@ export default function WelcomePage() {
             </div>
           )}
 
-          {/* Continue button */}
+          {/* Continue / finish button */}
           <button
             onClick={handleContinue}
-            disabled={!canContinue[step] || saving || (step === 4 && loadingActivities)}
+            disabled={!canContinue[step] || saving}
             className="mt-10 w-full rounded-2xl bg-[#00D64F] text-black font-bold text-lg py-5 hover:bg-[#00c248] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           >
-            {saving ? "Saving your trip…" : step === TOTAL_STEPS ? "Let's go →" : "Continue →"}
+            {saving
+              ? "Saving your trip…"
+              : step === TOTAL_WIZARD_STEPS
+              ? "Let's go →"
+              : step === 3
+              ? "Looks good — continue →"
+              : "Continue →"}
           </button>
 
         </div>
