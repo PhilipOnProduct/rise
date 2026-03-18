@@ -169,11 +169,34 @@ async function loadConversations(type: "team" | "coach"): Promise<ConversationRo
 
 // ── Download PRD ───────────────────────────────────────────────────────────────
 
-function downloadPrdFile(problem: string, prdContent: string): void {
-  const date = new Date().toISOString().slice(0, 10);
-  const slug = problem.trim()
+async function fetchPrdSlug(problem: string, prdContent: string): Promise<string> {
+  const fallback = problem.trim()
     .split(/\s+/).slice(0, 5).join("-")
     .toLowerCase().replace(/[^a-z0-9-]/g, "");
+  try {
+    let slug = "";
+    await streamChat(
+      TEAM_MODEL,
+      "You generate concise kebab-case filenames. Reply with ONLY the slug — no explanation, no punctuation, no quotes.",
+      [{
+        role: "user",
+        content:
+          `Summarize this PRD topic in 4-6 words as a kebab-case filename slug. ` +
+          `Example output: improve-traveler-onboarding-flow\n\n` +
+          `Problem: ${problem}\n\nPRD summary (first 300 chars): ${prdContent.slice(0, 300)}`,
+      }],
+      20,
+      (chunk) => { slug += chunk; }
+    );
+    const clean = slug.trim().toLowerCase().replace(/[^a-z0-9-]/g, "").replace(/^-+|-+$/g, "");
+    return clean.length >= 4 ? clean : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function downloadPrdFile(problem: string, prdContent: string, slug: string): void {
+  const date = new Date().toISOString().slice(0, 10);
   const md = [
     `# ${problem}`,
     ``,
@@ -361,6 +384,7 @@ function ProductTeamTab() {
   const [prd, setPrd] = useState("");
   const [teamError, setTeamError] = useState("");
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [prdSlug, setPrdSlug] = useState("");
   const [prdDownloaded, setPrdDownloaded] = useState(false);
 
   const isRunning = phase !== "idle" && phase !== "done";
@@ -377,6 +401,7 @@ function ProductTeamTab() {
     setConversationId(row.id);
     setPhase("done");
     setTeamError("");
+    setPrdSlug("");
     setPrdDownloaded(false);
   }
 
@@ -385,7 +410,7 @@ function ProductTeamTab() {
 
     setSarahFrame(""); setAlexContent(""); setMayaContent("");
     setLucaContent(""); setSynthesis(""); setPrd("");
-    setTeamError(""); setConversationId(null); setPrdDownloaded(false);
+    setTeamError(""); setConversationId(null); setPrdSlug(""); setPrdDownloaded(false);
 
     try {
       // ── Step 1: Sarah frames ──────────────────────────────────────────────
@@ -476,6 +501,8 @@ function ProductTeamTab() {
         2048, (chunk) => { prdText += chunk; setPrd(prdText); }
       );
       if (conversationId) await updateTeamPrd(conversationId, prdText);
+      const slug = await fetchPrdSlug(problem, prdText);
+      setPrdSlug(slug);
     } catch (err) {
       console.error("PRD error:", err);
       setTeamError(errorMessage(err));
@@ -484,8 +511,10 @@ function ProductTeamTab() {
     setPhase("done");
   }
 
-  function handleDownloadPrd() {
-    downloadPrdFile(problem, prd);
+  async function handleDownloadPrd() {
+    const slug = prdSlug || await fetchPrdSlug(problem, prd);
+    if (!prdSlug) setPrdSlug(slug);
+    downloadPrdFile(problem, prd, slug);
     setPrdDownloaded(true);
   }
 
