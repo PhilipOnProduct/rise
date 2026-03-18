@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Rise is an AI-powered personal travel concierge app. It helps travellers plan trips (destination, dates, hotel, activities), get smart transport advice (airport → hotel), and discover insider local tips from real residents.
+Rise is an AI-powered trip planning app. It helps travellers plan trips day-by-day (destination, dates, hotel, itinerary), get smart transport advice (airport → hotel), and discover insider local tips from real residents.
 
 **Business model:** B2C SaaS with a freemium layer. Local guides contribute tips to the platform and earn reputation points; travellers pay for personalised AI recommendations and planning tools.
 
@@ -28,8 +28,10 @@ Rise is an AI-powered personal travel concierge app. It helps travellers plan tr
 ## Current Features
 
 ### Traveller flows
-- **Onboarding wizard** (`/welcome`) — 5-step flow: destination (Google Places autocomplete) → travel dates → hotel (Places autocomplete biased to destination) → activity selection (AI-generated) → account creation. Saves to Supabase `travelers` table and `localStorage`.
-- **Dashboard** (`/dashboard`) — Shows trip summary (destination, dates, nights, hotel, activities) read from `localStorage`. Links to transport, profile, and guides.
+- **Onboarding wizard** (`/welcome`) — 6-step flow: Step 0 full-screen landing (destination) → Step 1 destination + dates → Step 2 hotel (Places autocomplete biased to destination) → Step 3 AI activity preview (streaming) → Step 4 travel preferences (company + style tags) → Step 5 account creation. Saves to Supabase `travelers` table and `localStorage` (`rise_traveler`, `rise_onboarded`).
+- **Dashboard** (`/dashboard`) — Shows trip summary (destination, dates, nights, hotel, activities) read from `localStorage`. Links to itinerary, transport, profile, and guides.
+- **Day-by-day itinerary** (`/itinerary`) — Day-view timeline with one column per trip day and three time blocks (morning / afternoon / evening). AI pre-populates suggestions on first load via `/api/itinerary/generate`; persisted to `localStorage` (`rise_itinerary`). Users can drag items between time blocks (HTML5 drag-and-drop), dismiss suggestions (×), and add their own items inline.
+- **AI activity preview** (`/api/activities-stream`) — Streaming markdown of 5–6 must-do activities shown at step 3 of onboarding. Uses trip duration in the prompt.
 - **AI activity suggestions** (`/api/activities`) — POSTs destination to Claude, returns 20 categorised activities as JSON.
 - **Airport → Hotel transport** (`/transport`) — Streaming AI advice comparing public transport vs taxi for a given airport/hotel/city.
 - **Travel profile & restaurant recommendations** (`/profile`) — Collects traveller type, destination, dates, company, budget, dietary wishes. Streams personalised restaurant picks from Claude.
@@ -62,9 +64,10 @@ rise/
 ├── app/
 │   ├── page.tsx                  # Homepage / marketing landing
 │   ├── layout.tsx                # Root layout — DM Sans font, Nav component
-│   ├── globals.css               # Dark CSS variables, fadeSlideUp animation
-│   ├── welcome/page.tsx          # 5-step onboarding wizard
+│   ├── globals.css               # Dark CSS variables, fadeSlideUp animation, date picker fix
+│   ├── welcome/page.tsx          # 6-step onboarding wizard (step 0 = landing, steps 1–5 = wizard)
 │   ├── dashboard/page.tsx        # Trip summary dashboard
+│   ├── itinerary/page.tsx        # Day-view itinerary — drag/drop, dismiss, add items
 │   ├── profile/page.tsx          # Travel profile + restaurant recs
 │   ├── transport/page.tsx        # Airport → Hotel advice
 │   ├── admin/page.tsx            # AI log viewer
@@ -75,7 +78,10 @@ rise/
 │   │   └── [city]/page.tsx       # Tips for a city
 │   ├── api/
 │   │   ├── auth/route.ts         # GET: password form  POST: verify password
-│   │   ├── activities/route.ts   # POST: AI activity suggestions
+│   │   ├── activities/route.ts   # POST: AI activity suggestions (JSON)
+│   │   ├── activities-stream/route.ts  # POST: streaming activity preview (onboarding step 3)
+│   │   ├── itinerary/
+│   │   │   └── generate/route.ts # POST: AI day-by-day itinerary as JSON
 │   │   ├── travelers/route.ts    # POST: save traveller to Supabase
 │   │   ├── recommendations/route.ts  # POST: streaming restaurant recs
 │   │   ├── transport/route.ts    # POST: streaming transport advice
@@ -117,12 +123,19 @@ rise/
 - **Font:** DM Sans — already applied globally via `layout.tsx`. Don't add other fonts.
 - All inputs: `bg-[#111] border border-[#2a2a2a] focus:border-[#00D64F] outline-none rounded-xl px-5 py-4 text-white`
 - Primary buttons: `bg-[#00D64F] text-black font-bold rounded-2xl hover:bg-[#00c248]`
+- Date inputs: calendar picker icon is inverted via `input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1) }` in `globals.css`
 
 ### AI / Anthropic
 - Default model: `claude-sonnet-4-6`
-- Use streaming (`client.messages.stream()`) for any response that will be displayed progressively (recommendations, transport advice). Use `stream.finalMessage()` to get the complete response if needed afterwards.
-- Always wrap Claude calls with `logAICall` from `lib/ai-logger.ts` so every interaction is logged to `/admin`.
-- Never hardcode prompts inline in route files — keep them readable at the top of the function.
+- Use streaming (`client.messages.stream()`) for any response displayed progressively (recommendations, transport advice, onboarding activity preview). Use `stream.finalMessage()` to get the complete response afterwards.
+- Use non-streaming (`client.messages.create()`) when the response must be parsed as structured JSON (e.g. itinerary generation). Always wrap `JSON.parse()` in try/catch and return a meaningful error.
+- Always wrap Claude calls with `logAiInteraction` from `lib/ai-logger.ts` so every interaction is logged to `/admin`.
+- When Claude returns JSON, strip markdown code fences before parsing: `.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim()`
+- Set `max_tokens` generously for structured JSON responses — truncated JSON causes parse failures. Use 8000+ for multi-day itineraries.
+
+### PlacesAutocomplete
+- `hasTypedRef` — prevents the dropdown from opening on mount when a pre-filled value is passed in. Only flips `true` on the input's own `onChange`.
+- `justSelectedRef` — suppresses the suggestions effect for one cycle after a selection is made, preventing the dropdown from reopening when `onSelect` updates the controlled value.
 
 ### Supabase
 - Always import the client from `lib/supabase.ts`. Never create a new client inline.
@@ -134,6 +147,14 @@ rise/
 - Page-level data fetching goes in the route handler (`/api/...`), not directly in Server Components calling Supabase.
 - Use `next/link` (`Link`) for internal navigation, not `<a href>`.
 - Step animations: `key={animKey}` on the container + `animate-step` CSS class triggers `fadeSlideUp` keyframe defined in `globals.css`.
+- Use `AbortController` + `signal` for streaming fetch calls inside `useEffect` so the stream is cancelled cleanly on unmount or dependency change.
+
+### localStorage keys
+| Key | Contents |
+|---|---|
+| `rise_traveler` | Full traveller object (name, email, destination, dates, hotel, travelCompany, travelerTypes, activities) |
+| `rise_onboarded` | `"true"` — gates redirect from `/welcome` to `/dashboard` |
+| `rise_itinerary` | Cached `ItineraryDay[]` array — cleared and regenerated when user clicks Regenerate |
 
 ### Auth / middleware
 - Password protection is handled entirely in `middleware.ts` + `app/api/auth/route.ts`.
