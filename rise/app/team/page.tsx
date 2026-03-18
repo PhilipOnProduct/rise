@@ -167,6 +167,24 @@ async function loadConversations(type: "team" | "coach"): Promise<ConversationRo
   return data as ConversationRow[];
 }
 
+async function loadSarahMemory(): Promise<string> {
+  const { data, error } = await supabase
+    .from("agent_memory")
+    .select("content")
+    .eq("id", "sarah")
+    .single();
+  if (error) { console.error("[memory] load error", error); return ""; }
+  return (data?.content as string) ?? "";
+}
+
+async function saveSarahMemory(content: string): Promise<void> {
+  const { error } = await supabase
+    .from("agent_memory")
+    .upsert({ id: "sarah", content })
+    .eq("id", "sarah");
+  if (error) console.error("[memory] save error", error);
+}
+
 // ── Download PRD ───────────────────────────────────────────────────────────────
 
 async function fetchPrdSlug(problem: string, prdContent: string): Promise<string> {
@@ -386,6 +404,16 @@ function ProductTeamTab() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [prdSlug, setPrdSlug] = useState("");
   const [prdDownloaded, setPrdDownloaded] = useState(false);
+  const [sarahMemory, setSarahMemory] = useState("");
+  const [memoryLoading, setMemoryLoading] = useState(true);
+  const [updatingMemory, setUpdatingMemory] = useState(false);
+
+  useEffect(() => {
+    loadSarahMemory().then((mem) => {
+      setSarahMemory(mem);
+      setMemoryLoading(false);
+    });
+  }, []);
 
   const isRunning = phase !== "idle" && phase !== "done";
 
@@ -413,12 +441,15 @@ function ProductTeamTab() {
     setTeamError(""); setConversationId(null); setPrdSlug(""); setPrdDownloaded(false);
 
     try {
-      // ── Step 1: Sarah frames ──────────────────────────────────────────────
+      // ── Step 1: Sarah frames (with memory) ───────────────────────────────
       setPhase("framing");
       setThinking({ sarah: true });
+      const sarahSystemWithMemory = sarahMemory
+        ? `${AGENTS.sarah.system}\n\nHere is your memory of past product discussions for Rise:\n${sarahMemory}\n\nUse this to inform your framing — reference relevant past decisions, avoid repeating ground already covered, and build on what the team has already learned.`
+        : AGENTS.sarah.system;
       let frameText = "";
       await streamChat(
-        TEAM_MODEL, AGENTS.sarah.system,
+        TEAM_MODEL, sarahSystemWithMemory,
         [{ role: "user", content: `Frame this problem for the product team:\n\n${problem}` }],
         512, (chunk) => { frameText += chunk; setSarahFrame(frameText); }
       );
@@ -468,6 +499,33 @@ function ProductTeamTab() {
       });
       setConversationId(id);
       setPhase("done");
+
+      // ── Update Sarah's memory (non-blocking) ─────────────────────────────
+      setUpdatingMemory(true);
+      try {
+        let newMemory = "";
+        await streamChat(
+          TEAM_MODEL, AGENTS.sarah.system,
+          [{
+            role: "user",
+            content:
+              `Based on this discussion, update your memory document.\n\n` +
+              `Your current memory is:\n${sarahMemory || "(empty — this is your first discussion)"}\n\n` +
+              `The discussion was about: ${problem}\n\n` +
+              `Key decisions and insights:\n${synthesisText}\n\n` +
+              `Update the memory to include this discussion — keep it concise, max 500 words, running summary format.`,
+          }],
+          700,
+          (chunk) => { newMemory += chunk; }
+        );
+        if (newMemory.trim()) {
+          await saveSarahMemory(newMemory.trim());
+          setSarahMemory(newMemory.trim());
+        }
+      } catch (memErr) {
+        console.error("[memory] update error", memErr);
+      }
+      setUpdatingMemory(false);
 
     } catch (err) {
       console.error("Discussion error:", err);
@@ -524,19 +582,27 @@ function ProductTeamTab() {
       {/* Past conversations */}
       <PastConversations type="team" onLoad={loadPastConversation} />
 
-      {/* Team roster */}
-      <div className="flex gap-3 flex-wrap">
-        {(Object.entries(AGENTS) as [AgentId, typeof AGENTS[AgentId]][]).map(([id, a]) => (
-          <div key={id} className="flex items-center gap-2 bg-[#111] border border-[#1e1e1e] rounded-xl px-3 py-2">
-            <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${a.badge}`}>
-              {a.initial}
+      {/* Team roster + memory status */}
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex gap-3 flex-wrap">
+          {(Object.entries(AGENTS) as [AgentId, typeof AGENTS[AgentId]][]).map(([id, a]) => (
+            <div key={id} className="flex items-center gap-2 bg-[#111] border border-[#1e1e1e] rounded-xl px-3 py-2">
+              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${a.badge}`}>
+                {a.initial}
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-white leading-none">{a.name}</p>
+                <p className="text-xs text-gray-600 mt-0.5">{a.role}</p>
+              </div>
             </div>
-            <div>
-              <p className="text-xs font-semibold text-white leading-none">{a.name}</p>
-              <p className="text-xs text-gray-600 mt-0.5">{a.role}</p>
-            </div>
-          </div>
-        ))}
+          ))}
+        </div>
+        {memoryLoading && (
+          <p className="text-xs text-gray-600 italic">Sarah is remembering…</p>
+        )}
+        {updatingMemory && (
+          <p className="text-xs text-gray-600 italic">Updating Sarah's memory…</p>
+        )}
       </div>
 
       {/* Input */}
