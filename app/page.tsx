@@ -14,7 +14,7 @@ export default function Home() {
         <div className="mb-20">
           <p className="text-[#00D64F] font-semibold text-sm tracking-widest uppercase mb-4">Rise</p>
           <h1 className="text-6xl md:text-7xl font-extrabold tracking-tight leading-none mb-6">
-            Your personal<br />travel concierge.
+            Your personal<br />travel assistant.
           </h1>
           <p className="text-gray-400 text-xl mb-10 max-w-md">
             AI-powered planning, insider tips, and smart transport — all in one place.
