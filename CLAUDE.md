@@ -28,10 +28,10 @@ Rise is an AI-powered trip planning app. It helps travellers plan trips day-by-d
 ## Current Features
 
 ### Traveller flows
-- **Onboarding wizard** (`/welcome`) — 6-step flow: Step 0 full-screen landing (destination) → Step 1 destination + dates → Step 2 hotel (Places autocomplete biased to destination) → Step 3 AI activity preview (streaming) → Step 4 travel preferences (company + style tags) → Step 5 account creation. Saves to Supabase `travelers` table and `localStorage` (`rise_traveler`, `rise_onboarded`).
+- **Onboarding wizard** (`/welcome`) — 6-step flow: Step 0 full-screen landing (destination) → Step 1 destination + dates → Step 2 travel preferences (company, style tags, budget tier) → Step 3 AI activity preview (streaming, personalised with Step 2 inputs) → Step 4 hotel (Places autocomplete biased to destination) → Step 5 account creation. Saves to Supabase `travelers` table and `localStorage` (`rise_traveler`, `rise_onboarded`). Step 2 company options: Solo / Partner / Friends / Family. Style options: 10 tags in a 2-column grid. Budget options: Budget / Mid-range / Luxury, each with a one-line descriptive anchor.
 - **Dashboard** (`/dashboard`) — Shows trip summary (destination, dates, nights, hotel, activities) read from `localStorage`. Links to itinerary, transport, profile, and guides.
 - **Day-by-day itinerary** (`/itinerary`) — Day-view timeline with one column per trip day and three time blocks (morning / afternoon / evening). AI pre-populates suggestions on first load via `/api/itinerary/generate`; persisted to `localStorage` (`rise_itinerary`). Users can drag items between time blocks (HTML5 drag-and-drop), dismiss suggestions (×), and add their own items inline.
-- **AI activity preview** (`/api/activities-stream`) — Streaming markdown of 5–6 must-do activities shown at step 3 of onboarding. Uses trip duration in the prompt.
+- **AI activity preview** (`/api/activities-stream`) — Streaming markdown of 5–6 must-do activities shown at Step 3 of onboarding. Prompt is structured with explicit company, style tags, and budget tier: *"You are recommending activities for a [company] trip… Budget tier: [budget]. Style preferences: [tags]. Do not recommend options that contradict the budget tier."* The loading state names the user's inputs back to them (e.g. *"Finding activities for a solo trip, food-led, budget budget in Lisbon…"*). All preference fields are logged to `ai_logs`.
 - **AI activity suggestions** (`/api/activities`) — POSTs destination to Claude, returns 20 categorised activities as JSON.
 - **Airport → Hotel transport** (`/transport`) — Streaming AI advice comparing public transport vs taxi for a given airport/hotel/city.
 - **Travel profile & restaurant recommendations** (`/profile`) — Collects traveller type, destination, dates, company, budget, dietary wishes. Streams personalised restaurant picks from Claude.
@@ -55,7 +55,7 @@ Rise is an AI-powered trip planning app. It helps travellers plan trips day-by-d
 
 ### Product team (`/team`) — four tabs
 - **Product team tab** — Multi-agent discussion: Sarah (PM) frames the problem, Alex/Maya/Luca respond in parallel, Sarah synthesises. Generates PRD. Sarah's memory persisted in `agent_memory` table. Saves to `team_conversations` (type=`"team"`).
-- **PM tab** — 1-on-1 conversation with Sarah (PM). Chat UI with streaming responses. On mount, fetches full CLAUDE.md content from `/api/rise-context` and injects it into the system prompt. Saves conversations to `team_conversations` (type=`"pm"`). Objectives panel below chat: manual text input + "Save objective" button stores agreed objectives to `objectives` table; each objective shows title, status badge (active/completed/paused), click badge to cycle status. When an objective is saved, triggers a fire-and-forget OST update: fetches last 10 feedback entries, loads the current OST snapshot, asks Claude to revise the tree, saves the result to `ost_snapshots`, and shows a transient "OST updated" notification.
+- **PM tab** — 1-on-1 conversation with Sarah (PM). Chat UI with streaming responses. On mount, fetches full CLAUDE.md content from `/api/rise-context` and injects it into the system prompt. Saves conversations to `team_conversations` (type=`"pm"`). Past conversations are browsable via the `PastConversations` component (same as the other tabs). Objectives panel below chat: manual text input + "Save objective" button stores agreed objectives to `objectives` table; each objective shows title, status badge (active/completed/paused), click badge to cycle status. When an objective is saved, triggers a fire-and-forget OST update: fetches last 10 feedback entries, loads the current OST snapshot, asks Claude to revise the tree, saves the result to `ost_snapshots`, and shows a transient "OST updated" notification. Sarah's instruction tells her to ask Philip to use the "Save objective" input below the chat — she cannot save objectives herself.
 - **Product coach tab** — 1-on-1 with a product coach (Claude Opus 4.6). Full conversation history maintained; saved to `team_conversations` (type=`"coach"`).
 - **Opportunity tree tab** — HTML5 canvas OST visualiser. Oval nodes, Bézier edges, hover glow, double-click to edit text, PNG download. AI generation from user feedback via non-streaming Claude call. On mount, loads the latest snapshot from `ost_snapshots` Supabase table; falls back to a default example tree if none exists.
 
@@ -243,7 +243,7 @@ function dbErr(err: unknown): string {
 ### localStorage keys
 | Key | Contents |
 |---|---|
-| `rise_traveler` | Full traveller object (name, email, destination, dates, hotel, travelCompany, travelerTypes, activities) |
+| `rise_traveler` | Full traveller object (name, email, destination, dates, hotel, travelCompany, travelerTypes, budgetTier, activities) |
 | `rise_onboarded` | `"true"` — gates redirect from `/welcome` to `/dashboard` |
 | `rise_itinerary` | Cached `ItineraryDay[]` array — cleared and regenerated when user clicks Regenerate |
 

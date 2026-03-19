@@ -251,7 +251,7 @@ const PM_SYSTEM =
   "You are Sarah, the Product Manager for Rise, a travel concierge app. " +
   "You are having a 1-on-1 conversation with Philip, the founder. " +
   "Your role is to help him clarify thinking, discuss ideas and issues, and agree on clear objectives to work on. " +
-  "When Philip and you agree on an objective together, confirm it explicitly and tell him you'll save it. " +
+  "When you and Philip agree on an objective, summarize it clearly and tell him to save it using the 'Save objective' input below the chat. You cannot save it yourself. " +
   "Keep responses concise and conversational — this is a 1-on-1, not a formal meeting. " +
   "Be direct, ask good questions, and push back when needed.";
 
@@ -447,7 +447,7 @@ async function saveOstSnapshot(tree: OSTTree, objectiveId: string): Promise<void
   if (error) console.error("[ost_snapshots] save error", dbErr(error));
 }
 
-async function loadConversations(type: "team" | "coach"): Promise<ConversationRow[]> {
+async function loadConversations(type: "team" | "coach" | "pm"): Promise<ConversationRow[]> {
   const { data, error } = await supabase
     .from("team_conversations")
     .select("id, type, title, messages, prd, created_at")
@@ -634,7 +634,7 @@ function PastConversations({
   type,
   onLoad,
 }: {
-  type: "team" | "coach";
+  type: "team" | "coach" | "pm";
   onLoad: (row: ConversationRow) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -1415,16 +1415,17 @@ Update the OST to reflect the new objective and any relevant insights from the f
       });
 
       if (!res.ok) return;
-      const raw: string = await res.json();
+      const raw: unknown = await res.json();
+      const rawStr = typeof raw === "string" ? raw : JSON.stringify(raw);
       let updated: OSTTree | null = null;
       try {
-        const clean = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+        const clean = rawStr.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
         updated = JSON.parse(clean);
       } catch {
-        const start = raw.indexOf("{");
-        const end = raw.lastIndexOf("}");
+        const start = rawStr.indexOf("{");
+        const end = rawStr.lastIndexOf("}");
         if (start !== -1 && end !== -1) {
-          try { updated = JSON.parse(raw.slice(start, end + 1)); } catch { /* give up */ }
+          try { updated = JSON.parse(rawStr.slice(start, end + 1)); } catch { /* give up */ }
         }
       }
 
@@ -1444,8 +1445,8 @@ Update the OST to reflect the new objective and any relevant insights from the f
     setSavingObj(true);
     const obj = await saveObjective(title);
     if (obj) {
-      setObjectives((prev) => [obj, ...prev]);
       setObjInput("");
+      loadObjectives().then(setObjectives);
       // Fire-and-forget OST update
       updateOstFromObjective(title, obj.id);
     }
@@ -1460,8 +1461,18 @@ Update the OST to reflect the new objective and any relevant insights from the f
     setTogglingId(null);
   }
 
+  function loadPastConversation(row: ConversationRow) {
+    const msgs = row.messages as { history: CoachMessage[] };
+    setMessages(msgs.history ?? []);
+    conversationIdRef.current = row.id;
+    setPmError("");
+  }
+
   return (
     <div className="flex flex-col gap-8">
+
+      {/* Past conversations */}
+      <PastConversations type="pm" onLoad={loadPastConversation} />
 
       {/* Chat */}
       <div className="flex flex-col gap-4">
