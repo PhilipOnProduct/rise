@@ -28,10 +28,10 @@ Rise is an AI-powered trip planning app. It helps travellers plan trips day-by-d
 ## Current Features
 
 ### Traveller flows
-- **Onboarding wizard** (`/welcome`) — 6-step flow: Step 0 full-screen landing (destination) → Step 1 destination + dates → Step 2 hotel (Places autocomplete biased to destination) → Step 3 AI activity preview (streaming) → Step 4 travel preferences (company + style tags) → Step 5 account creation. Saves to Supabase `travelers` table and `localStorage` (`rise_traveler`, `rise_onboarded`).
+- **Onboarding wizard** (`/welcome`) — 6-step flow: Step 0 full-screen landing (destination) → Step 1 destination + dates → Step 2 hotel (Places autocomplete biased to destination) → Step 3 travel preferences (company, style tags, budget tier) → Step 4 AI activity preview (streaming, personalised using Step 3 preferences) → Step 5 account creation. Preferences are written to Supabase via partial upsert when the user advances from Step 3 to Step 4. Saves to Supabase `travelers` table and `localStorage` (`rise_traveler`, `rise_onboarded`).
 - **Dashboard** (`/dashboard`) — Shows trip summary (destination, dates, nights, hotel, activities) read from `localStorage`. Links to itinerary, transport, profile, and guides.
 - **Day-by-day itinerary** (`/itinerary`) — Day-view timeline with one column per trip day and three time blocks (morning / afternoon / evening). AI pre-populates suggestions on first load via `/api/itinerary/generate`; persisted to `localStorage` (`rise_itinerary`). Users can drag items between time blocks (HTML5 drag-and-drop), dismiss suggestions (×), and add their own items inline.
-- **AI activity preview** (`/api/activities-stream`) — Streaming markdown of 5–6 must-do activities shown at step 3 of onboarding. Uses trip duration in the prompt.
+- **AI activity preview** (`/api/activities-stream`) — Streaming markdown of 5–6 must-do activities shown at step 4 of onboarding. Accepts `travelCompany`, `styleTags`, and `budgetTier` as hard constraints in the Claude prompt. Loading state echoes traveller profile back ("Planning your solo trip to Lisbon…"). All preference inputs logged to `ai_logs`.
 - **AI activity suggestions** (`/api/activities`) — POSTs destination to Claude, returns 20 categorised activities as JSON.
 - **Airport → Hotel transport** (`/transport`) — Streaming AI advice comparing public transport vs taxi for a given airport/hotel/city.
 - **Travel profile & restaurant recommendations** (`/profile`) — Collects traveller type, destination, dates, company, budget, dietary wishes. Streams personalised restaurant picks from Claude.
@@ -243,7 +243,7 @@ function dbErr(err: unknown): string {
 ### localStorage keys
 | Key | Contents |
 |---|---|
-| `rise_traveler` | Full traveller object (name, email, destination, dates, hotel, travelCompany, travelerTypes, activities) |
+| `rise_traveler` | Full traveller object (name, email, destination, dates, hotel, travelCompany, travelerTypes, budgetTier, activities) |
 | `rise_onboarded` | `"true"` — gates redirect from `/welcome` to `/dashboard` |
 | `rise_itinerary` | Cached `ItineraryDay[]` array — cleared and regenerated when user clicks Regenerate |
 
