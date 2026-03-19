@@ -71,7 +71,7 @@ const OST_COLORS: Record<LayoutNode["kind"], { fill: string; stroke: string; tex
 };
 
 const OST_SYSTEM =
-  "You are a product researcher building an Opportunity Solution Tree for Rise, a travel concierge app. " +
+  "You are a product researcher building an Opportunity Solution Tree for Rise, a travel assistant app. " +
   "Rise: onboarding wizard, AI activity suggestions, airport-hotel transport, local guides with points, day-view itinerary. " +
   "Business model: commission on bookings. Early MVP. " +
   "Return ONLY valid JSON, no markdown: " +
@@ -238,7 +238,7 @@ function ostUpdateText(tree: OSTTree, id: string, text: string): OSTTree {
 // ── Constants ──────────────────────────────────────────────────────────────────
 
 const RISE_CONTEXT =
-  "Rise is an AI-powered travel concierge app. Stack: Next.js 16, TypeScript, Tailwind CSS, Supabase (Postgres), Anthropic API, Vercel. " +
+  "Rise is an AI-powered travel assistant app. Stack: Next.js 16, TypeScript, Tailwind CSS, Supabase (Postgres), Anthropic API, Vercel. " +
   "Features: 5-step onboarding wizard (destination → dates → hotel → activities → account), AI restaurant recommendations (streaming), " +
   "airport-to-hotel transport advice (streaming), local guides with tip submission, views, ratings, reputation/points and leaderboard, " +
   "admin dashboard with AI logs. Business model: commission on bookings. Stage: early MVP, no paying users yet.";
@@ -248,7 +248,7 @@ const COACH_MODEL = "claude-opus-4-6";
 const PM_MODEL = "claude-sonnet-4-6";
 
 const PM_SYSTEM =
-  "You are Sarah, the Product Manager for Rise, a travel concierge app. " +
+  "You are Sarah, the Product Manager for Rise, a travel assistant app. " +
   "You are having a 1-on-1 conversation with Philip, the founder. " +
   "Your role is to help him clarify thinking, discuss ideas and issues, and agree on clear objectives to work on. " +
   "When you and Philip agree on an objective, summarize it clearly and tell him to save it using the 'Save objective' input below the chat. You cannot save it yourself. " +
@@ -264,28 +264,28 @@ const AGENTS: Record<
     role: "PM",
     initial: "S",
     badge: "bg-[#00D64F] text-black",
-    system: `You are Sarah, the Product Manager at Rise — a travel concierge app. ${RISE_CONTEXT}\nFrame problems clearly, identify the core user need, and make decisive product recommendations. Be concise and strategic. Use short paragraphs.`,
+    system: `You are Sarah, the Product Manager at Rise — a travel assistant app. ${RISE_CONTEXT}\nFrame problems clearly, identify the core user need, and make decisive product recommendations. Be concise and strategic. Use short paragraphs.`,
   },
   alex: {
     name: "Alex",
     role: "Researcher",
     initial: "A",
     badge: "bg-blue-600 text-white",
-    system: `You are Alex, the User Researcher at Rise — a travel concierge app. ${RISE_CONTEXT}\nAnalyze user behavior, identify research gaps, suggest validation methods. Be evidence-based and specific. Use short paragraphs.`,
+    system: `You are Alex, the User Researcher at Rise — a travel assistant app. ${RISE_CONTEXT}\nAnalyze user behavior, identify research gaps, suggest validation methods. Be evidence-based and specific. Use short paragraphs.`,
   },
   maya: {
     name: "Maya",
     role: "Designer",
     initial: "M",
     badge: "bg-purple-600 text-white",
-    system: `You are Maya, the Product Designer at Rise — a travel concierge app with a dark Uber-inspired design (#0a0a0a background, #00D64F green accent, DM Sans font, rounded-2xl cards). ${RISE_CONTEXT}\nFocus on UX flows, user journeys, visual hierarchy, and interaction patterns. Be specific about design decisions. Use short paragraphs.`,
+    system: `You are Maya, the Product Designer at Rise — a travel assistant app with a dark Uber-inspired design (#0a0a0a background, #00D64F green accent, DM Sans font, rounded-2xl cards). ${RISE_CONTEXT}\nFocus on UX flows, user journeys, visual hierarchy, and interaction patterns. Be specific about design decisions. Use short paragraphs.`,
   },
   luca: {
     name: "Luca",
     role: "Tech Lead",
     initial: "L",
     badge: "bg-orange-500 text-white",
-    system: `You are Luca, the Tech Lead at Rise — a travel concierge app. ${RISE_CONTEXT} Architecture: Next.js App Router, API routes for AI calls, Supabase Postgres, Vercel edge.\nAssess feasibility, flag complexity, suggest the simplest viable approach. Use short paragraphs.`,
+    system: `You are Luca, the Tech Lead at Rise — a travel assistant app. ${RISE_CONTEXT} Architecture: Next.js App Router, API routes for AI calls, Supabase Postgres, Vercel edge.\nAssess feasibility, flag complexity, suggest the simplest viable approach. Use short paragraphs.`,
   },
 };
 

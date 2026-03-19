@@ -11,7 +11,7 @@ const dmSans = DM_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "Rise — Your personal travel concierge",
+  title: "Rise — Your personal travel assistant",
   description: "AI-powered travel planning, tailored to you.",
 };
 
