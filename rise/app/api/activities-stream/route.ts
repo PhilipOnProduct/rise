@@ -6,7 +6,8 @@ const client = new Anthropic();
 const MODEL = "claude-sonnet-4-6";
 
 export async function POST(req: NextRequest) {
-  const { destination, departureDate, returnDate } = await req.json();
+  const { destination, departureDate, returnDate, travelCompany, styleTags, budgetTier } =
+    await req.json();
 
   const nights =
     departureDate && returnDate
@@ -17,9 +18,18 @@ export async function POST(req: NextRequest) {
       : null;
   const duration = nights ? `${nights}-night trip` : "trip";
 
-  const prompt = `You are an expert travel planner. Suggest 5–6 must-do activities for a ${duration} to ${destination}.
+  const company = travelCompany || "solo";
+  const budget = budgetTier || "mid";
+  const styleList: string[] = Array.isArray(styleTags) && styleTags.length > 0
+    ? styleTags
+    : ["mixed styles"];
 
-For each activity provide its name, a one-sentence description, and a brief note on when in the trip it works best.
+  const prompt = `You are recommending activities for a ${company} ${duration} to ${destination}.
+Budget tier: ${budget}. Style preferences: ${styleList.join(", ")}.
+Prioritise suggestions that match this profile specifically.
+Do not recommend options that contradict the budget tier.
+
+Suggest 5–6 must-do activities. For each provide its name, a one-sentence description, and a brief note on when in the trip it works best.
 
 Format each as:
 
@@ -27,7 +37,7 @@ Format each as:
 [One-sentence description]
 *When: [timing or day suggestion]*
 
-Cover a genuine mix: culture, food, local neighbourhood, nature, a hidden gem. Be specific to ${destination} — avoid generic suggestions. Keep each entry concise.`;
+Be specific to ${destination} — avoid generic suggestions. Keep each entry concise.`;
 
   const startTime = Date.now();
   const stream = client.messages.stream({
@@ -57,7 +67,7 @@ Cover a genuine mix: culture, food, local neighbourhood, nature, a hidden gem. B
           feature: "activities-stream",
           model: MODEL,
           prompt,
-          input: { destination, departureDate, returnDate },
+          input: { destination, departureDate, returnDate, travelCompany, styleTags, budgetTier },
           output,
           latency_ms: Date.now() - startTime,
           input_tokens: final.usage.input_tokens,

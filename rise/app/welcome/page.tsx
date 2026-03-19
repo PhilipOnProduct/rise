@@ -8,23 +8,28 @@ const TOTAL_WIZARD_STEPS = 5; // steps 1–5
 
 const COMPANY_OPTIONS = [
   { id: "solo", label: "Solo", emoji: "🧳" },
-  { id: "couple", label: "Couple", emoji: "💑" },
-  { id: "family", label: "Family", emoji: "👨‍👩‍👧" },
+  { id: "partner", label: "Partner", emoji: "💑" },
   { id: "friends", label: "Friends", emoji: "👯" },
-  { id: "business", label: "Business", emoji: "💼" },
+  { id: "family", label: "Family", emoji: "👨‍👩‍👧" },
 ];
 
 const STYLE_OPTIONS = [
-  "Foodie",
-  "Culture lover",
-  "Adventure seeker",
-  "Luxury traveler",
-  "Budget traveler",
-  "Nature lover",
+  "Adventure",
+  "Food-led",
+  "Cultural",
   "Nightlife",
-  "Shopping",
-  "History buff",
-  "Beach lover",
+  "Relaxed",
+  "Off the beaten track",
+  "Art & Design",
+  "Wellness",
+  "History",
+  "Photography",
+];
+
+const BUDGET_OPTIONS = [
+  { id: "budget", label: "Budget", description: "Street food and hostels" },
+  { id: "mid", label: "Mid-range", description: "Mid-range hotels and sit-down meals" },
+  { id: "luxury", label: "Luxury", description: "No compromises" },
 ];
 
 function tomorrow() {
@@ -37,6 +42,21 @@ function addDays(dateStr: string, days: number) {
   const d = new Date(dateStr);
   d.setDate(d.getDate() + days);
   return d.toISOString().split("T")[0];
+}
+
+function buildLoadingLabel(destination: string, travelCompany: string, travelerTypes: string[], budgetTier: string) {
+  const parts: string[] = [];
+  if (travelCompany) {
+    const opt = COMPANY_OPTIONS.find((o) => o.id === travelCompany);
+    parts.push(opt ? `${opt.label.toLowerCase()} trip` : travelCompany);
+  }
+  if (travelerTypes.length > 0) parts.push(travelerTypes[0].toLowerCase());
+  if (budgetTier) {
+    const opt = BUDGET_OPTIONS.find((o) => o.id === budgetTier);
+    if (opt) parts.push(opt.label.toLowerCase() + " budget");
+  }
+  const profile = parts.length > 0 ? ` for a ${parts.join(", ")}` : "";
+  return `Finding activities${profile} in ${destination}…`;
 }
 
 export default function WelcomePage() {
@@ -52,6 +72,7 @@ export default function WelcomePage() {
   const [hotel, setHotel] = useState("");
   const [travelCompany, setTravelCompany] = useState("");
   const [travelerTypes, setTravelerTypes] = useState<string[]>([]);
+  const [budgetTier, setBudgetTier] = useState("");
 
   // Account
   const [name, setName] = useState("");
@@ -67,7 +88,7 @@ export default function WelcomePage() {
     if (departureDate) setReturnDate(addDays(departureDate, 7));
   }, [departureDate]);
 
-  // Fire streaming preview when entering step 3
+  // Fire streaming preview when entering step 3 (after preferences collected in step 2)
   useEffect(() => {
     if (step !== 3) return;
 
@@ -86,6 +107,9 @@ export default function WelcomePage() {
             destination,
             departureDate: departureDate || "",
             returnDate: returnDate || "",
+            travelCompany,
+            styleTags: travelerTypes,
+            budgetTier,
           }),
         });
         if (!res.body) return;
@@ -107,7 +131,7 @@ export default function WelcomePage() {
     return () => {
       controller.abort();
     };
-  }, [step, destination, departureDate, returnDate]);
+  }, [step, destination, departureDate, returnDate, travelCompany, travelerTypes, budgetTier]);
 
   function goTo(next: number) {
     setStep(next);
@@ -164,6 +188,7 @@ export default function WelcomePage() {
       hotel,
       travelCompany,
       travelerTypes,
+      budgetTier,
       activities: [],
     };
     localStorage.setItem("rise_traveler", JSON.stringify(travelerData));
@@ -211,9 +236,9 @@ export default function WelcomePage() {
 
   const canContinue: Record<number, boolean> = {
     1: destination.trim().length > 0 && departureDate.length > 0 && returnDate.length > 0,
-    2: hotel.trim().length > 0,
+    2: true,
     3: true,
-    4: true,
+    4: hotel.trim().length > 0,
     5: name.trim().length > 0 && email.trim().length > 0,
   };
 
@@ -224,17 +249,17 @@ export default function WelcomePage() {
 
   const headings: Record<number, string> = {
     1: "When are you going?",
-    2: "Where are you staying?",
+    2: "What kind of trip?",
     3: `What to do in ${destination}.`,
-    4: "Tell us about yourself.",
+    4: "Where are you staying?",
     5: "Save your trip plan.",
   };
 
   const subs: Record<number, string> = {
     1: `Great choice. Now let's lock in the dates for ${destination}.`,
-    2: "Your hotel helps us give you better transport and local advice.",
+    2: "Tell us who you're travelling with, your style, and your budget — so we can personalise your activity ideas.",
     3: "AI activity ideas tailored to your trip — before you commit to anything.",
-    4: "A few quick questions so we can personalise your experience.",
+    4: "Your hotel helps us give you better transport and local advice.",
     5: "Your personalised plan is ready. Create an account to save it.",
   };
 
@@ -319,43 +344,8 @@ export default function WelcomePage() {
             </div>
           )}
 
-          {/* Step 2: Hotel */}
+          {/* Step 2: Preferences — company, style, budget */}
           {step === 2 && (
-            <PlacesAutocomplete
-              value={hotel}
-              onChange={setHotel}
-              onSelect={setHotel}
-              placeholder="e.g. Park Hyatt Tokyo"
-              types={["establishment"]}
-              locationBias={destinationBias}
-              autoFocus
-              onEnter={() => canContinue[2] && handleContinue()}
-              className={underlineInput}
-            />
-          )}
-
-          {/* Step 3: AI Preview */}
-          {step === 3 && (
-            <div className="rounded-2xl border border-[#1e1e1e] bg-[#111] p-6 min-h-[280px]">
-              {previewLoading && !previewText && (
-                <div className="flex items-center gap-3 text-gray-400">
-                  <div className="w-4 h-4 rounded-full border-2 border-[#00D64F] border-t-transparent animate-spin flex-shrink-0" />
-                  <span>Planning your {destination} trip…</span>
-                </div>
-              )}
-              {previewText && (
-                <div className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">
-                  {previewText}
-                  {previewLoading && (
-                    <span className="inline-block w-1.5 h-4 bg-[#00D64F] ml-0.5 align-middle animate-pulse" />
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Step 4: Travel preferences */}
-          {step === 4 && (
             <div className="flex flex-col gap-8">
               <div>
                 <label className="block text-sm font-semibold text-gray-400 uppercase tracking-widest mb-4">
@@ -378,17 +368,18 @@ export default function WelcomePage() {
                   ))}
                 </div>
               </div>
+
               <div>
                 <label className="block text-sm font-semibold text-gray-400 uppercase tracking-widest mb-1">
                   What's your travel style?
                 </label>
                 <p className="text-gray-600 text-sm mb-4">Pick as many as you like.</p>
-                <div className="flex flex-wrap gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   {STYLE_OPTIONS.map((style) => (
                     <button
                       key={style}
                       onClick={() => toggleStyle(style)}
-                      className={`px-4 py-2 rounded-xl border text-sm font-semibold transition-all ${
+                      className={`px-4 py-2.5 rounded-xl border text-sm font-semibold transition-all text-left ${
                         travelerTypes.includes(style)
                           ? "border-[#00D64F] bg-[#00D64F]/10 text-white"
                           : "border-[#1e1e1e] bg-[#111] text-gray-400 hover:border-[#333] hover:text-white"
@@ -399,7 +390,66 @@ export default function WelcomePage() {
                   ))}
                 </div>
               </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-400 uppercase tracking-widest mb-4">
+                  What's your budget?
+                </label>
+                <div className="flex flex-col gap-2">
+                  {BUDGET_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.id}
+                      onClick={() => setBudgetTier(budgetTier === opt.id ? "" : opt.id)}
+                      className={`flex items-center justify-between px-5 py-4 rounded-2xl border text-left transition-all ${
+                        budgetTier === opt.id
+                          ? "border-[#00D64F] bg-[#00D64F]/10"
+                          : "border-[#1e1e1e] bg-[#111] hover:border-[#333]"
+                      }`}
+                    >
+                      <span className={`text-sm font-bold ${budgetTier === opt.id ? "text-white" : "text-gray-400"}`}>
+                        {opt.label}
+                      </span>
+                      <span className="text-xs text-gray-600">{opt.description}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
+          )}
+
+          {/* Step 3: AI Preview — personalised with preferences */}
+          {step === 3 && (
+            <div className="rounded-2xl border border-[#1e1e1e] bg-[#111] p-6 min-h-[280px]">
+              {previewLoading && !previewText && (
+                <div className="flex items-center gap-3 text-gray-400">
+                  <div className="w-4 h-4 rounded-full border-2 border-[#00D64F] border-t-transparent animate-spin flex-shrink-0" />
+                  <span>{buildLoadingLabel(destination, travelCompany, travelerTypes, budgetTier)}</span>
+                </div>
+              )}
+              {previewText && (
+                <div className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">
+                  {previewText}
+                  {previewLoading && (
+                    <span className="inline-block w-1.5 h-4 bg-[#00D64F] ml-0.5 align-middle animate-pulse" />
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Step 4: Hotel */}
+          {step === 4 && (
+            <PlacesAutocomplete
+              value={hotel}
+              onChange={setHotel}
+              onSelect={setHotel}
+              placeholder="e.g. Park Hyatt Tokyo"
+              types={["establishment"]}
+              locationBias={destinationBias}
+              autoFocus
+              onEnter={() => canContinue[4] && handleContinue()}
+              className={underlineInput}
+            />
           )}
 
           {/* Step 5: Account creation */}
