@@ -876,7 +876,7 @@ function ProductTeamTab({
             `Use these sections exactly:\n` +
             `## Overview\n## Problem Statement\n## User Need\n## Proposed Solution\n` +
             `## User Stories\n## Success Metrics\n## Technical Considerations\n## Risks & Open Questions\n## Claude Code Implementation Prompt\n\n` +
-            `At the end of the PRD, include a Claude Code Implementation Prompt section. Write a self-contained prompt that includes: (1) what to build in functional terms, (2) any hard technical requirements or sequencing constraints, (3) acceptance criteria as a short bulleted list. The prompt must be complete enough that a developer can implement it without reading the rest of the PRD. Keep it under 200 words. No file paths, no code snippets, no references to CLAUDE.md.`,
+            `For the Claude Code Implementation Prompt section: write a prompt for Claude Code to implement this feature. Include only: (1) what to build in plain functional language, (2) any hard constraints that affect sequencing or data flow. No acceptance criteria, no function signatures, no timing values, no schema details, no technical implementation patterns. Be as concise as the feature allows.`,
         }],
         6000, (chunk) => { prdText += chunk; setPrd(prdText); }
       );
