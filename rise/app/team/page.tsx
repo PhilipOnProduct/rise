@@ -1396,7 +1396,7 @@ function KanbanTab({ onDiscuss }: { onDiscuss: (objectiveId: string, problem: st
 
 // ── PM 1-on-1 Tab ─────────────────────────────────────────────────────────────
 
-function PMTab() {
+function PMTab({ onSwitchToKanban }: { onSwitchToKanban: () => void }) {
   const [messages, setMessages] = useState<CoachMessage[]>([]);
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
@@ -1620,9 +1620,17 @@ function PMTab() {
       {/* Objectives */}
       <div className="border-t border-[#1a1a1a] pt-8 flex flex-col gap-5">
 
-        <div>
-          <h2 className="text-base font-bold text-white mb-1">Agreed objectives</h2>
-          <p className="text-xs text-gray-600">Objectives saved to the Kanban board as backlog cards.</p>
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h2 className="text-base font-bold text-white mb-1">Agreed objectives</h2>
+            <p className="text-xs text-gray-600">Objectives saved to the Kanban board as backlog cards.</p>
+          </div>
+          <button
+            onClick={onSwitchToKanban}
+            className="text-sm text-[#00D64F] hover:opacity-75 transition-opacity whitespace-nowrap shrink-0"
+          >
+            View Kanban →
+          </button>
         </div>
 
         {/* Save input */}
@@ -1734,7 +1742,7 @@ export default function TeamPage() {
             onObjectiveSaved={() => setPendingObjective(null)}
           />
         )}
-        {activeTab === "pm" && <PMTab />}
+        {activeTab === "pm" && <PMTab onSwitchToKanban={() => setActiveTab("kanban")} />}
         {activeTab === "coach" && <ProductCoachTab />}
 
       </div>
