@@ -1222,13 +1222,13 @@ function KanbanCard({
   col,
   onDiscuss,
   onDelete,
-  onStatusChange,
+  onDragStart,
 }: {
   obj: Objective;
   col: typeof KANBAN_COLUMNS[number];
   onDiscuss: (id: string, problem: string) => void;
   onDelete: (id: string) => void;
-  onStatusChange: (id: string, status: ObjectiveStatus) => void;
+  onDragStart: (id: string, fromStatus: ObjectiveStatus) => void;
 }) {
   const [prdOpen, setPrdOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -1244,28 +1244,16 @@ function KanbanCard({
   }
 
   return (
-    <div className={`bg-[#111] border ${col.borderClass} rounded-2xl p-4 flex flex-col gap-3`}>
-      {/* Title + status */}
-      <div className="flex items-start gap-2">
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-bold text-white leading-snug line-clamp-2" title={obj.title}>{obj.title}</p>
-          {obj.description && (
-            <p className="text-xs text-gray-500 mt-1 leading-relaxed line-clamp-3 overflow-hidden">{obj.description}</p>
-          )}
-        </div>
-        {isDone ? (
-          <span className={`shrink-0 text-xs font-semibold px-2.5 py-1 rounded-full ${STATUS_STYLES.done}`}>Done</span>
-        ) : (
-          <select
-            value={obj.status}
-            onChange={(e) => onStatusChange(obj.id, e.target.value as ObjectiveStatus)}
-            className="shrink-0 text-xs font-semibold bg-[#0a0a0a] border border-[#2a2a2a] text-gray-400 rounded-full px-2 py-1 cursor-pointer"
-          >
-            <option value="backlog">Backlog</option>
-            <option value="refine">Refine</option>
-            <option value="in-progress">In Progress</option>
-            <option value="done">Done</option>
-          </select>
+    <div
+      draggable={!isDone}
+      onDragStart={isDone ? undefined : () => onDragStart(obj.id, obj.status)}
+      className={`bg-[#111] border ${col.borderClass} rounded-2xl p-4 flex flex-col gap-3 ${!isDone ? "cursor-grab active:cursor-grabbing" : ""}`}
+    >
+      {/* Title */}
+      <div>
+        <p className="text-sm font-bold text-white leading-snug line-clamp-2" title={obj.title}>{obj.title}</p>
+        {obj.description && (
+          <p className="text-xs text-gray-500 mt-1 leading-relaxed line-clamp-3 overflow-hidden">{obj.description}</p>
         )}
       </div>
 
@@ -1334,6 +1322,8 @@ function KanbanCard({
 function KanbanTab({ onDiscuss }: { onDiscuss: (objectiveId: string, problem: string) => void }) {
   const [objectives, setObjectives] = useState<Objective[]>([]);
   const [loading, setLoading] = useState(true);
+  const [dragging, setDragging] = useState<{ id: string; fromStatus: ObjectiveStatus } | null>(null);
+  const [dragOverCol, setDragOverCol] = useState<ObjectiveStatus | null>(null);
 
   useEffect(() => {
     loadObjectives().then((data) => { setObjectives(data); setLoading(false); });
@@ -1344,9 +1334,27 @@ function KanbanTab({ onDiscuss }: { onDiscuss: (objectiveId: string, problem: st
     setObjectives((prev) => prev.filter((o) => o.id !== id));
   }
 
-  async function handleStatusChange(id: string, status: ObjectiveStatus) {
-    await updateObjectiveStatus(id, status);
-    setObjectives((prev) => prev.map((o) => o.id === id ? { ...o, status } : o));
+  function handleDragStart(id: string, fromStatus: ObjectiveStatus) {
+    setDragging({ id, fromStatus });
+  }
+
+  function handleDragOver(e: React.DragEvent, colStatus: ObjectiveStatus) {
+    e.preventDefault();
+    setDragOverCol(colStatus);
+  }
+
+  function handleDragLeave() {
+    setDragOverCol(null);
+  }
+
+  async function handleDrop(e: React.DragEvent, toStatus: ObjectiveStatus) {
+    e.preventDefault();
+    setDragOverCol(null);
+    if (!dragging || dragging.fromStatus === toStatus) { setDragging(null); return; }
+    const { id } = dragging;
+    setDragging(null);
+    setObjectives((prev) => prev.map((o) => o.id === id ? { ...o, status: toStatus } : o));
+    await updateObjectiveStatus(id, toStatus);
   }
 
   if (loading) return <p className="text-sm text-gray-600 py-4">Loading…</p>;
@@ -1363,30 +1371,42 @@ function KanbanTab({ onDiscuss }: { onDiscuss: (objectiveId: string, problem: st
     <div className="grid grid-cols-4 gap-3 pb-4">
       {KANBAN_COLUMNS.map((col) => {
         const cards = objectives.filter((o) => o.status === col.status);
+        const isDoneCol = col.status === "done";
+        const isOver = dragOverCol === col.status && dragging?.fromStatus !== col.status && !isDoneCol;
         return (
-          <div key={col.status} className="flex flex-col gap-3 min-w-0">
+          <div
+            key={col.status}
+            className="flex flex-col gap-3 min-w-0"
+            onDragOver={isDoneCol ? undefined : (e) => handleDragOver(e, col.status)}
+            onDragLeave={isDoneCol ? undefined : handleDragLeave}
+            onDrop={isDoneCol ? undefined : (e) => handleDrop(e, col.status)}
+          >
             <div className="flex items-center justify-between px-1">
               <span className={`text-xs font-bold uppercase tracking-widest ${col.textClass}`}>{col.label}</span>
               <span className="text-xs text-gray-700">{cards.length}</span>
             </div>
-            {cards.length === 0 ? (
-              <div className={`border ${col.borderClass} border-dashed rounded-2xl p-4 text-xs text-gray-700 text-center`}>
-                Empty
-              </div>
-            ) : (
-              <div className="flex flex-col gap-3">
-                {cards.map((obj) => (
+            <div
+              className={`flex flex-col gap-3 min-h-[80px] rounded-2xl transition-colors ${
+                isOver ? "bg-white/5 ring-1 ring-white/20" : ""
+              }`}
+            >
+              {cards.length === 0 ? (
+                <div className={`border ${col.borderClass} border-dashed rounded-2xl p-4 text-xs text-gray-700 text-center`}>
+                  Empty
+                </div>
+              ) : (
+                cards.map((obj) => (
                   <KanbanCard
                     key={obj.id}
                     obj={obj}
                     col={col}
                     onDiscuss={onDiscuss}
                     onDelete={handleDelete}
-                    onStatusChange={handleStatusChange}
+                    onDragStart={handleDragStart}
                   />
-                ))}
-              </div>
-            )}
+                ))
+              )}
+            </div>
           </div>
         );
       })}
