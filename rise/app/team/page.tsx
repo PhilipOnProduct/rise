@@ -1077,7 +1077,7 @@ function ProductTeamTab() {
               </div>
               {prdDownloaded && (
                 <p className="text-xs text-[#00D64F]">
-                  PRD saved — move it to docs/prds/ and commit to GitHub
+                  PRD downloaded
                 </p>
               )}
             </div>

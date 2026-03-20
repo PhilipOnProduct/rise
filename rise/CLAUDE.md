@@ -28,9 +28,6 @@ Rise is an AI-powered trip planning app. It helps travellers plan trips day-by-d
 ## Current Features
 
 ### Traveller flows
-- **Dashboard** (`/dashboard`) — Shows trip summary (destination, dates, nights, hotel, activities) read from `localStorage`. Links to itinerary, transport, profile, and guides.
-- **Day-by-day itinerary** (`/itinerary`) — Day-view timeline with one column per trip day and three time blocks (morning / afternoon / evening). AI pre-populates suggestions on first load via `/api/itinerary/generate`; persisted to `localStorage` (`rise_itinerary`). Users can drag items between time blocks (HTML5 drag-and-drop), dismiss suggestions (×), and add their own items inline.
-- **AI activity preview** (`/api/activities-stream`) — Streaming markdown of 5–6 must-do activities shown at Step 3 of onboarding. Prompt is structured with explicit company, style tags, and budget tier: *"You are recommending activities for a [company] trip… Budget tier: [budget]. Style preferences: [tags]. Do not recommend options that contradict the budget tier."* The loading state names the user's inputs back to them (e.g. *"Finding activities for a solo trip, food-led, budget budget in Lisbon…"*). All preference fields are logged to `ai_logs`.
 - **Onboarding wizard** (`/welcome`) — 6-step flow: Step 0 full-screen landing (destination) → Step 1 destination + dates → Step 2 hotel (Places autocomplete biased to destination) → Step 3 travel preferences (company, style tags, budget tier) → Step 4 AI activity preview (streaming, personalised using Step 3 preferences) → Step 5 account creation. Preferences are written to Supabase via partial upsert when the user advances from Step 3 to Step 4. Saves to Supabase `travelers` table and `localStorage` (`rise_traveler`, `rise_onboarded`).
 - **Dashboard** (`/dashboard`) — Shows trip summary (destination, dates, nights, hotel, activities) read from `localStorage`. Links to itinerary, transport, profile, and guides.
 - **Day-by-day itinerary** (`/itinerary`) — Day-view timeline with one column per trip day and three time blocks (morning / afternoon / evening). AI pre-populates suggestions on first load via `/api/itinerary/generate`; persisted to `localStorage` (`rise_itinerary`). Users can drag items between time blocks (HTML5 drag-and-drop), dismiss suggestions (×), and add their own items inline.
@@ -95,10 +92,10 @@ rise/
 │   ├── api/
 │   │   ├── auth/route.ts         # GET: password form  POST: verify password
 │   │   ├── activities/route.ts   # POST: AI activity suggestions (JSON)
-│   │   ├── activities-stream/route.ts  # POST: streaming activity preview (onboarding step 3)
+│   │   ├── activities-stream/route.ts  # POST: streaming activity preview (onboarding step 4)
 │   │   ├── itinerary/
 │   │   │   └── generate/route.ts # POST: AI day-by-day itinerary as JSON
-│   │   ├── travelers/route.ts    # POST: save traveller to Supabase
+│   │   ├── travelers/route.ts    # POST: create traveller  PATCH: partial update (preferences, name/email)
 │   │   ├── recommendations/route.ts  # POST: streaming restaurant recs
 │   │   ├── transport/route.ts    # POST: streaming transport advice
 │   │   ├── profile/route.ts      # POST: save profile to Supabase
