@@ -312,6 +312,11 @@ async function loadPrdFeedback(conversationId: string): Promise<PrdFeedback[]> {
   return data as PrdFeedback[];
 }
 
+async function deleteConversation(id: string): Promise<void> {
+  const { error } = await supabase.from("team_conversations").delete().eq("id", id);
+  if (error) console.error("[conversations] delete error", dbErr(error));
+}
+
 // ── Download PRD ───────────────────────────────────────────────────────────────
 
 async function fetchPrdSlug(problem: string, prdContent: string): Promise<string> {
@@ -478,9 +483,11 @@ function PrdLine({ line, i }: { line: string; i: number }) {
 function PastConversations({
   type,
   onLoad,
+  activeConversationId,
 }: {
   type: "team" | "coach" | "pm";
   onLoad: (row: ConversationRow) => void;
+  activeConversationId?: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const [rows, setRows] = useState<ConversationRow[]>([]);
@@ -490,6 +497,9 @@ function PastConversations({
   const [draftMap, setDraftMap] = useState<Record<string, string>>({});
   const [openFeedbackId, setOpenFeedbackId] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
+  // Delete state
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -518,6 +528,14 @@ function PastConversations({
     setDraftMap((prev) => ({ ...prev, [rowId]: "" }));
     setOpenFeedbackId(null);
     setSavingId(null);
+  }
+
+  async function handleDelete(rowId: string) {
+    setDeletingId(rowId);
+    await deleteConversation(rowId);
+    setRows((prev) => prev.filter((r) => r.id !== rowId));
+    setConfirmDeleteId(null);
+    setDeletingId(null);
   }
 
   if (!open) {
@@ -551,19 +569,55 @@ function PastConversations({
             const isOpenFeedback = openFeedbackId === row.id;
             const draft = draftMap[row.id] ?? "";
 
+            const isActive = activeConversationId === row.id;
+            const isConfirmingDelete = confirmDeleteId === row.id;
+            const isDeleting = deletingId === row.id;
+
             return (
               <div key={row.id}>
-                {/* Title row — click to load */}
-                <button
-                  onClick={() => { onLoad(row); setOpen(false); }}
-                  className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-[#1a1a1a] transition-colors group"
-                >
-                  <p className="text-sm text-gray-300 group-hover:text-white break-words">{row.title}</p>
-                  <p className="text-xs text-gray-600 mt-0.5">
-                    {new Date(row.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
-                    {hasPrd && <span className="ml-2 text-[#00D64F]">· PRD</span>}
-                  </p>
-                </button>
+                {/* Title row — click to load + delete button */}
+                <div className="flex items-start gap-1 group/row rounded-xl hover:bg-[#1a1a1a] transition-colors">
+                  <button
+                    onClick={() => { onLoad(row); setOpen(false); }}
+                    className="flex-1 text-left px-3 py-2.5 min-w-0"
+                  >
+                    <p className="text-sm text-gray-300 group-hover/row:text-white break-words">{row.title}</p>
+                    <p className="text-xs text-gray-600 mt-0.5">
+                      {new Date(row.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                      {hasPrd && <span className="ml-2 text-[#00D64F]">· PRD</span>}
+                      {isActive && <span className="ml-2 text-gray-600">· Active</span>}
+                    </p>
+                  </button>
+                  {!isActive && (
+                    <button
+                      onClick={() => setConfirmDeleteId(isConfirmingDelete ? null : row.id)}
+                      className="shrink-0 mt-2 mr-2 p-1.5 text-gray-700 hover:text-red-400 transition-colors opacity-0 group-hover/row:opacity-100"
+                      title="Delete"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+
+                {/* Inline delete confirmation */}
+                {isConfirmingDelete && (
+                  <div className="flex items-center gap-2 px-3 pb-2">
+                    <span className="text-xs text-gray-500">Delete this conversation?</span>
+                    <button
+                      onClick={() => handleDelete(row.id)}
+                      disabled={isDeleting}
+                      className="text-xs font-semibold text-red-400 hover:text-red-300 disabled:opacity-40"
+                    >
+                      {isDeleting ? "Deleting…" : "Yes"}
+                    </button>
+                    <button
+                      onClick={() => setConfirmDeleteId(null)}
+                      className="text-xs text-gray-600 hover:text-gray-400"
+                    >
+                      No
+                    </button>
+                  </div>
+                )}
 
                 {/* Feedback section — team rows with PRD only */}
                 {hasPrd && (
@@ -822,7 +876,7 @@ function ProductTeamTab({
             `Use these sections exactly:\n` +
             `## Overview\n## Problem Statement\n## User Need\n## Proposed Solution\n` +
             `## User Stories\n## Success Metrics\n## Technical Considerations\n## Risks & Open Questions\n## Claude Code Implementation Prompt\n\n` +
-            `At the end of the PRD, include a concise Claude Code implementation prompt. Keep it functional — describe what to build and acceptance criteria only. Do not include specific file paths, code snippets, or implementation details. Claude Code will determine those from the codebase.`,
+            `At the end of the PRD, include a Claude Code Implementation Prompt section. Write a self-contained prompt that includes: (1) what to build in functional terms, (2) any hard technical requirements or sequencing constraints, (3) acceptance criteria as a short bulleted list. The prompt must be complete enough that a developer can implement it without reading the rest of the PRD. Keep it under 200 words. No file paths, no code snippets, no references to CLAUDE.md.`,
         }],
         6000, (chunk) => { prdText += chunk; setPrd(prdText); }
       );
@@ -866,7 +920,7 @@ function ProductTeamTab({
     <div className="flex flex-col gap-8">
 
       {/* Past conversations */}
-      <PastConversations type="team" onLoad={loadPastConversation} />
+      <PastConversations type="team" onLoad={loadPastConversation} activeConversationId={conversationId} />
 
       {/* Team roster + memory status */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -1026,6 +1080,7 @@ function ProductCoachTab() {
   const [coachError, setCoachError] = useState("");
   const lastUserMessageRef = useRef<string>("");
   const conversationIdRef = useRef<string | null>(null);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -1036,6 +1091,7 @@ function ProductCoachTab() {
     const msgs = row.messages as { history: CoachMessage[] };
     setMessages(msgs.history ?? []);
     conversationIdRef.current = row.id;
+    setConversationId(row.id);
     setCoachError("");
   }
 
@@ -1061,7 +1117,7 @@ function ProductCoachTab() {
       const allMessages: CoachMessage[] = [...history, { role: "assistant", content: assistantText }];
       const firstUserMsg = allMessages.find((m) => m.role === "user")?.content ?? "Coach session";
       const id = await upsertCoachConversation(conversationIdRef.current, firstUserMsg, allMessages);
-      if (id) conversationIdRef.current = id;
+      if (id) { conversationIdRef.current = id; setConversationId(id); }
 
     } catch (err) {
       console.error("Coach error:", err);
@@ -1100,7 +1156,7 @@ function ProductCoachTab() {
     <div className="flex flex-col gap-4">
 
       {/* Past conversations */}
-      <PastConversations type="coach" onLoad={loadPastConversation} />
+      <PastConversations type="coach" onLoad={loadPastConversation} activeConversationId={conversationId} />
 
       {/* Intro */}
       {messages.length === 0 && (
@@ -1426,6 +1482,7 @@ function PMTab({ onSwitchToKanban }: { onSwitchToKanban: () => void }) {
   const [savingObj, setSavingObj] = useState(false);
   const [riseContext, setRiseContext] = useState("");
   const conversationIdRef = useRef<string | null>(null);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const lastUserMessageRef = useRef<string>("");
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -1466,7 +1523,7 @@ function PMTab({ onSwitchToKanban }: { onSwitchToKanban: () => void }) {
       const allMessages: CoachMessage[] = [...history, { role: "assistant", content: assistantText }];
       const firstUserMsg = allMessages.find((m) => m.role === "user")?.content ?? "PM session";
       const id = await upsertPMConversation(conversationIdRef.current, firstUserMsg, allMessages);
-      if (id) conversationIdRef.current = id;
+      if (id) { conversationIdRef.current = id; setConversationId(id); }
 
     } catch (err) {
       console.error("PM error:", err);
@@ -1538,6 +1595,7 @@ function PMTab({ onSwitchToKanban }: { onSwitchToKanban: () => void }) {
     const msgs = row.messages as { history: CoachMessage[] };
     setMessages(msgs.history ?? []);
     conversationIdRef.current = row.id;
+    setConversationId(row.id);
     setPmError("");
   }
 
@@ -1545,7 +1603,7 @@ function PMTab({ onSwitchToKanban }: { onSwitchToKanban: () => void }) {
     <div className="flex flex-col gap-8">
 
       {/* Past conversations */}
-      <PastConversations type="pm" onLoad={loadPastConversation} />
+      <PastConversations type="pm" onLoad={loadPastConversation} activeConversationId={conversationId} />
 
       {/* Chat */}
       <div className="flex flex-col gap-4">
