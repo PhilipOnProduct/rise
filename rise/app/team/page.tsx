@@ -947,7 +947,11 @@ function ProductTeamTab() {
             `Synthesis: ${synthesis}\n\n` +
             `Use these sections exactly:\n` +
             `## Overview\n## Problem Statement\n## User Need\n## Proposed Solution\n` +
-            `## User Stories\n## Success Metrics\n## Technical Considerations\n## Risks & Open Questions`,
+            `## User Stories\n## Success Metrics\n## Technical Considerations\n## Risks & Open Questions\n` +
+            `## Claude Code Implementation Prompt\n\n` +
+            `For the final section, write a self-contained implementation prompt that a developer can paste directly into Claude Code. ` +
+            `It must include all necessary context inline — no references to "read this file" or external documents. ` +
+            `Format it as a plain code block (\`\`\`). Start with the verb "Implement" and list numbered steps with bold headings.`,
         }],
         2048, (chunk) => { prdText += chunk; setPrd(prdText); }
       );
@@ -1097,7 +1101,31 @@ function ProductTeamTab() {
                   )}
                   {prd && (
                     <div className="flex flex-col gap-1">
-                      {prd.split("\n").map((line, i) => <PrdLine key={i} line={line} i={i} />)}
+                      {(() => {
+                        const lines = prd.split("\n");
+                        const blocks: ReturnType<typeof PrdLine>[] = [];
+                        let i = 0;
+                        while (i < lines.length) {
+                          if (lines[i].startsWith("```")) {
+                            const codeLines: string[] = [];
+                            i++;
+                            while (i < lines.length && !lines[i].startsWith("```")) {
+                              codeLines.push(lines[i]);
+                              i++;
+                            }
+                            i++; // skip closing ```
+                            blocks.push(
+                              <pre key={i} className="mt-2 mb-2 bg-[#0a0a0a] border border-[#2a2a2a] rounded-xl p-4 text-xs text-gray-300 whitespace-pre-wrap break-words font-mono leading-relaxed">
+                                {codeLines.join("\n")}
+                              </pre>
+                            );
+                          } else {
+                            blocks.push(<PrdLine key={i} line={lines[i]} i={i} />);
+                            i++;
+                          }
+                        }
+                        return blocks;
+                      })()}
                     </div>
                   )}
                 </div>
