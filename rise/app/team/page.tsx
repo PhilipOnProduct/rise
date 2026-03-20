@@ -947,7 +947,8 @@ function ProductTeamTab() {
             `Synthesis: ${synthesis}\n\n` +
             `Use these sections exactly:\n` +
             `## Overview\n## Problem Statement\n## User Need\n## Proposed Solution\n` +
-            `## User Stories\n## Success Metrics\n## Technical Considerations\n## Risks & Open Questions`,
+            `## User Stories\n## Success Metrics\n## Technical Considerations\n## Risks & Open Questions\n## Claude Code Implementation Prompt\n\n` +
+            `For the Claude Code Implementation Prompt section, write a self-contained, copy-pasteable prompt a developer can paste into Claude Code to implement this PRD. Reference specific files and implementation steps.`,
         }],
         2048, (chunk) => { prdText += chunk; setPrd(prdText); }
       );
