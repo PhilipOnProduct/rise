@@ -148,10 +148,10 @@ This is the actual strategic decision underneath everything in this PRD. A recom
 Copy and paste the following prompt into Claude Code to implement this PRD:
 
 ```
-Read rise/docs/prds/2026-03-18-trip-planning-activity-suggestions.md, then implement Phase 2 (activities-first sequencing). Phase 1 is assumed complete. Do not build Phase 3 (map visualization).
+Implement activities-first sequencing in the onboarding wizard. Phase 1 (restaurant validation) is complete. Do not build Phase 3 (map visualization) — that requires a separate schema decision.
 
 1. **`app/welcome/page.tsx` — Step 3**: Replace the restaurant recommendation with an activity suggestions moment. Call `/api/activities-stream` instead of `/api/recommendations`.
-2. **`app/api/activities-stream/route.ts`**: Revise the Claude prompt to suggest activities framed as "things you'll actually do on this trip". Accept `destination`, `dates`, `travelCompany`, `styleTags`, `budgetTier`. Streamed markdown — no structural changes needed.
-3. **Loading state**: Show "Planning your [X]-day trip to [destination]…" while streaming.
-4. **Skip option**: Add a subtle "Skip for now" link below the stream output. Step should advance whether the user waits or skips.
+2. **`app/api/activities-stream/route.ts`**: Revise the Claude system prompt to suggest 3–4 activities framed as "things you'll actually do on this trip" rather than a generic list. Accept `destination`, `dates`, `travelCompany`, `styleTags`, `budgetTier`. Streamed markdown output — no structural changes to the route needed.
+3. **Loading state**: Show "Planning your [X]-day trip to [destination]…" while streaming, echoing the user's inputs.
+4. **Skip option**: Add a subtle "Skip for now" link below the stream output. The step should advance whether the user waits for the full stream or skips.
 ```

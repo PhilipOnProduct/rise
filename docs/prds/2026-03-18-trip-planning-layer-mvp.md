@@ -132,25 +132,25 @@ This is additive. It does not break existing onboarding schema. `itinerary_items
 Copy and paste the following prompt into Claude Code to implement this PRD:
 
 ```
-Read rise/docs/prds/2026-03-18-trip-planning-layer-mvp.md, then implement the trip planning layer MVP in this order:
+Implement the trip planning layer MVP. Build in this order:
 
-1. **Schema migration** (irreversible — do first): Add to `supabase/migrations/`:
+1. **Schema migration** (irreversible — do this first): Add a migration file to `supabase/migrations/` with:
    - `trips`: id, traveler_id (FK → travelers), destination, start_date, end_date
    - `itinerary_days`: id, trip_id (FK), date, day_number
    - `itinerary_items`: id, day_id (FK), type (activity|restaurant|transport|note), title, description, start_time, end_time, location (text), status (idea|confirmed|booked), source (ai_generated|user_added), position (int)
 
-2. **`app/api/itinerary/generate/route.ts`** (exists — update it): Return structured JSON matching the schema. Accept `destination`, `startDate`, `endDate`, `activities`, `travelCompany`, `styleTags`, `budgetTier`. Return days with morning/afternoon/evening items. Non-streaming, `max_tokens: 8000`.
+2. **`app/api/itinerary/generate/route.ts`** (exists — update it): Return structured JSON matching the schema above. Accept `destination`, `startDate`, `endDate`, `activities`, `travelCompany`, `styleTags`, `budgetTier`. Return an array of days each with morning/afternoon/evening items. Non-streaming, `max_tokens: 8000`.
 
 3. **`app/itinerary/page.tsx`** (exists — update it):
    - Load `rise_traveler` from `localStorage`, call `/api/itinerary/generate` on first load, cache as `rise_itinerary`
-   - Render one column per day, three time blocks each (Morning / Afternoon / Evening)
+   - Render one column per trip day, three time blocks each (Morning / Afternoon / Evening)
    - Each item: title + dismiss (×) button
    - HTML5 drag-and-drop between time blocks (partially implemented — verify and complete)
    - Inline "Add item" per time block — text input, Enter to add as `source: user_added`
    - "Regenerate" button clears `rise_itinerary` and re-fetches
    - Persist all changes to `localStorage`
 
-4. **`app/dashboard/page.tsx`**: Add a prominent card linking to `/itinerary`.
+4. **`app/dashboard/page.tsx`**: Add a prominent card linking to `/itinerary` so it feels like the home base for the trip.
 
-Do not build: conflict detection, travel time, booking, map view, or collaborative editing.
+Do not build: conflict detection, travel time calculation, booking integration, map view, or collaborative editing.
 ```
