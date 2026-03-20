@@ -99,7 +99,7 @@ export async function POST(req: NextRequest) {
   const redirectTo = (body.get("redirect_to") as string | null) || "/";
 
   if (password === process.env.SITE_PASSWORD) {
-    const res = NextResponse.redirect(new URL(redirectTo, req.url));
+    const res = NextResponse.redirect(new URL(redirectTo, req.url), { status: 303 });
     res.cookies.set(COOKIE, process.env.SITE_PASSWORD!, {
       httpOnly: true,
       sameSite: "lax",
@@ -113,5 +113,5 @@ export async function POST(req: NextRequest) {
   const authUrl = new URL("/api/auth", req.url);
   authUrl.searchParams.set("redirect_to", redirectTo);
   authUrl.searchParams.set("auth_error", "1");
-  return NextResponse.redirect(authUrl);
+  return NextResponse.redirect(authUrl, { status: 303 });
 }
