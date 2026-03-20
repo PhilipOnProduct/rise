@@ -713,7 +713,7 @@ function ProductTeamTab({
       await streamChat(
         TEAM_MODEL, sarahSystemWithMemory,
         [{ role: "user", content: `Frame this problem for the product team:\n\n${problem}` }],
-        512, (chunk) => { frameText += chunk; setSarahFrame(frameText); }
+        1024, (chunk) => { frameText += chunk; setSarahFrame(frameText); }
       );
       setThinking({});
 
@@ -725,22 +725,22 @@ function ProductTeamTab({
 
       await Promise.all([
         streamChat(TEAM_MODEL, AGENTS.alex.system,
-          [{ role: "user", content: specialistPrompt }], 512,
+          [{ role: "user", content: specialistPrompt }], 1024,
           (chunk) => { alexText += chunk; setAlexContent(alexText); }
         ).then(() => setThinking((p) => { const n = { ...p }; delete n.alex; return n; })),
 
         streamChat(TEAM_MODEL, AGENTS.maya.system,
-          [{ role: "user", content: specialistPrompt }], 512,
+          [{ role: "user", content: specialistPrompt }], 1024,
           (chunk) => { mayaText += chunk; setMayaContent(mayaText); }
         ).then(() => setThinking((p) => { const n = { ...p }; delete n.maya; return n; })),
 
         streamChat(TEAM_MODEL, AGENTS.luca.system,
-          [{ role: "user", content: specialistPrompt }], 512,
+          [{ role: "user", content: specialistPrompt }], 1024,
           (chunk) => { lucaText += chunk; setLucaContent(lucaText); }
         ).then(() => setThinking((p) => { const n = { ...p }; delete n.luca; return n; })),
 
         streamChat(TEAM_MODEL, AGENTS.elena.system,
-          [{ role: "user", content: specialistPrompt }], 512,
+          [{ role: "user", content: specialistPrompt }], 1024,
           (chunk) => { elenaText += chunk; setElenaContent(elenaText); }
         ).then(() => setThinking((p) => { const n = { ...p }; delete n.elena; return n; })),
       ]);
@@ -755,7 +755,7 @@ function ProductTeamTab({
           role: "user",
           content: `Problem: ${problem}\n\nYour framing:\n${frameText}\n\nTeam input:\nAlex (Research): ${alexText}\nMaya (Design): ${mayaText}\nLuca (Tech): ${lucaText}\nElena (Travel Expert): ${elenaText}\n\nSynthesize the key insights and give a clear product recommendation.`,
         }],
-        768, (chunk) => { synthesisText += chunk; setSynthesis(synthesisText); }
+        2048, (chunk) => { synthesisText += chunk; setSynthesis(synthesisText); }
       );
       setThinking({});
 
@@ -824,7 +824,7 @@ function ProductTeamTab({
             `## User Stories\n## Success Metrics\n## Technical Considerations\n## Risks & Open Questions\n## Claude Code Implementation Prompt\n\n` +
             `At the end of the PRD, include a concise Claude Code implementation prompt. Keep it functional — describe what to build and acceptance criteria only. Do not include specific file paths, code snippets, or implementation details. Claude Code will determine those from the codebase.`,
         }],
-        4096, (chunk) => { prdText += chunk; setPrd(prdText); }
+        6000, (chunk) => { prdText += chunk; setPrd(prdText); }
       );
       if (conversationId) await updateTeamPrd(conversationId, prdText);
       const slug = await fetchPrdSlug(problem, prdText);
@@ -1250,7 +1250,7 @@ function KanbanCard({
         <div className="flex-1 min-w-0">
           <p className="text-sm font-bold text-white leading-snug line-clamp-2" title={obj.title}>{obj.title}</p>
           {obj.description && (
-            <p className="text-xs text-gray-500 mt-1 leading-relaxed">{obj.description}</p>
+            <p className="text-xs text-gray-500 mt-1 leading-relaxed line-clamp-3 overflow-hidden">{obj.description}</p>
           )}
         </div>
         {isDone ? (
@@ -1360,11 +1360,11 @@ function KanbanTab({ onDiscuss }: { onDiscuss: (objectiveId: string, problem: st
   }
 
   return (
-    <div className="flex gap-4 overflow-x-auto pb-4 -mx-2 px-2">
+    <div className="grid grid-cols-4 gap-3 pb-4">
       {KANBAN_COLUMNS.map((col) => {
         const cards = objectives.filter((o) => o.status === col.status);
         return (
-          <div key={col.status} className="flex flex-col gap-3 min-w-[256px] w-[256px] shrink-0">
+          <div key={col.status} className="flex flex-col gap-3 min-w-0">
             <div className="flex items-center justify-between px-1">
               <span className={`text-xs font-bold uppercase tracking-widest ${col.textClass}`}>{col.label}</span>
               <span className="text-xs text-gray-700">{cards.length}</span>
@@ -1710,7 +1710,7 @@ export default function TeamPage() {
   ];
 
   return (
-    <main className="min-h-screen bg-[#0a0a0a] px-6 py-10">
+    <main className="min-h-screen bg-[#0a0a0a] px-6 py-10 overflow-x-hidden">
       <div className={`${activeTab === "kanban" ? "max-w-5xl" : "max-w-3xl"} mx-auto transition-all`}>
 
         <div className="mb-8">
