@@ -27,11 +27,13 @@ type ConversationRow = {
   created_at: string;
 };
 
-type ObjectiveStatus = "active" | "completed" | "paused";
+type ObjectiveStatus = "backlog" | "refine" | "in-progress" | "done";
 type Objective = {
   id: string;
   title: string;
+  description: string | null;
   status: ObjectiveStatus;
+  prd: string | null;
   created_at: string;
 };
 
@@ -417,17 +419,22 @@ async function upsertPMConversation(
 async function loadObjectives(): Promise<Objective[]> {
   const { data, error } = await supabase
     .from("objectives")
-    .select("id, title, status, created_at")
+    .select("id, title, description, status, prd, created_at")
     .order("created_at", { ascending: false });
   if (error) { console.error("[objectives] load error", dbErr(error)); return []; }
   return data as Objective[];
 }
 
-async function saveObjective(title: string): Promise<Objective | null> {
+async function saveObjectiveWithDetails(
+  title: string,
+  description: string | null,
+  status: ObjectiveStatus,
+  prd?: string | null
+): Promise<Objective | null> {
   const { data, error } = await supabase
     .from("objectives")
-    .insert({ title, status: "active" })
-    .select("id, title, status, created_at")
+    .insert({ title, description: description ?? null, status, prd: prd ?? null })
+    .select("id, title, description, status, prd, created_at")
     .single();
   if (error) { console.error("[objectives] save error", dbErr(error)); return null; }
   return data as Objective;
@@ -436,6 +443,19 @@ async function saveObjective(title: string): Promise<Objective | null> {
 async function updateObjectiveStatus(id: string, status: ObjectiveStatus): Promise<void> {
   const { error } = await supabase.from("objectives").update({ status }).eq("id", id);
   if (error) console.error("[objectives] update error", dbErr(error));
+}
+
+async function updateObjectivePrd(id: string, prd: string): Promise<void> {
+  const { error } = await supabase
+    .from("objectives")
+    .update({ prd, status: "refine" })
+    .eq("id", id);
+  if (error) console.error("[objectives] prd update error", dbErr(error));
+}
+
+async function deleteObjective(id: string): Promise<void> {
+  const { error } = await supabase.from("objectives").delete().eq("id", id);
+  if (error) console.error("[objectives] delete error", dbErr(error));
 }
 
 async function loadLatestOstSnapshot(): Promise<OSTTree | null> {
@@ -550,6 +570,29 @@ function downloadPrdFile(problem: string, prdContent: string, slug: string): voi
   a.download = `${date}-${slug}.md`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+async function fetchKanbanTitle(problem: string, prdContent: string): Promise<string> {
+  const fallback = problem.trim().split(/\s+/).slice(0, 6).join(" ");
+  try {
+    let title = "";
+    await streamChat(
+      TEAM_MODEL,
+      "You generate concise kanban card titles. Reply with ONLY the title — no quotes, no punctuation at end.",
+      [{
+        role: "user",
+        content:
+          `Summarize this product feature in max 8 words as a kanban card title.\n\n` +
+          `Problem: ${problem}\n\nPRD summary (first 300 chars): ${prdContent.slice(0, 300)}`,
+      }],
+      20,
+      (chunk) => { title += chunk; }
+    );
+    const clean = title.trim().replace(/^["']|["']$/g, "").replace(/\.$/g, "");
+    return clean.length >= 3 ? clean : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 // ── Shared sub-components ──────────────────────────────────────────────────────
@@ -795,7 +838,13 @@ function PastConversations({
 
 // ── Product Team Tab ───────────────────────────────────────────────────────────
 
-function ProductTeamTab() {
+function ProductTeamTab({
+  pendingObjective,
+  onObjectiveSaved,
+}: {
+  pendingObjective?: { id: string; problem: string } | null;
+  onObjectiveSaved?: () => void;
+}) {
   const [problem, setProblem] = useState("");
   const [phase, setPhase] = useState<Phase>("idle");
   const [thinking, setThinking] = useState<Partial<Record<AgentId, boolean>>>({});
@@ -813,6 +862,9 @@ function ProductTeamTab() {
   const [sarahMemory, setSarahMemory] = useState("");
   const [memoryLoading, setMemoryLoading] = useState(true);
   const [updatingMemory, setUpdatingMemory] = useState(false);
+  const [activeObjectiveId, setActiveObjectiveId] = useState<string | null>(null);
+  const [savingToKanban, setSavingToKanban] = useState(false);
+  const [kanbanSaved, setKanbanSaved] = useState(false);
 
   useEffect(() => {
     loadSarahMemory().then((mem) => {
@@ -820,6 +872,16 @@ function ProductTeamTab() {
       setMemoryLoading(false);
     });
   }, []);
+
+  useEffect(() => {
+    if (!pendingObjective) return;
+    setProblem(pendingObjective.problem);
+    setActiveObjectiveId(pendingObjective.id);
+    setSarahFrame(""); setAlexContent(""); setMayaContent("");
+    setLucaContent(""); setElenaContent(""); setSynthesis(""); setPrd("");
+    setPhase("idle"); setTeamError(""); setPrdSlug(""); setPrdDownloaded(false);
+    setKanbanSaved(false);
+  }, [pendingObjective]);
 
   const isRunning = phase !== "idle" && phase !== "done";
 
@@ -838,6 +900,8 @@ function ProductTeamTab() {
     setTeamError("");
     setPrdSlug("");
     setPrdDownloaded(false);
+    setActiveObjectiveId(null);
+    setKanbanSaved(false);
   }
 
   async function runDiscussion() {
@@ -846,6 +910,7 @@ function ProductTeamTab() {
     setSarahFrame(""); setAlexContent(""); setMayaContent("");
     setLucaContent(""); setElenaContent(""); setSynthesis(""); setPrd("");
     setTeamError(""); setConversationId(null); setPrdSlug(""); setPrdDownloaded(false);
+    setKanbanSaved(false);
 
     try {
       // ── Step 1: Sarah frames (with memory) ───────────────────────────────
@@ -974,12 +1039,30 @@ function ProductTeamTab() {
       if (conversationId) await updateTeamPrd(conversationId, prdText);
       const slug = await fetchPrdSlug(problem, prdText);
       setPrdSlug(slug);
+      // Save PRD back to the active Kanban card if one was pre-loaded
+      if (activeObjectiveId) {
+        await updateObjectivePrd(activeObjectiveId, prdText);
+        setKanbanSaved(true);
+        onObjectiveSaved?.();
+      }
     } catch (err) {
       console.error("PRD error:", err);
       setTeamError(errorMessage(err));
     }
     setThinking({});
     setPhase("done");
+  }
+
+  async function handleSaveToKanban() {
+    setSavingToKanban(true);
+    const title = await fetchKanbanTitle(problem, prd);
+    const obj = await saveObjectiveWithDetails(title, null, "refine", prd);
+    if (obj) {
+      setActiveObjectiveId(obj.id);
+      setKanbanSaved(true);
+      onObjectiveSaved?.();
+    }
+    setSavingToKanban(false);
   }
 
   async function handleDownloadPrd() {
@@ -1097,11 +1180,21 @@ function ProductTeamTab() {
                     Download PRD ↓
                   </button>
                 )}
+                {prd && !kanbanSaved && (
+                  <button
+                    onClick={handleSaveToKanban}
+                    disabled={savingToKanban}
+                    className="rounded-2xl border border-[#2a2a2a] text-gray-300 hover:text-white hover:border-[#444] font-semibold px-6 py-3 transition-colors text-sm disabled:opacity-40"
+                  >
+                    {savingToKanban ? "Saving…" : "Save to Kanban →"}
+                  </button>
+                )}
               </div>
-              {prdDownloaded && (
-                <p className="text-xs text-[#00D64F]">
-                  PRD downloaded
-                </p>
+              {(prdDownloaded || kanbanSaved) && (
+                <div className="flex flex-col gap-1">
+                  {prdDownloaded && <p className="text-xs text-[#00D64F]">PRD downloaded</p>}
+                  {kanbanSaved && <p className="text-xs text-[#00D64F]">{activeObjectiveId ? "PRD saved to Kanban card" : "Saved to Kanban"}</p>}
+                </div>
               )}
             </div>
           )}
@@ -1304,19 +1397,214 @@ function ProductCoachTab() {
   );
 }
 
-// ── PM 1-on-1 Tab ─────────────────────────────────────────────────────────────
-
-const STATUS_CYCLE: Record<ObjectiveStatus, ObjectiveStatus> = {
-  active: "completed",
-  completed: "paused",
-  paused: "active",
-};
+// ── Kanban constants & helpers ─────────────────────────────────────────────────
 
 const STATUS_STYLES: Record<ObjectiveStatus, string> = {
-  active:    "bg-[#00D64F]/15 text-[#00D64F] border border-[#00D64F]/30",
-  completed: "bg-gray-500/10 text-gray-400 border border-gray-700",
-  paused:    "bg-yellow-500/10 text-yellow-400 border border-yellow-700/40",
+  backlog:       "bg-gray-500/10 text-gray-400 border border-gray-700",
+  refine:        "bg-[#185fa5]/15 text-[#185fa5] border border-[#185fa5]/40",
+  "in-progress": "bg-[#ba7517]/15 text-[#ba7517] border border-[#ba7517]/40",
+  done:          "bg-[#00D64F]/15 text-[#00D64F] border border-[#00D64F]/30",
 };
+
+const KANBAN_COLUMNS: Array<{
+  status: ObjectiveStatus;
+  label: string;
+  borderClass: string;
+  textClass: string;
+}> = [
+  { status: "backlog",     label: "Backlog",     borderClass: "border-gray-700",   textClass: "text-gray-400" },
+  { status: "refine",      label: "Refine",      borderClass: "border-[#185fa5]",  textClass: "text-[#185fa5]" },
+  { status: "in-progress", label: "In Progress", borderClass: "border-[#ba7517]",  textClass: "text-[#ba7517]" },
+  { status: "done",        label: "Done",        borderClass: "border-[#00D64F]",  textClass: "text-[#00D64F]" },
+];
+
+function extractImplementationPrompt(prd: string): string {
+  const marker = "## Claude Code Implementation Prompt";
+  const idx = prd.indexOf(marker);
+  if (idx === -1) return "";
+  return prd.slice(idx + marker.length).trim();
+}
+
+// ── Kanban Card ────────────────────────────────────────────────────────────────
+
+function KanbanCard({
+  obj,
+  col,
+  onDiscuss,
+  onDelete,
+  onStatusChange,
+}: {
+  obj: Objective;
+  col: typeof KANBAN_COLUMNS[number];
+  onDiscuss: (id: string, problem: string) => void;
+  onDelete: (id: string) => void;
+  onStatusChange: (id: string, status: ObjectiveStatus) => void;
+}) {
+  const [prdOpen, setPrdOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const isDone = obj.status === "done";
+  const implPrompt = obj.prd ? extractImplementationPrompt(obj.prd) : "";
+  const discussProblem = obj.title + (obj.description ? `\n\n${obj.description}` : "");
+
+  function handleCopy() {
+    navigator.clipboard.writeText(implPrompt);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  return (
+    <div className={`bg-[#111] border ${col.borderClass} rounded-2xl p-4 flex flex-col gap-3`}>
+      {/* Title + status */}
+      <div className="flex items-start gap-2">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-bold text-white leading-snug">{obj.title}</p>
+          {obj.description && (
+            <p className="text-xs text-gray-500 mt-1 leading-relaxed">{obj.description}</p>
+          )}
+        </div>
+        {isDone ? (
+          <span className={`shrink-0 text-xs font-semibold px-2.5 py-1 rounded-full ${STATUS_STYLES.done}`}>Done</span>
+        ) : (
+          <select
+            value={obj.status}
+            onChange={(e) => onStatusChange(obj.id, e.target.value as ObjectiveStatus)}
+            className="shrink-0 text-xs font-semibold bg-[#0a0a0a] border border-[#2a2a2a] text-gray-400 rounded-full px-2 py-1 cursor-pointer"
+          >
+            <option value="backlog">Backlog</option>
+            <option value="refine">Refine</option>
+            <option value="in-progress">In Progress</option>
+            <option value="done">Done</option>
+          </select>
+        )}
+      </div>
+
+      {/* Actions */}
+      <div className="flex items-center gap-3 flex-wrap">
+        {!isDone && (obj.status === "backlog" || obj.status === "refine") && (
+          <button
+            onClick={() => onDiscuss(obj.id, discussProblem)}
+            className="text-xs font-semibold text-[#00D64F] hover:underline"
+          >
+            Discuss with team →
+          </button>
+        )}
+        {obj.prd && (
+          <button
+            onClick={() => setPrdOpen(!prdOpen)}
+            className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+          >
+            {prdOpen ? "Hide PRD" : "View PRD"}
+          </button>
+        )}
+        {!isDone && (
+          confirmDelete ? (
+            <div className="flex items-center gap-2 ml-auto">
+              <span className="text-xs text-gray-500">Delete?</span>
+              <button onClick={() => onDelete(obj.id)} className="text-xs font-semibold text-red-400 hover:text-red-300">Yes</button>
+              <button onClick={() => setConfirmDelete(false)} className="text-xs text-gray-600 hover:text-gray-400">No</button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              className="text-xs text-gray-600 hover:text-red-400 transition-colors ml-auto"
+              title="Delete"
+            >
+              🗑
+            </button>
+          )
+        )}
+      </div>
+
+      {/* Expanded PRD */}
+      {prdOpen && obj.prd && (
+        <div className="border-t border-[#1e1e1e] pt-3 flex flex-col gap-3">
+          <div className="text-xs text-gray-400 leading-relaxed max-h-64 overflow-y-auto whitespace-pre-wrap">
+            {obj.prd}
+          </div>
+          {implPrompt && (
+            <div className="bg-[#0a0a0a] border border-[#2a2a2a] rounded-xl p-3 flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">Claude Code Prompt</span>
+                <button onClick={handleCopy} className="text-xs font-semibold text-[#00D64F] hover:underline">
+                  {copied ? "Copied!" : "Copy prompt"}
+                </button>
+              </div>
+              <p className="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap">{implPrompt}</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Kanban Tab ─────────────────────────────────────────────────────────────────
+
+function KanbanTab({ onDiscuss }: { onDiscuss: (objectiveId: string, problem: string) => void }) {
+  const [objectives, setObjectives] = useState<Objective[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadObjectives().then((data) => { setObjectives(data); setLoading(false); });
+  }, []);
+
+  async function handleDelete(id: string) {
+    await deleteObjective(id);
+    setObjectives((prev) => prev.filter((o) => o.id !== id));
+  }
+
+  async function handleStatusChange(id: string, status: ObjectiveStatus) {
+    await updateObjectiveStatus(id, status);
+    setObjectives((prev) => prev.map((o) => o.id === id ? { ...o, status } : o));
+  }
+
+  if (loading) return <p className="text-sm text-gray-600 py-4">Loading…</p>;
+
+  if (objectives.length === 0) {
+    return (
+      <div className="border border-dashed border-[#2a2a2a] rounded-2xl p-10 text-center">
+        <p className="text-sm text-gray-600">No cards yet — save objectives from the PM tab to populate the board.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex gap-4 overflow-x-auto pb-4 -mx-2 px-2">
+      {KANBAN_COLUMNS.map((col) => {
+        const cards = objectives.filter((o) => o.status === col.status);
+        return (
+          <div key={col.status} className="flex flex-col gap-3 min-w-[256px] w-[256px] shrink-0">
+            <div className="flex items-center justify-between px-1">
+              <span className={`text-xs font-bold uppercase tracking-widest ${col.textClass}`}>{col.label}</span>
+              <span className="text-xs text-gray-700">{cards.length}</span>
+            </div>
+            {cards.length === 0 ? (
+              <div className={`border ${col.borderClass} border-dashed rounded-2xl p-4 text-xs text-gray-700 text-center`}>
+                Empty
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {cards.map((obj) => (
+                  <KanbanCard
+                    key={obj.id}
+                    obj={obj}
+                    col={col}
+                    onDiscuss={onDiscuss}
+                    onDelete={handleDelete}
+                    onStatusChange={handleStatusChange}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── PM 1-on-1 Tab ─────────────────────────────────────────────────────────────
 
 function PMTab() {
   const [messages, setMessages] = useState<CoachMessage[]>([]);
@@ -1326,7 +1614,6 @@ function PMTab() {
   const [objectives, setObjectives] = useState<Objective[]>([]);
   const [objInput, setObjInput] = useState("");
   const [savingObj, setSavingObj] = useState(false);
-  const [togglingId, setTogglingId] = useState<string | null>(null);
   const [riseContext, setRiseContext] = useState("");
   const [ostNotification, setOstNotification] = useState("");
   const conversationIdRef = useRef<string | null>(null);
@@ -1467,22 +1754,37 @@ Update the OST to reflect the new objective and any relevant insights from the f
     const title = objInput.trim();
     if (!title) return;
     setSavingObj(true);
-    const obj = await saveObjective(title);
+
+    // Extract a one-sentence description from Sarah's last message
+    let description: string | null = null;
+    const lastSarahMsg = [...messages].reverse().find((m) => m.role === "assistant")?.content ?? "";
+    if (lastSarahMsg) {
+      try {
+        let desc = "";
+        await streamChat(
+          PM_MODEL,
+          "You extract concise one-sentence descriptions. Reply with ONLY the sentence — no extra text.",
+          [{
+            role: "user",
+            content:
+              `Write a one-sentence description for this product objective based on the conversation context.\n\n` +
+              `Objective: "${title}"\n\nContext (last message):\n${lastSarahMsg.slice(0, 600)}`,
+          }],
+          80,
+          (chunk) => { desc += chunk; }
+        );
+        const clean = desc.trim().replace(/^["']|["']$/g, "").replace(/\.+$/, "") + ".";
+        if (clean.length > 5) description = clean;
+      } catch { /* non-fatal */ }
+    }
+
+    const obj = await saveObjectiveWithDetails(title, description, "backlog");
     if (obj) {
       setObjInput("");
       loadObjectives().then(setObjectives);
-      // Fire-and-forget OST update
       updateOstFromObjective(title, obj.id);
     }
     setSavingObj(false);
-  }
-
-  async function handleToggleStatus(obj: Objective) {
-    const next = STATUS_CYCLE[obj.status];
-    setTogglingId(obj.id);
-    await updateObjectiveStatus(obj.id, next);
-    setObjectives((prev) => prev.map((o) => o.id === obj.id ? { ...o, status: next } : o));
-    setTogglingId(null);
   }
 
   function loadPastConversation(row: ConversationRow) {
@@ -1593,7 +1895,7 @@ Update the OST to reflect the new objective and any relevant insights from the f
 
         <div>
           <h2 className="text-base font-bold text-white mb-1">Agreed objectives</h2>
-          <p className="text-xs text-gray-600">Objectives you and Sarah have agreed on. Click a status badge to cycle it.</p>
+          <p className="text-xs text-gray-600">Objectives saved to the Kanban board as backlog cards.</p>
         </div>
 
         {ostNotification && (
@@ -1631,17 +1933,16 @@ Update the OST to reflect the new objective and any relevant insights from the f
               <div key={obj.id} className="bg-[#111] border border-[#1e1e1e] rounded-2xl px-5 py-4 flex items-start justify-between gap-4">
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-white leading-relaxed">{obj.title}</p>
+                  {obj.description && (
+                    <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{obj.description}</p>
+                  )}
                   <p className="text-xs text-gray-600 mt-1">
                     {new Date(obj.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
                   </p>
                 </div>
-                <button
-                  onClick={() => handleToggleStatus(obj)}
-                  disabled={togglingId === obj.id}
-                  className={`shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full capitalize transition-opacity disabled:opacity-50 ${STATUS_STYLES[obj.status]}`}
-                >
+                <span className={`shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full capitalize ${STATUS_STYLES[obj.status]}`}>
                   {obj.status}
-                </button>
+                </span>
               </div>
             ))}
           </div>
@@ -1856,16 +2157,25 @@ function OSTTab() {
 // ── Page ───────────────────────────────────────────────────────────────────────
 
 export default function TeamPage() {
-  const [activeTab, setActiveTab] = useState<"team" | "pm" | "coach" | "ost">("team");
+  const [activeTab, setActiveTab] = useState<"kanban" | "team" | "pm" | "coach" | "ost">("kanban");
+  const [pendingObjective, setPendingObjective] = useState<{ id: string; problem: string } | null>(null);
 
   // Pre-select tab from ?tab= query param
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get("tab");
-    if (tab === "ost" || tab === "coach" || tab === "team" || tab === "pm") setActiveTab(tab);
+    if (tab === "kanban" || tab === "team" || tab === "pm" || tab === "coach" || tab === "ost") {
+      setActiveTab(tab);
+    }
   }, []);
 
+  function handleDiscuss(objectiveId: string, problem: string) {
+    setPendingObjective({ id: objectiveId, problem });
+    setActiveTab("team");
+  }
+
   const tabs = [
+    { id: "kanban" as const, label: "Kanban" },
     { id: "team" as const, label: "Product team" },
     { id: "pm" as const, label: "PM" },
     { id: "coach" as const, label: "Product coach" },
@@ -1874,7 +2184,7 @@ export default function TeamPage() {
 
   return (
     <main className="min-h-screen bg-[#0a0a0a] px-6 py-10">
-      <div className="max-w-3xl mx-auto">
+      <div className={`${activeTab === "kanban" ? "max-w-5xl" : "max-w-3xl"} mx-auto transition-all`}>
 
         <div className="mb-8">
           <h1 className="text-4xl font-extrabold tracking-tight mb-2">Product agents</h1>
@@ -1882,12 +2192,12 @@ export default function TeamPage() {
         </div>
 
         {/* Tab bar */}
-        <div className="flex gap-1 bg-[#111] border border-[#1e1e1e] rounded-2xl p-1 w-fit mb-10">
+        <div className="flex gap-1 bg-[#111] border border-[#1e1e1e] rounded-2xl p-1 w-fit mb-10 overflow-x-auto">
           {tabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+              className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-colors whitespace-nowrap ${
                 activeTab === tab.id
                   ? "bg-[#00D64F] text-black"
                   : "text-gray-400 hover:text-white"
@@ -1898,7 +2208,13 @@ export default function TeamPage() {
           ))}
         </div>
 
-        {activeTab === "team" && <ProductTeamTab />}
+        {activeTab === "kanban" && <KanbanTab onDiscuss={handleDiscuss} />}
+        {activeTab === "team" && (
+          <ProductTeamTab
+            pendingObjective={pendingObjective}
+            onObjectiveSaved={() => setPendingObjective(null)}
+          />
+        )}
         {activeTab === "pm" && <PMTab />}
         {activeTab === "coach" && <ProductCoachTab />}
         {activeTab === "ost" && <OSTTab />}
