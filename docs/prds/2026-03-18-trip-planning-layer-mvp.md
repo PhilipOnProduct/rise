@@ -124,3 +124,39 @@ This is additive. It does not break existing onboarding schema. `itinerary_items
 **Open question: Behavioral signal from existing data.** Alex is pulling onboarding drop-off and activity selection data this week. If that data shows something surprising — low activity selection rates, high drop-off at the activities step — it should inform how aggressively we pre-populate the day-view. Review before we finalize AI prompt design.
 
 **Open question: Session research.** We are running 2–3 observed sessions in parallel with build, not as a gate to it. If those sessions surface a fundamentally different mental model than what this PRD assumes, we have a decision point before we ship.
+
+---
+
+## Claude Code Implementation Prompt
+
+Copy and paste the following prompt into Claude Code to implement this PRD:
+
+```
+Read CLAUDE.md and rise/docs/prds/2026-03-18-trip-planning-layer-mvp.md to understand the project and the feature.
+
+Implement the trip planning layer MVP described in the PRD. Build in this order:
+
+1. **Schema migration** (the only irreversible step — do this first): Add the itinerary data model to Supabase. The schema is:
+   - `trips` table (if it doesn't exist): id, traveler_id (FK to travelers), destination, start_date, end_date
+   - `itinerary_days` table: id, trip_id (FK), date, day_number
+   - `itinerary_items` table: id, day_id (FK), type (activity | restaurant | transport | note), title, description, start_time, end_time, location (text for MVP — no PostGIS yet), status (idea | confirmed | booked), source (ai_generated | user_added), position (integer for ordering within the day)
+   Output the SQL as a migration script and add it to a `supabase/migrations/` folder.
+
+2. **AI pre-population route** (`app/api/itinerary/generate/route.ts`): This route already exists — update it to return structured JSON matching the schema above. Accept `destination`, `startDate`, `endDate`, `activities` (from onboarding), `travelCompany`, `styleTags`, `budgetTier`. Return an array of days, each with morning / afternoon / evening items. Use `claude-sonnet-4-6` (non-streaming). Wrap in `logAiInteraction`. Set `max_tokens: 8000`. Strip markdown fences before JSON.parse. Fallback: extract between first `{` and last `}`.
+
+3. **Day-view itinerary page** (`app/itinerary/page.tsx`): This page already exists — update it to:
+   - Load traveller data from `localStorage` (`rise_traveler`)
+   - On first load, call `/api/itinerary/generate` and cache result in `localStorage` (`rise_itinerary`)
+   - Render one column per trip day with three time blocks: Morning / Afternoon / Evening
+   - Each item shows title and a dismiss (×) button
+   - HTML5 drag-and-drop between time blocks within a day (already partially implemented — verify and complete)
+   - Inline "Add item" button per time block — clicking shows a small text input inline, pressing Enter adds the item as `source: user_added`
+   - "Regenerate" button clears `rise_itinerary` and re-fetches
+   - Persist all changes (drag, dismiss, add) back to `localStorage`
+
+4. **Dashboard link**: Ensure the dashboard (`app/dashboard/page.tsx`) has a prominent link/card to the itinerary page. The day-view should feel like the home base for the trip, not a secondary screen.
+
+Do not build: conflict detection, travel time calculation, booking integration, map view, or collaborative editing. Those are explicitly out of scope.
+
+Follow the design system in CLAUDE.md: dark background, green accent (#00D64F), rounded-2xl cards, DM Sans. Morning / Afternoon / Evening blocks should be visually distinct sections within each day column.
+```

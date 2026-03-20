@@ -139,4 +139,30 @@ If the team starts designing toward the map now, small architectural choices wil
 **Open question: Is Rise a recommendation engine or a trip planning tool?**
 This is the actual strategic decision underneath everything in this PRD. A recommendation engine is destination + dates + hotel → AI suggestions. A trip planning tool requires a structured itinerary as a first-class data object with a different schema, a different user mental model, and a different competitive position. Both are valid. They lead to different roadmaps. This question should be answered explicitly after Phase 1 sessions, before Phase 2 begins — not deferred indefinitely.
 
-**Open question: What does the AI need to output for Phase 3
+**Open question: What does the AI need to output for Phase 3?** Streamed markdown is fine for Phase 2. Phase 3 requires structured JSON with location data for every activity so it can be geocoded and pinned. The prompt design for Phase 3 is different enough that it should be designed separately. Don't try to make one prompt do both jobs.
+
+---
+
+## Claude Code Implementation Prompt
+
+Copy and paste the following prompt into Claude Code to implement this PRD:
+
+```
+Read CLAUDE.md and rise/docs/prds/2026-03-18-trip-planning-activity-suggestions.md to understand the project and the feature.
+
+Implement Phase 2 of the trip planning activity suggestions PRD (activities-first sequencing). Phase 1 (restaurant validation) is assumed complete. Do not build Phase 3 (map visualization) — that requires a separate schema decision.
+
+**Phase 2 — Activities-first sequencing:**
+
+1. **Swap the AI preview step** in `app/welcome/page.tsx`: Replace the restaurant recommendation at onboarding Step 3 with an activity suggestions moment. Call `/api/activities-stream` instead of `/api/recommendations`. The system prompt should suggest 3–4 activities for the destination that fit the trip duration and give the user a mental picture of what they'll do each day.
+
+2. **Update `/api/activities-stream/route.ts`**: Revise the Claude prompt so it outputs activities framed as "things you'll actually do on this trip" rather than a generic list. Accept `destination`, `dates`, `travelCompany`, `styleTags`, and `budgetTier`. Output streamed markdown — no structural changes to the route are needed.
+
+3. **Loading state**: While streaming, show "Planning your [X]-day trip to [destination]…" echoing back the user's inputs. Same pattern as the existing activity preview loading state.
+
+4. **Skip option**: Add a subtle "Skip for now" link below the streaming output so users who want to move on aren't blocked. Advancing from this step should work whether the user waited for the full stream or skipped.
+
+The output is still streamed markdown — this is a content and prompt change, not an architectural one. Estimate: half a day.
+
+Follow the design system in CLAUDE.md. Use `AbortController` for the streaming fetch. Wrap the Claude call with `logAiInteraction` from `lib/ai-logger.ts`.
+```

@@ -122,3 +122,31 @@ No new infrastructure is required to ship this. The entire change set sits on to
 ---
 
 **Next step:** Ship it. Put five real people through it. Watch the recordings. The data from those five sessions is worth more than any further discussion about what we think will happen.
+
+---
+
+## Claude Code Implementation Prompt
+
+Copy and paste the following prompt into Claude Code to implement this PRD:
+
+```
+Read CLAUDE.md and rise/docs/prds/2026-03-18-first-time-visitor-onboarding-flow.md to understand the project and the feature.
+
+Implement the first-time visitor onboarding flow described in the PRD. Specifically:
+
+1. **Step 0 — Landing Input** (`app/welcome/page.tsx`): Create a full-screen landing component with a single headline and one destination input. No navigation, no feature list, no sign-up prompt. Typing a destination is the only action. On submit, advance to the wizard.
+
+2. **Step 1 — Destination + Dates**: Combine destination and dates into one step (currently two separate steps). Reduces perceived wizard length.
+
+3. **Step 2 — Hotel Preferences**: Keep as-is; ensure it's contextualised as "where you'll stay" to frame what's coming.
+
+4. **Step 3 — AI Activity Preview** (new): After capturing destination, dates, and hotel, call `/api/activities-stream` and stream 2–3 live activity recommendations for the destination. Use the existing streaming infrastructure. Present with a loading state that echoes the traveller's destination (e.g. "Finding the best experiences in Lisbon…"). This is the value moment — make the streaming visible and impressive.
+
+5. **Step 4 — Travel Preferences**: Capture travel company, style tags, and budget tier using the existing preference UI.
+
+6. **Step 5 — Account Creation**: Position as "Save your trip plan" — the user has seen something valuable, now they're saving it. Write to Supabase `travelers` table and set `localStorage` keys `rise_traveler` and `rise_onboarded`.
+
+State management: hold wizard state in component state or `localStorage` for steps 0–4. Only write to Supabase at step 5. No auth required before step 5.
+
+Follow the design system in CLAUDE.md: dark background (#0a0a0a), green accent (#00D64F), DM Sans font. Use `animate-step` / `fadeSlideUp` for step transitions. Use `AbortController` for the streaming fetch in Step 3.
+```
