@@ -27,10 +27,12 @@ const STYLE_OPTIONS = [
 ];
 
 const BUDGET_OPTIONS = [
-  { id: "budget", label: "Budget", description: "Street food and hostels" },
-  { id: "mid", label: "Mid-range", description: "Mid-range hotels and sit-down meals" },
-  { id: "luxury", label: "Luxury", description: "No compromises" },
+  { id: "budget", label: "Savvy", description: "Great value, local finds" },
+  { id: "comfortable", label: "Comfortable", description: "Quality without excess" },
+  { id: "luxury", label: "Flexible", description: "Spend where it matters" },
 ];
+
+const MAX_STYLE_SELECTIONS = 3;
 
 function tomorrow() {
   const d = new Date();
@@ -44,19 +46,16 @@ function addDays(dateStr: string, days: number) {
   return d.toISOString().split("T")[0];
 }
 
-function buildLoadingLabel(destination: string, travelCompany: string, travelerTypes: string[], budgetTier: string) {
-  const parts: string[] = [];
-  if (travelCompany) {
-    const opt = COMPANY_OPTIONS.find((o) => o.id === travelCompany);
-    parts.push(opt ? `${opt.label.toLowerCase()} trip` : travelCompany);
-  }
-  if (travelerTypes.length > 0) parts.push(travelerTypes[0].toLowerCase());
-  if (budgetTier) {
-    const opt = BUDGET_OPTIONS.find((o) => o.id === budgetTier);
-    if (opt) parts.push(opt.label.toLowerCase() + " budget");
-  }
-  const profile = parts.length > 0 ? ` for a ${parts.join(", ")}` : "";
-  return `Finding activities${profile} in ${destination}…`;
+function previewLoadingLabel(destination: string, travelCompany: string): string {
+  const companyLabel: Record<string, string> = {
+    solo: "solo",
+    partner: "couple",
+    family: "family",
+    friends: "friends",
+  };
+  const label = companyLabel[travelCompany];
+  if (label) return `Planning your ${label} trip to ${destination}…`;
+  return `Planning your trip to ${destination}…`;
 }
 
 export default function WelcomePage() {
@@ -70,6 +69,8 @@ export default function WelcomePage() {
   const [departureDate, setDepartureDate] = useState("");
   const [returnDate, setReturnDate] = useState("");
   const [hotel, setHotel] = useState("");
+
+  // Preferences (Step 3)
   const [travelCompany, setTravelCompany] = useState("");
   const [travelerTypes, setTravelerTypes] = useState<string[]>([]);
   const [budgetTier, setBudgetTier] = useState("");
@@ -79,7 +80,10 @@ export default function WelcomePage() {
   const [email, setEmail] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // AI Preview (step 3)
+  // Partial traveler ID written to DB at step 3 advance
+  const [travelerId, setTravelerId] = useState<string | null>(null);
+
+  // AI Preview (step 4)
   const [previewText, setPreviewText] = useState("");
   const [previewLoading, setPreviewLoading] = useState(false);
   const previewAbortRef = useRef<AbortController | null>(null);
@@ -88,9 +92,9 @@ export default function WelcomePage() {
     if (departureDate) setReturnDate(addDays(departureDate, 7));
   }, [departureDate]);
 
-  // Fire streaming preview when entering step 3 (after preferences collected in step 2)
+  // Fire streaming preview when entering step 4
   useEffect(() => {
-    if (step !== 3) return;
+    if (step !== 4) return;
 
     const controller = new AbortController();
     previewAbortRef.current = controller;
@@ -107,9 +111,9 @@ export default function WelcomePage() {
             destination,
             departureDate: departureDate || "",
             returnDate: returnDate || "",
-            travelCompany,
-            styleTags: travelerTypes,
-            budgetTier,
+            travelCompany: travelCompany || null,
+            styleTags: travelerTypes.length > 0 ? travelerTypes : null,
+            budgetTier: budgetTier || null,
           }),
         });
         if (!res.body) return;
@@ -151,31 +155,86 @@ export default function WelcomePage() {
   }
 
   function toggleStyle(style: string) {
-    setTravelerTypes((prev) =>
-      prev.includes(style) ? prev.filter((s) => s !== style) : [...prev, style]
-    );
+    setTravelerTypes((prev) => {
+      if (prev.includes(style)) return prev.filter((s) => s !== style);
+      if (prev.length >= MAX_STYLE_SELECTIONS) return prev;
+      return [...prev, style];
+    });
+  }
+
+  // Write preferences to DB when advancing from step 3 to step 4
+  async function savePreferencesToDb() {
+    try {
+      if (travelerId) {
+        // Update existing partial record
+        await fetch("/api/travelers", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: travelerId,
+            travelCompany: travelCompany || null,
+            styleTags: travelerTypes.length > 0 ? travelerTypes : null,
+            budgetTier: budgetTier || null,
+          }),
+        });
+      } else {
+        // Create a partial record with trip + preference data
+        const res = await fetch("/api/travelers", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            destination,
+            departureDate,
+            returnDate,
+            hotel,
+            travelCompany: travelCompany || null,
+            styleTags: travelerTypes.length > 0 ? travelerTypes : null,
+            budgetTier: budgetTier || null,
+            activities: [],
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setTravelerId(data.id ?? null);
+        }
+      }
+    } catch {
+      // Non-fatal: preferences are in state; partial write is best-effort
+    }
   }
 
   async function handleFinish() {
     setSaving(true);
-    let travelerId: string | null = null;
     try {
-      const res = await fetch("/api/travelers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name,
-          email,
-          destination,
-          departureDate,
-          returnDate,
-          hotel,
-          activities: [],
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        travelerId = data.id;
+      if (travelerId) {
+        // Update the partial record with name/email
+        await fetch("/api/travelers", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: travelerId, name, email }),
+        });
+      } else {
+        // No partial record — create the full traveler record
+        const res = await fetch("/api/travelers", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name,
+            email,
+            destination,
+            departureDate,
+            returnDate,
+            hotel,
+            travelCompany: travelCompany || null,
+            styleTags: travelerTypes.length > 0 ? travelerTypes : null,
+            budgetTier: budgetTier || null,
+            activities: [],
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setTravelerId(data.id ?? null);
+        }
       }
     } catch {}
     const travelerData = {
@@ -236,30 +295,31 @@ export default function WelcomePage() {
 
   const canContinue: Record<number, boolean> = {
     1: destination.trim().length > 0 && departureDate.length > 0 && returnDate.length > 0,
-    2: true,
-    3: true,
-    4: hotel.trim().length > 0,
+    2: hotel.trim().length > 0,
+    3: travelCompany.length > 0,
+    4: true,
     5: name.trim().length > 0 && email.trim().length > 0,
   };
 
   async function handleContinue() {
     if (step === 5) { await handleFinish(); return; }
+    if (step === 3) { await savePreferencesToDb(); }
     goTo(step + 1);
   }
 
   const headings: Record<number, string> = {
     1: "When are you going?",
-    2: "What kind of trip?",
-    3: `What to do in ${destination}.`,
-    4: "Where are you staying?",
+    2: "Where are you staying?",
+    3: "Tell us about yourself.",
+    4: `What to do in ${destination}.`,
     5: "Save your trip plan.",
   };
 
   const subs: Record<number, string> = {
     1: `Great choice. Now let's lock in the dates for ${destination}.`,
-    2: "Tell us who you're travelling with, your style, and your budget — so we can personalise your activity ideas.",
-    3: "AI activity ideas tailored to your trip — before you commit to anything.",
-    4: "Your hotel helps us give you better transport and local advice.",
+    2: "Your hotel helps us give you better transport and local advice.",
+    3: "A few quick questions so we can personalise your experience.",
+    4: "AI activity ideas tailored to your trip — before you commit to anything.",
     5: "Your personalised plan is ready. Create an account to save it.",
   };
 
@@ -344,8 +404,23 @@ export default function WelcomePage() {
             </div>
           )}
 
-          {/* Step 2: Preferences — company, style, budget */}
+          {/* Step 2: Hotel */}
           {step === 2 && (
+            <PlacesAutocomplete
+              value={hotel}
+              onChange={setHotel}
+              onSelect={setHotel}
+              placeholder="e.g. Park Hyatt Tokyo"
+              types={["establishment"]}
+              locationBias={destinationBias}
+              autoFocus
+              onEnter={() => canContinue[2] && handleContinue()}
+              className={underlineInput}
+            />
+          )}
+
+          {/* Step 3: Travel preferences */}
+          {step === 3 && (
             <div className="flex flex-col gap-8">
               <div>
                 <label className="block text-sm font-semibold text-gray-400 uppercase tracking-widest mb-4">
@@ -373,21 +448,30 @@ export default function WelcomePage() {
                 <label className="block text-sm font-semibold text-gray-400 uppercase tracking-widest mb-1">
                   What's your travel style?
                 </label>
-                <p className="text-gray-600 text-sm mb-4">Pick as many as you like.</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {STYLE_OPTIONS.map((style) => (
-                    <button
-                      key={style}
-                      onClick={() => toggleStyle(style)}
-                      className={`px-4 py-2.5 rounded-xl border text-sm font-semibold transition-all text-left ${
-                        travelerTypes.includes(style)
-                          ? "border-[#00D64F] bg-[#00D64F]/10 text-white"
-                          : "border-[#1e1e1e] bg-[#111] text-gray-400 hover:border-[#333] hover:text-white"
-                      }`}
-                    >
-                      {style}
-                    </button>
-                  ))}
+                <p className="text-gray-600 text-sm mb-4">
+                  Pick up to {MAX_STYLE_SELECTIONS}.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {STYLE_OPTIONS.map((style) => {
+                    const selected = travelerTypes.includes(style);
+                    const maxed = travelerTypes.length >= MAX_STYLE_SELECTIONS && !selected;
+                    return (
+                      <button
+                        key={style}
+                        onClick={() => toggleStyle(style)}
+                        disabled={maxed}
+                        className={`px-4 py-2 rounded-xl border text-sm font-semibold transition-all ${
+                          selected
+                            ? "border-[#00D64F] bg-[#00D64F]/10 text-white"
+                            : maxed
+                            ? "border-[#1e1e1e] bg-[#111] text-gray-600 cursor-not-allowed"
+                            : "border-[#1e1e1e] bg-[#111] text-gray-400 hover:border-[#333] hover:text-white"
+                        }`}
+                      >
+                        {style}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -417,13 +501,13 @@ export default function WelcomePage() {
             </div>
           )}
 
-          {/* Step 3: AI Preview — personalised with preferences */}
-          {step === 3 && (
+          {/* Step 4: AI Preview */}
+          {step === 4 && (
             <div className="rounded-2xl border border-[#1e1e1e] bg-[#111] p-6 min-h-[280px]">
               {previewLoading && !previewText && (
                 <div className="flex items-center gap-3 text-gray-400">
                   <div className="w-4 h-4 rounded-full border-2 border-[#00D64F] border-t-transparent animate-spin flex-shrink-0" />
-                  <span>{buildLoadingLabel(destination, travelCompany, travelerTypes, budgetTier)}</span>
+                  <span>{previewLoadingLabel(destination, travelCompany)}</span>
                 </div>
               )}
               {previewText && (
@@ -436,22 +520,6 @@ export default function WelcomePage() {
               )}
             </div>
           )}
-
-          {/* Step 4: Hotel */}
-          {step === 4 && (
-            <PlacesAutocomplete
-              value={hotel}
-              onChange={setHotel}
-              onSelect={setHotel}
-              placeholder="e.g. Park Hyatt Tokyo"
-              types={["establishment"]}
-              locationBias={destinationBias}
-              autoFocus
-              onEnter={() => canContinue[4] && handleContinue()}
-              className={underlineInput}
-            />
-          )}
-
           {/* Step 5: Account creation */}
           {step === 5 && (
             <div className="flex flex-col gap-6">
@@ -496,7 +564,7 @@ export default function WelcomePage() {
               ? "Saving your trip…"
               : step === TOTAL_WIZARD_STEPS
               ? "Let's go →"
-              : step === 3
+              : step === 4
               ? "Looks good — continue →"
               : "Continue →"}
           </button>

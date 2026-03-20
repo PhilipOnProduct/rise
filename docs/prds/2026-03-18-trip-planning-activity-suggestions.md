@@ -139,4 +139,19 @@ If the team starts designing toward the map now, small architectural choices wil
 **Open question: Is Rise a recommendation engine or a trip planning tool?**
 This is the actual strategic decision underneath everything in this PRD. A recommendation engine is destination + dates + hotel → AI suggestions. A trip planning tool requires a structured itinerary as a first-class data object with a different schema, a different user mental model, and a different competitive position. Both are valid. They lead to different roadmaps. This question should be answered explicitly after Phase 1 sessions, before Phase 2 begins — not deferred indefinitely.
 
-**Open question: What does the AI need to output for Phase 3
+**Open question: What does the AI need to output for Phase 3?** Streamed markdown is fine for Phase 2. Phase 3 requires structured JSON with location data for every activity so it can be geocoded and pinned. The prompt design for Phase 3 is different enough that it should be designed separately. Don't try to make one prompt do both jobs.
+
+---
+
+## Claude Code Implementation Prompt
+
+Copy and paste the following prompt into Claude Code to implement this PRD:
+
+```
+Implement activities-first sequencing in the onboarding wizard. Phase 1 (restaurant validation) is complete. Do not build Phase 3 (map visualization) — that requires a separate schema decision.
+
+1. **`app/welcome/page.tsx` — Step 3**: Replace the restaurant recommendation with an activity suggestions moment. Call `/api/activities-stream` instead of `/api/recommendations`.
+2. **`app/api/activities-stream/route.ts`**: Revise the Claude system prompt to suggest 3–4 activities framed as "things you'll actually do on this trip" rather than a generic list. Accept `destination`, `dates`, `travelCompany`, `styleTags`, `budgetTier`. Streamed markdown output — no structural changes to the route needed.
+3. **Loading state**: Show "Planning your [X]-day trip to [destination]…" while streaming, echoing the user's inputs.
+4. **Skip option**: Add a subtle "Skip for now" link below the stream output. The step should advance whether the user waits for the full stream or skips.
+```
