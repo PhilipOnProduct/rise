@@ -967,7 +967,7 @@ function ProductTeamTab() {
             `Use these sections exactly:\n` +
             `## Overview\n## Problem Statement\n## User Need\n## Proposed Solution\n` +
             `## User Stories\n## Success Metrics\n## Technical Considerations\n## Risks & Open Questions\n## Claude Code Implementation Prompt\n\n` +
-            `For the Claude Code Implementation Prompt section, write a self-contained, copy-pasteable prompt a developer can paste into Claude Code to implement this PRD. Reference specific files and implementation steps.`,
+            `At the end of the PRD, include a concise Claude Code implementation prompt. Keep it functional — describe what to build and acceptance criteria only. Do not include specific file paths, code snippets, or implementation details. Claude Code will determine those from the codebase.`,
         }],
         4096, (chunk) => { prdText += chunk; setPrd(prdText); }
       );
