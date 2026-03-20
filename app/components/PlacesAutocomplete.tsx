@@ -78,7 +78,6 @@ export default function PlacesAutocomplete({
 
   useEffect(() => {
     if (justSelectedRef.current) {
-      justSelectedRef.current = false;
       return;
     }
     if (!ready || !hasTypedRef.current || value.trim().length < 2) {
@@ -178,7 +177,7 @@ export default function PlacesAutocomplete({
       <input
         type="text"
         value={value}
-        onChange={(e) => { hasTypedRef.current = true; onChange(e.target.value); }}
+        onChange={(e) => { hasTypedRef.current = true; justSelectedRef.current = false; onChange(e.target.value); }}
         onKeyDown={handleKeyDown}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
         placeholder={placeholder}
