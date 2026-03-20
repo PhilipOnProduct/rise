@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-type AgentId = "sarah" | "alex" | "maya" | "luca";
+type AgentId = "sarah" | "alex" | "maya" | "luca" | "elena";
 type Phase = "idle" | "framing" | "specialists" | "synthesis" | "done" | "prd";
 type CoachMessage = { role: "user" | "assistant"; content: string };
 type TeamMessages = {
@@ -14,6 +14,7 @@ type TeamMessages = {
   alex: string;
   maya: string;
   luca: string;
+  elena: string;
   synthesis: string;
 };
 
@@ -257,7 +258,7 @@ const PM_SYSTEM =
 
 const AGENTS: Record<
   AgentId,
-  { name: string; role: string; initial: string; badge: string; system: string }
+  { name: string; role: string; initial: string; badge: string; bgColor?: string; system: string }
 > = {
   sarah: {
     name: "Sarah",
@@ -286,6 +287,14 @@ const AGENTS: Record<
     initial: "L",
     badge: "bg-orange-500 text-white",
     system: `You are Luca, the Tech Lead at Rise — a travel assistant app. ${RISE_CONTEXT} Architecture: Next.js App Router, API routes for AI calls, Supabase Postgres, Vercel edge.\nAssess feasibility, flag complexity, suggest the simplest viable approach. Use short paragraphs.`,
+  },
+  elena: {
+    name: "Elena",
+    role: "Travel Expert",
+    initial: "ET",
+    badge: "text-white",
+    bgColor: "#185fa5",
+    system: `You are Elena, a Senior Travel Planner with 15 years of experience creating personalised luxury and independent travel itineraries. You are part of the Rise product team. When asked for your perspective, you evaluate product decisions through the lens of real travel expertise: what actually makes trips memorable, what travellers struggle with in reality, how destinations differ in character, and what separates generic recommendations from genuinely personalised ones. You know that good travel planning is about pacing, geography, energy management, and local knowledge — not just listing attractions. Be direct and opinionated. If an AI recommendation would steer a traveller wrong, say so clearly. Rise context: AI-powered travel concierge app with onboarding wizard, restaurant recommendations, transport advice, local guides system, and day-view itinerary planner.`,
   },
 };
 
@@ -575,7 +584,10 @@ function AgentBubble({
 
   return (
     <div className="flex gap-4">
-      <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${agent.badge}`}>
+      <div
+        className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${agent.badge}`}
+        style={agent.bgColor ? { backgroundColor: agent.bgColor } : undefined}
+      >
         {agent.initial}
       </div>
       <div className="flex-1 min-w-0">
@@ -791,6 +803,7 @@ function ProductTeamTab() {
   const [alexContent, setAlexContent] = useState("");
   const [mayaContent, setMayaContent] = useState("");
   const [lucaContent, setLucaContent] = useState("");
+  const [elenaContent, setElenaContent] = useState("");
   const [synthesis, setSynthesis] = useState("");
   const [prd, setPrd] = useState("");
   const [teamError, setTeamError] = useState("");
@@ -817,6 +830,7 @@ function ProductTeamTab() {
     setAlexContent(msgs.alex ?? "");
     setMayaContent(msgs.maya ?? "");
     setLucaContent(msgs.luca ?? "");
+    setElenaContent(msgs.elena ?? "");
     setSynthesis(msgs.synthesis ?? "");
     setPrd(row.prd ?? "");
     setConversationId(row.id);
@@ -830,7 +844,7 @@ function ProductTeamTab() {
     if (!problem.trim() || isRunning) return;
 
     setSarahFrame(""); setAlexContent(""); setMayaContent("");
-    setLucaContent(""); setSynthesis(""); setPrd("");
+    setLucaContent(""); setElenaContent(""); setSynthesis(""); setPrd("");
     setTeamError(""); setConversationId(null); setPrdSlug(""); setPrdDownloaded(false);
 
     try {
@@ -850,9 +864,9 @@ function ProductTeamTab() {
 
       // ── Step 2: Specialists in parallel ──────────────────────────────────
       setPhase("specialists");
-      setThinking({ alex: true, maya: true, luca: true });
+      setThinking({ alex: true, maya: true, luca: true, elena: true });
       const specialistPrompt = `Problem: ${problem}\n\nSarah's framing: ${frameText}\n\nShare your expert perspective.`;
-      let alexText = "", mayaText = "", lucaText = "";
+      let alexText = "", mayaText = "", lucaText = "", elenaText = "";
 
       await Promise.all([
         streamChat(TEAM_MODEL, AGENTS.alex.system,
@@ -869,6 +883,11 @@ function ProductTeamTab() {
           [{ role: "user", content: specialistPrompt }], 512,
           (chunk) => { lucaText += chunk; setLucaContent(lucaText); }
         ).then(() => setThinking((p) => { const n = { ...p }; delete n.luca; return n; })),
+
+        streamChat(TEAM_MODEL, AGENTS.elena.system,
+          [{ role: "user", content: specialistPrompt }], 512,
+          (chunk) => { elenaText += chunk; setElenaContent(elenaText); }
+        ).then(() => setThinking((p) => { const n = { ...p }; delete n.elena; return n; })),
       ]);
 
       // ── Step 3: Sarah synthesizes ─────────────────────────────────────────
@@ -879,7 +898,7 @@ function ProductTeamTab() {
         TEAM_MODEL, AGENTS.sarah.system,
         [{
           role: "user",
-          content: `Problem: ${problem}\n\nYour framing:\n${frameText}\n\nTeam input:\nAlex (Research): ${alexText}\nMaya (Design): ${mayaText}\nLuca (Tech): ${lucaText}\n\nSynthesize the key insights and give a clear product recommendation.`,
+          content: `Problem: ${problem}\n\nYour framing:\n${frameText}\n\nTeam input:\nAlex (Research): ${alexText}\nMaya (Design): ${mayaText}\nLuca (Tech): ${lucaText}\nElena (Travel Expert): ${elenaText}\n\nSynthesize the key insights and give a clear product recommendation.`,
         }],
         768, (chunk) => { synthesisText += chunk; setSynthesis(synthesisText); }
       );
@@ -888,7 +907,7 @@ function ProductTeamTab() {
       // ── Save to Supabase ──────────────────────────────────────────────────
       const id = await saveTeamConversation(problem, {
         problem, framing: frameText, alex: alexText, maya: mayaText,
-        luca: lucaText, synthesis: synthesisText,
+        luca: lucaText, elena: elenaText, synthesis: synthesisText,
       });
       setConversationId(id);
       setPhase("done");
@@ -943,7 +962,7 @@ function ProductTeamTab() {
           content:
             `Based on this product discussion, write a structured PRD.\n\n` +
             `Problem: ${problem}\nFraming: ${sarahFrame}\n` +
-            `Research (Alex): ${alexContent}\nDesign (Maya): ${mayaContent}\nTech (Luca): ${lucaContent}\n` +
+            `Research (Alex): ${alexContent}\nDesign (Maya): ${mayaContent}\nTech (Luca): ${lucaContent}\nTravel Expert (Elena): ${elenaContent}\n` +
             `Synthesis: ${synthesis}\n\n` +
             `Use these sections exactly:\n` +
             `## Overview\n## Problem Statement\n## User Need\n## Proposed Solution\n` +
@@ -981,7 +1000,10 @@ function ProductTeamTab() {
         <div className="flex gap-3 flex-wrap">
           {(Object.entries(AGENTS) as [AgentId, typeof AGENTS[AgentId]][]).map(([id, a]) => (
             <div key={id} className="flex items-center gap-2 bg-[#111] border border-[#1e1e1e] rounded-xl px-3 py-2">
-              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${a.badge}`}>
+              <div
+                className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${a.badge}`}
+                style={a.bgColor ? { backgroundColor: a.bgColor } : undefined}
+              >
                 {a.initial}
               </div>
               <div>
@@ -1041,12 +1063,13 @@ function ProductTeamTab() {
           <SectionDivider label="Problem framing" />
           <AgentBubble agentId="sarah" content={sarahFrame} thinking={!!thinking.sarah && phase === "framing"} roleOverride="Framing" />
 
-          {(alexContent || mayaContent || lucaContent || phase === "specialists") && (
+          {(alexContent || mayaContent || lucaContent || elenaContent || phase === "specialists") && (
             <>
               <SectionDivider label="Team response" />
               <AgentBubble agentId="alex" content={alexContent} thinking={!!thinking.alex} />
               <AgentBubble agentId="maya" content={mayaContent} thinking={!!thinking.maya} />
               <AgentBubble agentId="luca" content={lucaContent} thinking={!!thinking.luca} />
+              <AgentBubble agentId="elena" content={elenaContent} thinking={!!thinking.elena} />
             </>
           )}
 
