@@ -122,3 +122,22 @@ No new infrastructure is required to ship this. The entire change set sits on to
 ---
 
 **Next step:** Ship it. Put five real people through it. Watch the recordings. The data from those five sessions is worth more than any further discussion about what we think will happen.
+
+---
+
+## Claude Code Implementation Prompt
+
+Copy and paste the following prompt into Claude Code to implement this PRD:
+
+```
+Implement the first-time visitor onboarding flow in `app/welcome/page.tsx`. Restructure the wizard into 6 steps (Step 0–5):
+
+1. **Step 0 — Landing Input**: Full-screen component, single headline, one destination input. No nav, no feature list, no sign-up prompt. Submit advances to the wizard.
+2. **Step 1 — Destination + Dates**: Combine into one step (currently two separate steps).
+3. **Step 2 — Hotel Preferences**: Keep as-is.
+4. **Step 3 — AI Activity Preview** (new): After capturing destination, dates, and hotel, call `/api/activities-stream` and stream 2–3 live activity recommendations. Loading state should echo the destination (e.g. "Finding the best experiences in Lisbon…"). Use `AbortController`.
+5. **Step 4 — Travel Preferences**: Capture travel company, style tags, budget tier.
+6. **Step 5 — Account Creation**: Position as "Save your trip plan" — the user has seen something valuable, now they're saving it. Write to Supabase `travelers` table and set `rise_traveler` / `rise_onboarded` in `localStorage`.
+
+State: hold in component state or `localStorage` for steps 0–4. Write to Supabase only at step 5. No auth required before step 5.
+```
