@@ -767,7 +767,7 @@ function ProductTeamTab({
       await streamChat(
         TEAM_MODEL, sarahSystemWithMemory,
         [{ role: "user", content: `Frame this problem for the product team:\n\n${problem}` }],
-        1024, (chunk) => { frameText += chunk; setSarahFrame(frameText); }
+        2048, (chunk) => { frameText += chunk; setSarahFrame(frameText); }
       );
       setThinking({});
 
@@ -779,22 +779,22 @@ function ProductTeamTab({
 
       await Promise.all([
         streamChat(TEAM_MODEL, AGENTS.alex.system,
-          [{ role: "user", content: specialistPrompt }], 1024,
+          [{ role: "user", content: specialistPrompt }], 2048,
           (chunk) => { alexText += chunk; setAlexContent(alexText); }
         ).then(() => setThinking((p) => { const n = { ...p }; delete n.alex; return n; })),
 
         streamChat(TEAM_MODEL, AGENTS.maya.system,
-          [{ role: "user", content: specialistPrompt }], 1024,
+          [{ role: "user", content: specialistPrompt }], 2048,
           (chunk) => { mayaText += chunk; setMayaContent(mayaText); }
         ).then(() => setThinking((p) => { const n = { ...p }; delete n.maya; return n; })),
 
         streamChat(TEAM_MODEL, AGENTS.luca.system,
-          [{ role: "user", content: specialistPrompt }], 1024,
+          [{ role: "user", content: specialistPrompt }], 2048,
           (chunk) => { lucaText += chunk; setLucaContent(lucaText); }
         ).then(() => setThinking((p) => { const n = { ...p }; delete n.luca; return n; })),
 
         streamChat(TEAM_MODEL, AGENTS.elena.system,
-          [{ role: "user", content: specialistPrompt }], 1024,
+          [{ role: "user", content: specialistPrompt }], 2048,
           (chunk) => { elenaText += chunk; setElenaContent(elenaText); }
         ).then(() => setThinking((p) => { const n = { ...p }; delete n.elena; return n; })),
       ]);
@@ -809,7 +809,7 @@ function ProductTeamTab({
           role: "user",
           content: `Problem: ${problem}\n\nYour framing:\n${frameText}\n\nTeam input:\nAlex (Research): ${alexText}\nMaya (Design): ${mayaText}\nLuca (Tech): ${lucaText}\nElena (Travel Expert): ${elenaText}\n\nSynthesize the key insights and give a clear product recommendation.`,
         }],
-        2048, (chunk) => { synthesisText += chunk; setSynthesis(synthesisText); }
+        4096, (chunk) => { synthesisText += chunk; setSynthesis(synthesisText); }
       );
       setThinking({});
 
@@ -878,7 +878,7 @@ function ProductTeamTab({
             `## User Stories\n## Success Metrics\n## Technical Considerations\n## Risks & Open Questions\n## Claude Code Implementation Prompt\n\n` +
             `For the Claude Code Implementation Prompt section: write a prompt for Claude Code to implement this feature. Include only: (1) what to build in plain functional language, (2) any hard constraints that affect sequencing or data flow. No acceptance criteria, no function signatures, no timing values, no schema details, no technical implementation patterns. Be as concise as the feature allows.`,
         }],
-        6000, (chunk) => { prdText += chunk; setPrd(prdText); }
+        8000, (chunk) => { prdText += chunk; setPrd(prdText); }
       );
       if (conversationId) await updateTeamPrd(conversationId, prdText);
       const slug = await fetchPrdSlug(problem, prdText);
