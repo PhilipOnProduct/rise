@@ -889,7 +889,7 @@ function ProductTeamTab({
             `Use these sections exactly:\n` +
             `## Overview\n## Problem Statement\n## User Need\n## Proposed Solution\n` +
             `## User Stories\n## Success Metrics\n## Technical Considerations\n## Risks & Open Questions\n## Claude Code Implementation Prompt\n\n` +
-            `For the Claude Code Implementation Prompt section: write a prompt for Claude Code to implement this feature. Include only: (1) what to build in plain functional language, (2) any hard constraints that affect sequencing or data flow. No acceptance criteria, no function signatures, no timing values, no schema details, no technical implementation patterns. Be as concise as the feature allows.`,
+            `For the Claude Code Implementation Prompt section: write a functional description of what to build. This prompt will be copied directly into Claude Code. Describe what to build clearly and completely in functional terms. Include hard constraints on sequencing or data flow if they affect implementation. Do not include copy templates, animation details, visual state descriptions, prompt wording, or instructions on how to write code. Do not re-state acceptance criteria.`,
         }],
         8000, (chunk) => { prdText += chunk; setPrd(prdText); }
       );
