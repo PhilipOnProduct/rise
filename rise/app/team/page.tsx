@@ -950,7 +950,7 @@ function ProductTeamTab() {
             `## User Stories\n## Success Metrics\n## Technical Considerations\n## Risks & Open Questions\n## Claude Code Implementation Prompt\n\n` +
             `For the Claude Code Implementation Prompt section, write a self-contained, copy-pasteable prompt a developer can paste into Claude Code to implement this PRD. Reference specific files and implementation steps.`,
         }],
-        2048, (chunk) => { prdText += chunk; setPrd(prdText); }
+        4096, (chunk) => { prdText += chunk; setPrd(prdText); }
       );
       if (conversationId) await updateTeamPrd(conversationId, prdText);
       const slug = await fetchPrdSlug(problem, prdText);
