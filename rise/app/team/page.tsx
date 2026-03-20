@@ -116,6 +116,16 @@ const COACH_SYSTEM =
   `information, and challenge my assumptions. I am seeking learning and truth, not affirmation.\n\n` +
   `Rise context: ${RISE_CONTEXT}`;
 
+const BUILD_MODE_INSTRUCTION =
+  "IMPORTANT: This product team is in Build mode. The founder is a solo developer learning by building. Always recommend building features completely and fully. Do not suggest research prerequisites, validation gates, phased rollouts, or deferring features pending user research. Ship complete features.";
+
+const RESEARCH_MODE_INSTRUCTION =
+  "IMPORTANT: This product team is in Research mode. Apply standard product discovery practices: recommend validation before building, suggest research gates where appropriate, use phased rollouts and MVT thinking.";
+
+function getModeInstruction(buildMode: boolean): string {
+  return buildMode ? BUILD_MODE_INSTRUCTION : RESEARCH_MODE_INSTRUCTION;
+}
+
 // ── Supabase error serializer ──────────────────────────────────────────────────
 // Supabase PostgrestError has non-enumerable properties, so `console.error(err)`
 // prints `{}`. Extract them explicitly.
@@ -685,9 +695,11 @@ function PastConversations({
 function ProductTeamTab({
   pendingObjective,
   onObjectiveSaved,
+  buildMode,
 }: {
   pendingObjective?: { id: string; problem: string } | null;
   onObjectiveSaved?: () => void;
+  buildMode: boolean;
 }) {
   const [problem, setProblem] = useState("");
   const [phase, setPhase] = useState<Phase>("idle");
@@ -760,9 +772,10 @@ function ProductTeamTab({
       // ── Step 1: Sarah frames (with memory) ───────────────────────────────
       setPhase("framing");
       setThinking({ sarah: true });
+      const modeInstruction = getModeInstruction(buildMode);
       const sarahSystemWithMemory = sarahMemory
-        ? `${AGENTS.sarah.system}\n\nHere is your memory of past product discussions for Rise:\n${sarahMemory}\n\nUse this to inform your framing — reference relevant past decisions, avoid repeating ground already covered, and build on what the team has already learned.`
-        : AGENTS.sarah.system;
+        ? `${AGENTS.sarah.system}\n\n${modeInstruction}\n\nHere is your memory of past product discussions for Rise:\n${sarahMemory}\n\nUse this to inform your framing — reference relevant past decisions, avoid repeating ground already covered, and build on what the team has already learned.`
+        : `${AGENTS.sarah.system}\n\n${modeInstruction}`;
       let frameText = "";
       await streamChat(
         TEAM_MODEL, sarahSystemWithMemory,
@@ -778,22 +791,22 @@ function ProductTeamTab({
       let alexText = "", mayaText = "", lucaText = "", elenaText = "";
 
       await Promise.all([
-        streamChat(TEAM_MODEL, AGENTS.alex.system,
+        streamChat(TEAM_MODEL, `${AGENTS.alex.system}\n\n${modeInstruction}`,
           [{ role: "user", content: specialistPrompt }], 2048,
           (chunk) => { alexText += chunk; setAlexContent(alexText); }
         ).then(() => setThinking((p) => { const n = { ...p }; delete n.alex; return n; })),
 
-        streamChat(TEAM_MODEL, AGENTS.maya.system,
+        streamChat(TEAM_MODEL, `${AGENTS.maya.system}\n\n${modeInstruction}`,
           [{ role: "user", content: specialistPrompt }], 2048,
           (chunk) => { mayaText += chunk; setMayaContent(mayaText); }
         ).then(() => setThinking((p) => { const n = { ...p }; delete n.maya; return n; })),
 
-        streamChat(TEAM_MODEL, AGENTS.luca.system,
+        streamChat(TEAM_MODEL, `${AGENTS.luca.system}\n\n${modeInstruction}`,
           [{ role: "user", content: specialistPrompt }], 2048,
           (chunk) => { lucaText += chunk; setLucaContent(lucaText); }
         ).then(() => setThinking((p) => { const n = { ...p }; delete n.luca; return n; })),
 
-        streamChat(TEAM_MODEL, AGENTS.elena.system,
+        streamChat(TEAM_MODEL, `${AGENTS.elena.system}\n\n${modeInstruction}`,
           [{ role: "user", content: specialistPrompt }], 2048,
           (chunk) => { elenaText += chunk; setElenaContent(elenaText); }
         ).then(() => setThinking((p) => { const n = { ...p }; delete n.elena; return n; })),
@@ -804,7 +817,7 @@ function ProductTeamTab({
       setThinking({ sarah: true });
       let synthesisText = "";
       await streamChat(
-        TEAM_MODEL, AGENTS.sarah.system,
+        TEAM_MODEL, `${AGENTS.sarah.system}\n\n${modeInstruction}`,
         [{
           role: "user",
           content: `Problem: ${problem}\n\nYour framing:\n${frameText}\n\nTeam input:\nAlex (Research): ${alexText}\nMaya (Design): ${mayaText}\nLuca (Tech): ${lucaText}\nElena (Travel Expert): ${elenaText}\n\nSynthesize the key insights and give a clear product recommendation.`,
@@ -865,7 +878,7 @@ function ProductTeamTab({
     let prdText = "";
     try {
       await streamChat(
-        TEAM_MODEL, AGENTS.sarah.system,
+        TEAM_MODEL, `${AGENTS.sarah.system}\n\n${getModeInstruction(buildMode)}`,
         [{
           role: "user",
           content:
@@ -1073,7 +1086,7 @@ function ProductTeamTab({
 
 // ── Product Coach Tab ──────────────────────────────────────────────────────────
 
-function ProductCoachTab() {
+function ProductCoachTab({ buildMode }: { buildMode: boolean }) {
   const [messages, setMessages] = useState<CoachMessage[]>([]);
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
@@ -1104,7 +1117,7 @@ function ProductCoachTab() {
     try {
       await streamChat(
         COACH_MODEL,
-        COACH_SYSTEM,
+        `${COACH_SYSTEM}\n\n${getModeInstruction(buildMode)}`,
         history,
         2048,
         (chunk) => {
@@ -1472,7 +1485,7 @@ function KanbanTab({ onDiscuss }: { onDiscuss: (objectiveId: string, problem: st
 
 // ── PM 1-on-1 Tab ─────────────────────────────────────────────────────────────
 
-function PMTab({ onSwitchToKanban }: { onSwitchToKanban: () => void }) {
+function PMTab({ onSwitchToKanban, buildMode }: { onSwitchToKanban: () => void; buildMode: boolean }) {
   const [messages, setMessages] = useState<CoachMessage[]>([]);
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
@@ -1505,8 +1518,8 @@ function PMTab({ onSwitchToKanban }: { onSwitchToKanban: () => void }) {
     setMessages([...history, { role: "assistant", content: "" }]);
 
     const pmSystem = riseContext
-      ? `${PM_SYSTEM}\n\nFull Rise product context (CLAUDE.md):\n${riseContext}`
-      : PM_SYSTEM;
+      ? `${PM_SYSTEM}\n\n${getModeInstruction(buildMode)}\n\nFull Rise product context (CLAUDE.md):\n${riseContext}`
+      : `${PM_SYSTEM}\n\n${getModeInstruction(buildMode)}`;
 
     try {
       await streamChat(
@@ -1765,15 +1778,24 @@ function PMTab({ onSwitchToKanban }: { onSwitchToKanban: () => void }) {
 export default function TeamPage() {
   const [activeTab, setActiveTab] = useState<"kanban" | "team" | "pm" | "coach">("kanban");
   const [pendingObjective, setPendingObjective] = useState<{ id: string; problem: string } | null>(null);
+  const [buildMode, setBuildMode] = useState<boolean>(true);
 
-  // Pre-select tab from ?tab= query param
+  // Pre-select tab from ?tab= query param; load persisted build mode
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get("tab");
     if (tab === "kanban" || tab === "team" || tab === "pm" || tab === "coach") {
       setActiveTab(tab);
     }
+    const saved = localStorage.getItem("rise_team_mode");
+    if (saved === "research") setBuildMode(false);
   }, []);
+
+  function toggleMode() {
+    const next = !buildMode;
+    setBuildMode(next);
+    localStorage.setItem("rise_team_mode", next ? "build" : "research");
+  }
 
   function handleDiscuss(objectiveId: string, problem: string) {
     setPendingObjective({ id: objectiveId, problem });
@@ -1791,9 +1813,20 @@ export default function TeamPage() {
     <main className="min-h-screen bg-[#0a0a0a] px-6 py-10 overflow-x-hidden">
       <div className={`${activeTab === "kanban" ? "max-w-5xl" : "max-w-3xl"} mx-auto transition-all`}>
 
-        <div className="mb-8">
-          <h1 className="text-4xl font-extrabold tracking-tight mb-2">Product agents</h1>
-          <p className="text-gray-400">AI-powered product thinking for Rise.</p>
+        <div className="mb-8 flex items-start justify-between gap-6 flex-wrap">
+          <div>
+            <h1 className="text-4xl font-extrabold tracking-tight mb-2">Product agents</h1>
+            <p className="text-gray-400">AI-powered product thinking for Rise.</p>
+          </div>
+          {/* Build / Research mode toggle */}
+          <button
+            onClick={toggleMode}
+            className="flex items-center gap-2.5 bg-[#111] border border-[#1e1e1e] rounded-2xl px-4 py-2.5 hover:border-[#2a2a2a] transition-colors shrink-0"
+          >
+            <span className={`w-2 h-2 rounded-full ${buildMode ? "bg-[#00D64F]" : "bg-amber-400"}`} />
+            <span className="text-sm font-semibold text-white">{buildMode ? "Build mode" : "Research mode"}</span>
+            <span className="text-xs text-gray-600">— tap to switch</span>
+          </button>
         </div>
 
         {/* Tab bar */}
@@ -1818,10 +1851,11 @@ export default function TeamPage() {
           <ProductTeamTab
             pendingObjective={pendingObjective}
             onObjectiveSaved={() => setPendingObjective(null)}
+            buildMode={buildMode}
           />
         )}
-        {activeTab === "pm" && <PMTab onSwitchToKanban={() => setActiveTab("kanban")} />}
-        {activeTab === "coach" && <ProductCoachTab />}
+        {activeTab === "pm" && <PMTab onSwitchToKanban={() => setActiveTab("kanban")} buildMode={buildMode} />}
+        {activeTab === "coach" && <ProductCoachTab buildMode={buildMode} />}
 
       </div>
     </main>
