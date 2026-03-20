@@ -54,10 +54,10 @@ Rise is an AI-powered trip planning app. It helps travellers plan trips day-by-d
 - **User feedback** (`/feedback-admin`) — All `user_feedback` entries ordered by most recent, with page URL, feedback text, and date.
 
 ### Product team (`/team`) — four tabs
-- **Product team tab** — Multi-agent discussion: Sarah (PM) frames the problem, Alex/Maya/Luca respond in parallel, Sarah synthesises. Generates PRD. Sarah's memory persisted in `agent_memory` table. Saves to `team_conversations` (type=`"team"`).
-- **PM tab** — 1-on-1 conversation with Sarah (PM). Chat UI with streaming responses. On mount, fetches full CLAUDE.md content from `/api/rise-context` and injects it into the system prompt. Saves conversations to `team_conversations` (type=`"pm"`). Past conversations are browsable via the `PastConversations` component (same as the other tabs). Objectives panel below chat: manual text input + "Save objective" button stores agreed objectives to `objectives` table; each objective shows title, status badge (active/completed/paused), click badge to cycle status. When an objective is saved, triggers a fire-and-forget OST update: fetches last 10 feedback entries, loads the current OST snapshot, asks Claude to revise the tree, saves the result to `ost_snapshots`, and shows a transient "OST updated" notification. Sarah's instruction tells her to ask Philip to use the "Save objective" input below the chat — she cannot save objectives herself.
+- **Kanban tab** — Board with four columns (Backlog / Refine / In Progress / Done). Each card shows a truncated title (line-clamp-2), status select, expandable PRD, "Copy Claude Code Prompt" button, delete with confirmation, and "Discuss with team →" link that pre-fills the Product team tab. Cards are sourced from the `objectives` table filtered/grouped by status.
+- **Product team tab** — Multi-agent discussion: Sarah (PM) frames the problem, Alex/Maya/Luca/Elena respond in parallel, Sarah synthesises. Generates PRD. If launched from a Kanban card (`pendingObjective`), the generated PRD is saved back to that card's `objectives` row. Sarah's memory persisted in `agent_memory` table. Saves to `team_conversations` (type=`"team"`).
+- **PM tab** — 1-on-1 conversation with Sarah (PM). Chat UI with streaming responses. On mount, fetches full CLAUDE.md content from `/api/rise-context` and injects it into the system prompt. Saves conversations to `team_conversations` (type=`"pm"`). Past conversations are browsable via the `PastConversations` component. Objectives panel below chat: manual text input + "Save objective" button; Claude extracts a 1-sentence description, then saves to `objectives` with `status="backlog"`. Sarah's instruction tells her to ask Philip to use the "Save objective" input below the chat — she cannot save objectives herself.
 - **Product coach tab** — 1-on-1 with a product coach (Claude Opus 4.6). Full conversation history maintained; saved to `team_conversations` (type=`"coach"`).
-- **Opportunity tree tab** — HTML5 canvas OST visualiser. Oval nodes, Bézier edges, hover glow, double-click to edit text, PNG download. AI generation from user feedback via non-streaming Claude call. On mount, loads the latest snapshot from `ost_snapshots` Supabase table; falls back to a default example tree if none exists.
 
 ### Infrastructure
 - **Password protection** — Edge middleware (`middleware.ts`) redirects unauthenticated users to `/api/auth`. GET shows the form; POST sets an `httpOnly` cookie.
@@ -83,7 +83,7 @@ rise/
 │   ├── feedback/page.tsx         # Full-page user feedback form
 │   ├── feedback-admin/page.tsx   # Admin view of all user_feedback entries
 │   ├── admin/page.tsx            # AI log viewer
-│   ├── team/page.tsx             # Product agents — Product team / PM / Coach / OST tabs
+│   ├── team/page.tsx             # Product agents — Kanban / Product team / PM / Coach tabs
 │   ├── guides/
 │   │   ├── page.tsx              # City search
 │   │   ├── add/page.tsx          # Submit a tip
@@ -138,8 +138,7 @@ rise/
 | `team_conversations` | Product agent conversations — type (`team`/`coach`/`pm`), title, messages JSON, prd |
 | `agent_memory` | Sarah's rolling memory of past product discussions — id=`"sarah"`, content |
 | `prd_feedback` | Feedback on generated PRDs — conversation_id, feedback text |
-| `objectives` | PM 1-on-1 agreed objectives — title, status (`active`/`completed`/`paused`) |
-| `ost_snapshots` | Versioned OST trees — tree (jsonb), objective_id (FK), created_at |
+| `objectives` | PM 1-on-1 agreed objectives — title, description (1-sentence), prd (full PRD text), status (`backlog`/`refine`/`in-progress`/`done`) |
 | `user_feedback` | Floating button + /feedback form submissions — page URL, feedback text |
 
 **Required SQL for `objectives` table** (run in Supabase dashboard if not yet created):
@@ -147,7 +146,9 @@ rise/
 create table objectives (
   id uuid primary key default gen_random_uuid(),
   title text not null,
-  status text not null default 'active',
+  description text,
+  prd text,
+  status text not null default 'backlog',
   created_at timestamptz default now()
 );
 ```
@@ -159,16 +160,6 @@ create table user_feedback (
   page text not null,
   feedback text not null,
   created_at timestamptz default now()
-);
-```
-
-**Required SQL for `ost_snapshots` table:**
-```sql
-create table ost_snapshots (
-  id uuid default gen_random_uuid() primary key,
-  tree jsonb not null,
-  objective_id uuid references objectives(id),
-  created_at timestamp with time zone default now()
 );
 ```
 
@@ -233,12 +224,6 @@ function dbErr(err: unknown): string {
 - Use `next/link` (`Link`) for internal navigation, not `<a href>`.
 - Step animations: `key={animKey}` on the container + `animate-step` CSS class triggers `fadeSlideUp` keyframe defined in `globals.css`.
 - Use `AbortController` + `signal` for streaming fetch calls inside `useEffect` so the stream is cancelled cleanly on unmount or dependency change.
-
-### Canvas (OST visualiser)
-- Two-effect pattern: Effect 1 resizes canvas on tree change (expensive — avoids running on hover). Effect 2 redraws on tree or hoveredId change using stored layout refs.
-- Use `devicePixelRatio` for sharp rendering: set `canvas.width/height` in physical pixels, then `ctx.setTransform(dpr, 0, 0, dpr, 0, 0)`.
-- Hit-testing uses ellipse equation: `((px-cx)/(w/2))² + ((py-cy)/(h/2))² ≤ 1`.
-- On mount, `OSTTab` calls `loadLatestOstSnapshot()` and replaces the default tree if a snapshot exists. OST snapshots are saved to the `ost_snapshots` table (jsonb tree + objective_id FK) whenever an objective is saved in `PMTab`.
 
 ### localStorage keys
 | Key | Contents |
