@@ -953,7 +953,7 @@ function ProductTeamTab() {
             `It must include all necessary context inline — no references to "read this file" or external documents. ` +
             `Format it as a plain code block (\`\`\`). Start with the verb "Implement" and list numbered steps with bold headings.`,
         }],
-        2048, (chunk) => { prdText += chunk; setPrd(prdText); }
+        5000, (chunk) => { prdText += chunk; setPrd(prdText); }
       );
       if (conversationId) await updateTeamPrd(conversationId, prdText);
       const slug = await fetchPrdSlug(problem, prdText);
