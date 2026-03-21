@@ -34,6 +34,27 @@ const BUDGET_OPTIONS = [
 
 const MAX_STYLE_SELECTIONS = 3;
 
+type Chip = {
+  label: string;
+  type: "hard_exclusion" | "soft_signal";
+};
+
+type ParsedActivity = {
+  id: string;
+  name: string;
+  category: string;
+  description: string;
+  when: string;
+};
+
+export type ActivityFeedbackEntry = {
+  activityId: string;
+  activityName: string;
+  activityCategory: string;
+  feedbackType: "thumbs_up" | "chip_selected";
+  chip?: Chip;
+};
+
 function tomorrow() {
   const d = new Date();
   d.setDate(d.getDate() + 1);
@@ -57,6 +78,138 @@ function previewLoadingLabel(destination: string, travelCompany: string): string
   if (label) return `Planning your ${label} trip to ${destination}…`;
   return `Planning your trip to ${destination}…`;
 }
+
+function parseActivities(text: string): ParsedActivity[] {
+  // Matches: **Name** — Category\nDescription\n*When: timing*
+  const regex = /\*\*([^*\n]+)\*\*\s*[—–\-]\s*([^\n]+)\n([^\n*][^\n]*)\n\*When:\s*([^*\n]+)\*/g;
+  const results: ParsedActivity[] = [];
+  let match;
+  let idx = 0;
+  while ((match = regex.exec(text)) !== null) {
+    results.push({
+      id: `act-${idx++}`,
+      name: match[1].trim(),
+      category: match[2].trim(),
+      description: match[3].trim(),
+      when: match[4].trim(),
+    });
+  }
+  return results;
+}
+
+function logActivityEvent(payload: {
+  event: string;
+  activityId: string;
+  activityName: string;
+  activityCategory: string;
+  chipLabel?: string;
+  chipType?: string;
+}) {
+  fetch("/api/activity-feedback", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }).catch(() => {});
+}
+
+// ── Activity card component ────────────────────────────────────────────────
+
+type ActivityCardProps = {
+  activity: ParsedActivity;
+  chips: Chip[] | undefined;
+  feedback: ActivityFeedbackEntry | undefined;
+  chipsOpen: boolean;
+  onThumbsUp: () => void;
+  onThumbsDown: () => void;
+  onChipSelect: (chip: Chip) => void;
+};
+
+function ActivityCard({
+  activity,
+  chips,
+  feedback,
+  chipsOpen,
+  onThumbsUp,
+  onThumbsDown,
+  onChipSelect,
+}: ActivityCardProps) {
+  const isHardExcluded =
+    feedback?.feedbackType === "chip_selected" && feedback.chip?.type === "hard_exclusion";
+  const isSoftNoted =
+    feedback?.feedbackType === "chip_selected" && feedback.chip?.type === "soft_signal";
+  const isThumbsUp = feedback?.feedbackType === "thumbs_up";
+
+  return (
+    <div
+      className={`rounded-2xl border p-5 transition-all ${
+        isHardExcluded
+          ? "border-[#1e1e1e] bg-[#0d0d0d] opacity-50"
+          : "border-[#1e1e1e] bg-[#111]"
+      }`}
+    >
+      <div className="mb-3">
+        <div className="font-bold text-white text-base leading-snug">{activity.name}</div>
+        <div className="text-xs text-[#00D64F] font-semibold mt-0.5">{activity.category}</div>
+      </div>
+      <p className="text-sm text-gray-400 leading-relaxed mb-1">{activity.description}</p>
+      <p className="text-xs text-gray-600 mb-4">When: {activity.when}</p>
+
+      {/* Default: thumbs buttons */}
+      {!feedback && !chipsOpen && (
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onThumbsUp}
+            className="rounded-xl border border-[#2a2a2a] px-3 py-1.5 text-sm text-gray-500 hover:border-green-500/40 hover:text-green-400 transition-colors"
+            title="Interested"
+          >
+            👍
+          </button>
+          <button
+            onClick={onThumbsDown}
+            className="rounded-xl border border-[#2a2a2a] px-3 py-1.5 text-sm text-gray-500 hover:border-red-500/40 hover:text-red-400 transition-colors"
+            title="Not for me"
+          >
+            👎
+          </button>
+        </div>
+      )}
+
+      {/* Thumbs up confirmed */}
+      {isThumbsUp && <p className="text-xs text-[#00D64F]">Noted ✓</p>}
+
+      {/* Chips layer */}
+      {chipsOpen && (
+        <div className="flex flex-wrap gap-2">
+          {chips ? (
+            chips.map((chip) => (
+              <button
+                key={chip.label}
+                onClick={() => onChipSelect(chip)}
+                className={`rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors ${
+                  chip.type === "hard_exclusion"
+                    ? "border-orange-500/30 text-orange-400 hover:bg-orange-500/10"
+                    : "border-[#2a2a2a] text-gray-400 hover:border-[#444] hover:text-white"
+                }`}
+              >
+                {chip.label}
+              </button>
+            ))
+          ) : (
+            <p className="text-xs text-gray-600">Loading reasons…</p>
+          )}
+        </div>
+      )}
+
+      {/* Chip selected — hard exclusion */}
+      {isHardExcluded && <p className="text-xs text-orange-400">We&apos;ll skip this.</p>}
+
+      {/* Chip selected — soft signal */}
+      {isSoftNoted && <p className="text-xs text-gray-500">Noted.</p>}
+    </div>
+  );
+}
+
+// ── Main page ──────────────────────────────────────────────────────────────
 
 export default function WelcomePage() {
   const router = useRouter();
@@ -88,6 +241,15 @@ export default function WelcomePage() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const previewAbortRef = useRef<AbortController | null>(null);
 
+  // Activity cards + feedback
+  const [parsedActivities, setParsedActivities] = useState<ParsedActivity[]>([]);
+  const [activityChips, setActivityChips] = useState<Record<string, Chip[]>>({});
+  const [activityFeedback, setActivityFeedback] = useState<
+    Record<string, ActivityFeedbackEntry>
+  >({});
+  const [openChipId, setOpenChipId] = useState<string | null>(null);
+  const chipsFetchedRef = useRef<Set<string>>(new Set());
+
   useEffect(() => {
     if (departureDate) setReturnDate(addDays(departureDate, 7));
   }, [departureDate]);
@@ -100,6 +262,8 @@ export default function WelcomePage() {
     previewAbortRef.current = controller;
     setPreviewLoading(true);
     setPreviewText("");
+    setParsedActivities([]);
+    chipsFetchedRef.current = new Set();
 
     (async () => {
       try {
@@ -137,6 +301,40 @@ export default function WelcomePage() {
     };
   }, [step, destination, departureDate, returnDate, travelCompany, travelerTypes, budgetTier]);
 
+  // Parse activities once streaming completes
+  useEffect(() => {
+    if (previewLoading || !previewText) return;
+    const activities = parseActivities(previewText);
+    setParsedActivities(activities);
+  }, [previewLoading, previewText]);
+
+  // Generate chips for each card as soon as they're parsed
+  useEffect(() => {
+    if (parsedActivities.length === 0) return;
+    parsedActivities.forEach((activity) => {
+      if (chipsFetchedRef.current.has(activity.id)) return;
+      chipsFetchedRef.current.add(activity.id);
+      fetch("/api/activity-chips", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          activityName: activity.name,
+          activityCategory: activity.category,
+          travelCompany: travelCompany || null,
+          styleTags: travelerTypes.length > 0 ? travelerTypes : null,
+          budgetTier: budgetTier || null,
+        }),
+      })
+        .then((r) => r.json())
+        .then((data: { chips?: Chip[] }) => {
+          if (data.chips) {
+            setActivityChips((prev) => ({ ...prev, [activity.id]: data.chips! }));
+          }
+        })
+        .catch(() => {});
+    });
+  }, [parsedActivities, travelCompany, travelerTypes, budgetTier]);
+
   function goTo(next: number) {
     setStep(next);
     setAnimKey((k) => k + 1);
@@ -162,11 +360,81 @@ export default function WelcomePage() {
     });
   }
 
+  // Activity feedback handlers
+  function handleThumbsUp(activity: ParsedActivity) {
+    setActivityFeedback((prev) => ({
+      ...prev,
+      [activity.id]: {
+        activityId: activity.id,
+        activityName: activity.name,
+        activityCategory: activity.category,
+        feedbackType: "thumbs_up",
+      },
+    }));
+    logActivityEvent({
+      event: "thumbs_up",
+      activityId: activity.id,
+      activityName: activity.name,
+      activityCategory: activity.category,
+    });
+  }
+
+  function handleThumbsDown(activity: ParsedActivity) {
+    setOpenChipId(activity.id);
+    logActivityEvent({
+      event: "chips_shown",
+      activityId: activity.id,
+      activityName: activity.name,
+      activityCategory: activity.category,
+    });
+  }
+
+  function handleChipSelect(activity: ParsedActivity, chip: Chip) {
+    setActivityFeedback((prev) => ({
+      ...prev,
+      [activity.id]: {
+        activityId: activity.id,
+        activityName: activity.name,
+        activityCategory: activity.category,
+        feedbackType: "chip_selected",
+        chip,
+      },
+    }));
+    setOpenChipId(null);
+    logActivityEvent({
+      event: "chip_selected",
+      activityId: activity.id,
+      activityName: activity.name,
+      activityCategory: activity.category,
+      chipLabel: chip.label,
+      chipType: chip.type,
+    });
+  }
+
+  function handleRemoveExclusion(activityId: string) {
+    const entry = activityFeedback[activityId];
+    if (!entry) return;
+    setActivityFeedback((prev) => {
+      const next = { ...prev };
+      delete next[activityId];
+      return next;
+    });
+    logActivityEvent({
+      event: "exclusion_removed",
+      activityId,
+      activityName: entry.activityName,
+      activityCategory: entry.activityCategory,
+    });
+  }
+
+  const hardExcludedActivities = Object.values(activityFeedback).filter(
+    (f) => f.feedbackType === "chip_selected" && f.chip?.type === "hard_exclusion"
+  );
+
   // Write preferences to DB when advancing from step 3 to step 4
   async function savePreferencesToDb() {
     try {
       if (travelerId) {
-        // Update existing partial record
         await fetch("/api/travelers", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -178,7 +446,6 @@ export default function WelcomePage() {
           }),
         });
       } else {
-        // Create a partial record with trip + preference data
         const res = await fetch("/api/travelers", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -207,14 +474,12 @@ export default function WelcomePage() {
     setSaving(true);
     try {
       if (travelerId) {
-        // Update the partial record with name/email
         await fetch("/api/travelers", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ id: travelerId, name, email }),
         });
       } else {
-        // No partial record — create the full traveler record
         const res = await fetch("/api/travelers", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -252,6 +517,9 @@ export default function WelcomePage() {
     };
     localStorage.setItem("rise_traveler", JSON.stringify(travelerData));
     localStorage.setItem("rise_onboarded", "true");
+    // Persist activity feedback so itinerary generation can use it
+    const feedbackArray = Object.values(activityFeedback);
+    localStorage.setItem("rise_activity_feedback", JSON.stringify(feedbackArray));
     setSaving(false);
     router.push("/dashboard");
   }
@@ -267,7 +535,7 @@ export default function WelcomePage() {
             Where to?
           </h1>
           <p className="text-gray-500 text-lg mb-10">
-            Tell us your destination and we'll build your trip.
+            Tell us your destination and we&apos;ll build your trip.
           </p>
           <PlacesAutocomplete
             value={destination}
@@ -446,7 +714,7 @@ export default function WelcomePage() {
 
               <div>
                 <label className="block text-sm font-semibold text-gray-400 uppercase tracking-widest mb-1">
-                  What's your travel style?
+                  What&apos;s your travel style?
                 </label>
                 <p className="text-gray-600 text-sm mb-4">
                   Pick up to {MAX_STYLE_SELECTIONS}.
@@ -477,7 +745,7 @@ export default function WelcomePage() {
 
               <div>
                 <label className="block text-sm font-semibold text-gray-400 uppercase tracking-widest mb-4">
-                  What's your budget?
+                  What&apos;s your budget?
                 </label>
                 <div className="flex flex-col gap-2">
                   {BUDGET_OPTIONS.map((opt) => (
@@ -501,29 +769,71 @@ export default function WelcomePage() {
             </div>
           )}
 
-          {/* Step 4: AI Preview */}
+          {/* Step 4: AI Preview with activity cards */}
           {step === 4 && (
-            <div className="rounded-2xl border border-[#1e1e1e] bg-[#111] p-6 min-h-[280px]">
-              {previewLoading && !previewText && (
-                <div className="flex items-center gap-3 text-gray-400">
-                  <div className="w-4 h-4 rounded-full border-2 border-[#00D64F] border-t-transparent animate-spin flex-shrink-0" />
-                  <span>{previewLoadingLabel(destination, travelCompany)}</span>
-                </div>
-              )}
-              {previewText && (
-                <div className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">
-                  {previewText}
-                  {previewLoading && (
-                    <span className="inline-block w-1.5 h-4 bg-[#00D64F] ml-0.5 align-middle animate-pulse" />
+            <div className="flex flex-col gap-4">
+              {/* Streaming / loading state */}
+              {(previewLoading || parsedActivities.length === 0) && (
+                <div className="rounded-2xl border border-[#1e1e1e] bg-[#111] p-6 min-h-[280px]">
+                  {previewLoading && !previewText && (
+                    <div className="flex items-center gap-3 text-gray-400">
+                      <div className="w-4 h-4 rounded-full border-2 border-[#00D64F] border-t-transparent animate-spin flex-shrink-0" />
+                      <span>{previewLoadingLabel(destination, travelCompany)}</span>
+                    </div>
+                  )}
+                  {previewText && (
+                    <div className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">
+                      {previewText}
+                      {previewLoading && (
+                        <span className="inline-block w-1.5 h-4 bg-[#00D64F] ml-0.5 align-middle animate-pulse" />
+                      )}
+                    </div>
                   )}
                 </div>
               )}
+
+              {/* Card view — shown once parsing completes */}
+              {parsedActivities.map((activity) => (
+                <ActivityCard
+                  key={activity.id}
+                  activity={activity}
+                  chips={activityChips[activity.id]}
+                  feedback={activityFeedback[activity.id]}
+                  chipsOpen={openChipId === activity.id}
+                  onThumbsUp={() => handleThumbsUp(activity)}
+                  onThumbsDown={() => handleThumbsDown(activity)}
+                  onChipSelect={(chip) => handleChipSelect(activity, chip)}
+                />
+              ))}
             </div>
           )}
+
           {/* Step 5: Account creation */}
           {step === 5 && (
             <div className="flex flex-col gap-6">
-              <p className="text-gray-500 text-sm -mt-4">
+              {/* Hard exclusions edit affordance */}
+              {hardExcludedActivities.length > 0 && (
+                <div className="rounded-2xl border border-[#1e1e1e] bg-[#111] px-5 py-4">
+                  <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">
+                    Skipped activities
+                  </p>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {hardExcludedActivities.map((entry) => (
+                      <button
+                        key={entry.activityId}
+                        onClick={() => handleRemoveExclusion(entry.activityId)}
+                        className="flex items-center gap-2 rounded-xl border border-[#2a2a2a] px-3 py-1.5 text-sm text-gray-400 hover:border-red-500/30 hover:text-red-400 transition-colors"
+                      >
+                        {entry.activityName}
+                        <span className="text-gray-600 text-xs">×</span>
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-gray-600">Tap to restore an activity.</p>
+                </div>
+              )}
+
+              <p className="text-gray-500 text-sm -mt-2">
                 Your activity plan, transport advice, and trip summary are ready. Create your account to save everything.
               </p>
               <div>
