@@ -90,6 +90,8 @@ export default function ItineraryPage() {
     }
 
     // Generate fresh
+    const feedbackRaw = localStorage.getItem("rise_activity_feedback");
+    const activityFeedback = feedbackRaw ? JSON.parse(feedbackRaw) : [];
     fetch("/api/itinerary/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -99,6 +101,7 @@ export default function ItineraryPage() {
         returnDate: t.returnDate,
         travelCompany: t.travelCompany ?? "",
         travelerTypes: t.travelerTypes ?? [],
+        activityFeedback,
       }),
     })
       .then((res) => res.json())

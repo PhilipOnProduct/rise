@@ -7,6 +7,42 @@ const MODEL = "claude-sonnet-4-6";
 
 type TimeBlock = "morning" | "afternoon" | "evening";
 
+type ActivityFeedbackEntry = {
+  activityName: string;
+  feedbackType: "thumbs_up" | "chip_selected";
+  chip?: { label: string; type: "hard_exclusion" | "soft_signal" };
+};
+
+function buildFeedbackSegment(feedback: ActivityFeedbackEntry[]): string {
+  if (!feedback?.length) return "";
+
+  const hardExclusions = feedback
+    .filter((f) => f.feedbackType === "chip_selected" && f.chip?.type === "hard_exclusion")
+    .map((f) => f.activityName);
+
+  const softSignals = feedback
+    .filter((f) => f.feedbackType === "chip_selected" && f.chip?.type === "soft_signal")
+    .map((f) => `${f.activityName} (${f.chip!.label})`);
+
+  const parts: string[] = [];
+
+  if (hardExclusions.length) {
+    parts.push(
+      `IMPORTANT — Never include these activities in any form. The user has explicitly excluded them:\n` +
+        hardExclusions.map((n) => `- ${n}`).join("\n")
+    );
+  }
+
+  if (softSignals.length) {
+    parts.push(
+      `The user expressed hesitation about: ${softSignals.join("; ")}. ` +
+        `You may include similar alternatives but avoid these specific activities.`
+    );
+  }
+
+  return parts.length ? `\n\n${parts.join("\n\n")}` : "";
+}
+
 type ItineraryItem = {
   id: string;
   title: string;
@@ -24,7 +60,7 @@ type ItineraryDay = {
 };
 
 export async function POST(req: NextRequest) {
-  const { destination, departureDate, returnDate, travelCompany, travelerTypes } =
+  const { destination, departureDate, returnDate, travelCompany, travelerTypes, activityFeedback } =
     await req.json();
 
   if (!destination || !departureDate || !returnDate) {
@@ -38,10 +74,11 @@ export async function POST(req: NextRequest) {
   const days = Math.max(1, nights);
   const styleStr = travelerTypes?.length ? `Travel style: ${travelerTypes.join(", ")}.` : "";
   const companyStr = travelCompany ? `Travelling: ${travelCompany}.` : "";
+  const feedbackSegment = buildFeedbackSegment(activityFeedback ?? []);
 
   const prompt = `You are a trip planning AI. Generate a structured day-by-day itinerary for a ${days}-day trip to ${destination}.
 ${companyStr}
-${styleStr}
+${styleStr}${feedbackSegment}
 
 Return ONLY a valid JSON array — no markdown, no explanation, no code fences. The array must have exactly ${days} elements, one per day.
 

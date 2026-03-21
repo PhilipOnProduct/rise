@@ -31,7 +31,7 @@ Rise is an AI-powered trip planning app. It helps travellers plan trips day-by-d
 - **Onboarding wizard** (`/welcome`) — 6-step flow: Step 0 full-screen landing (destination) → Step 1 destination + dates → Step 2 hotel (Places autocomplete biased to destination) → Step 3 travel preferences (company, style tags, budget tier) → Step 4 AI activity preview (streaming, personalised using Step 3 preferences) → Step 5 account creation. Preferences are written to Supabase via partial upsert when the user advances from Step 3 to Step 4. Saves to Supabase `travelers` table and `localStorage` (`rise_traveler`, `rise_onboarded`).
 - **Dashboard** (`/dashboard`) — Shows trip summary (destination, dates, nights, hotel, activities) read from `localStorage`. Links to itinerary, transport, profile, and guides.
 - **Day-by-day itinerary** (`/itinerary`) — Day-view timeline with one column per trip day and three time blocks (morning / afternoon / evening). AI pre-populates suggestions on first load via `/api/itinerary/generate`; persisted to `localStorage` (`rise_itinerary`). Users can drag items between time blocks (HTML5 drag-and-drop), dismiss suggestions (×), and add their own items inline.
-- **AI activity preview** (`/api/activities-stream`) — Streaming markdown of 5–6 must-do activities shown at step 4 of onboarding. Accepts `travelCompany`, `styleTags`, and `budgetTier` as hard constraints in the Claude prompt. Loading state echoes traveller profile back ("Planning your solo trip to Lisbon…"). All preference inputs logged to `ai_logs`.
+- **AI activity preview + feedback** (`/api/activities-stream`, `/api/activity-chips`, `/api/activity-feedback`) — Step 4 of onboarding streams 5–6 activity suggestions, then parses the completed response into individual cards. Each card has 👍/👎 controls. Chips are pre-generated on card render (not on tap) by calling `/api/activity-chips` with the activity name, category, and traveller profile — using Claude Haiku with structured output (tool_use). Chips: 1 hard-exclusion ("Done it before") + 3 profile-specific soft-signal reasons. Thumbs-down reveals the chip layer instantly. Chip selection: hard-exclusion shows "We'll skip this." and blocks the activity from the itinerary prompt; soft-signal shows "Noted." and adds a deprioritisation hint. Step 5 shows a "Skipped activities" panel of hard-excluded activities with × removal buttons (logs `exclusion_removed`). All interactions (thumbs_up, chips_shown, chip_selected, exclusion_removed) are logged to `activity_feedback` via `/api/activity-feedback`. Thumbs-up is logged only — not wired to the prompt. On finish, feedback is saved to `rise_activity_feedback` in localStorage and consumed by `/api/itinerary/generate`: hard exclusions become a "NEVER include" block; soft signals collapse into one sentence.
 - **AI activity suggestions** (`/api/activities`) — POSTs destination to Claude, returns 20 categorised activities as JSON.
 - **Airport → Hotel transport** (`/transport`) — Streaming AI advice comparing public transport vs taxi for a given airport/hotel/city.
 - **Travel profile & restaurant recommendations** (`/profile`) — Collects traveller type, destination, dates, company, budget, dietary wishes. Streams personalised restaurant picks from Claude.
@@ -95,6 +95,8 @@ rise/
 │   │   ├── auth/route.ts         # GET: password form  POST: verify password
 │   │   ├── activities/route.ts   # POST: AI activity suggestions (JSON)
 │   │   ├── activities-stream/route.ts  # POST: streaming activity preview (onboarding step 4)
+│   │   ├── activity-chips/route.ts     # POST: generate rejection chips for an activity (Claude Haiku, tool_use)
+│   │   ├── activity-feedback/route.ts  # POST: log activity preview interactions (thumbs, chips, removals)
 │   │   ├── itinerary/
 │   │   │   └── generate/route.ts # POST: AI day-by-day itinerary as JSON
 │   │   ├── travelers/route.ts    # POST: create traveller  PATCH: partial update (preferences, name/email)
@@ -142,6 +144,7 @@ rise/
 | `prd_feedback` | Feedback on generated PRDs — conversation_id, feedback text |
 | `objectives` | PM 1-on-1 agreed objectives — title, description (1-sentence), prd (full PRD text), status (`backlog`/`refine`/`in-progress`/`done`) |
 | `user_feedback` | Floating button + /feedback form submissions — page URL, feedback text |
+| `activity_feedback` | Activity preview interaction log — event type, activity name/category, chip label/type |
 
 **Required SQL for `objectives` table** (run in Supabase dashboard if not yet created):
 ```sql
@@ -151,6 +154,20 @@ create table objectives (
   description text,
   prd text,
   status text not null default 'backlog',
+  created_at timestamptz default now()
+);
+```
+
+**Required SQL for `activity_feedback` table:**
+```sql
+create table activity_feedback (
+  id uuid primary key default gen_random_uuid(),
+  event text not null,
+  activity_id text,
+  activity_name text,
+  activity_category text,
+  chip_label text,
+  chip_type text,
   created_at timestamptz default now()
 );
 ```
@@ -234,6 +251,7 @@ function dbErr(err: unknown): string {
 | `rise_onboarded` | `"true"` — gates redirect from `/welcome` to `/dashboard` |
 | `rise_itinerary` | Cached `ItineraryDay[]` array — cleared and regenerated when user clicks Regenerate |
 | `rise_team_mode` | `"build"` or `"research"` — persists the Build/Research mode toggle on `/team` |
+| `rise_activity_feedback` | `ActivityFeedbackEntry[]` — thumbs-ups and chip selections from the activity preview; consumed by itinerary generation |
 
 ### Auth / middleware
 - Password protection is handled entirely in `middleware.ts` + `app/api/auth/route.ts`.
