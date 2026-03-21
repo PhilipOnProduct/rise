@@ -800,7 +800,7 @@ function ProductTeamTab({
     setActiveObjectiveId(pendingObjective.id);
     setSarahFrame(""); setAlexContent(""); setMayaContent("");
     setLucaContent(""); setElenaContent(""); setSynthesis(""); setPrd("");
-    setPhase("idle"); setTeamError(""); setPrdSlug(""); setPrdDownloaded(false);
+    setPhase("idle"); setTeamError(""); setPrdSlug("");
     setKanbanSaved(false);
   }, [pendingObjective]);
 
@@ -820,7 +820,6 @@ function ProductTeamTab({
     setPhase("done");
     setTeamError("");
     setPrdSlug("");
-    setPrdDownloaded(false);
     setActiveObjectiveId(null);
     setKanbanSaved(false);
   }
@@ -830,7 +829,7 @@ function ProductTeamTab({
 
     setSarahFrame(""); setAlexContent(""); setMayaContent("");
     setLucaContent(""); setElenaContent(""); setSynthesis(""); setPrd("");
-    setTeamError(""); setConversationId(null); setPrdSlug(""); setPrdDownloaded(false);
+    setTeamError(""); setConversationId(null); setPrdSlug("");
     setKanbanSaved(false);
 
     try {
@@ -931,7 +930,7 @@ function ProductTeamTab({
       setPhase("prd");
       setThinking({ sarah: true });
       setScopeAdditions("");
-      setPrdDownloaded(false);
+
       let prdText = "";
       try {
         await streamChat(
@@ -1001,7 +1000,6 @@ function ProductTeamTab({
     setPhase("prd");
     setThinking({ sarah: true });
     setTeamError("");
-    setPrdDownloaded(false);
     setScopeAdditions("");
     let prdText = "";
     try {
