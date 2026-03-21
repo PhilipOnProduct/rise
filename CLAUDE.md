@@ -98,7 +98,8 @@ rise/
 │   │   ├── activity-chips/route.ts     # POST: generate rejection chips for an activity (Claude Haiku, tool_use)
 │   │   ├── activity-feedback/route.ts  # POST: log activity preview interactions (thumbs, chips, removals)
 │   │   ├── itinerary/
-│   │   │   └── generate/route.ts # POST: AI day-by-day itinerary as JSON
+│   │   │   ├── generate/route.ts # POST: AI day-by-day itinerary as JSON (includes booking_meta for restaurants)
+│   │   │   └── alternative/route.ts # POST: AI restaurant alternative (swap feature, persists to itinerary_items)
 │   │   ├── travelers/route.ts    # POST: create traveller  PATCH: partial update (preferences, name/email)
 │   │   ├── recommendations/route.ts  # POST: streaming restaurant recs
 │   │   ├── transport/route.ts    # POST: streaming transport advice
@@ -145,6 +146,7 @@ rise/
 | `objectives` | PM 1-on-1 agreed objectives — title, description (1-sentence), prd (full PRD text), status (`backlog`/`refine`/`in-progress`/`done`) |
 | `user_feedback` | Floating button + /feedback form submissions — page URL, feedback text |
 | `activity_feedback` | Activity preview interaction log — event type, activity name/category, chip label/type |
+| `itinerary_items` | Persisted restaurant alternatives from swap feature — item details, booking_meta, replaced_restaurant |
 
 **Required SQL for `objectives` table** (run in Supabase dashboard if not yet created):
 ```sql
@@ -178,6 +180,30 @@ create table user_feedback (
   id uuid primary key default gen_random_uuid(),
   page text not null,
   feedback text not null,
+  created_at timestamptz default now()
+);
+```
+
+**Required SQL for `itinerary_items` table** (persists AI-generated restaurant alternatives):
+```sql
+create table itinerary_items (
+  id uuid primary key default gen_random_uuid(),
+  item_id text not null,
+  title text not null,
+  description text,
+  item_type text not null default 'restaurant',
+  time_block text not null,
+  status text not null default 'idea',
+  source text not null default 'ai_generated',
+  cuisine text,
+  vibe text,
+  price_tier text,
+  booking_meta jsonb,
+  date text not null,
+  day_number integer,
+  destination text not null,
+  replaced_restaurant text,
+  is_alternative boolean default false,
   created_at timestamptz default now()
 );
 ```
