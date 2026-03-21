@@ -806,6 +806,7 @@ function ProductTeamTab({
   const [activeObjectiveId, setActiveObjectiveId] = useState<string | null>(null);
   const [savingToKanban, setSavingToKanban] = useState(false);
   const [kanbanSaved, setKanbanSaved] = useState(false);
+  const [scopeAdditions, setScopeAdditions] = useState("");
 
   useEffect(() => {
     loadSarahMemory().then((mem) => {
@@ -934,7 +935,7 @@ function ProductTeamTab({
               `Key decisions and insights:\n${synthesisText}\n\n` +
               `Update the memory to include this discussion — keep it concise, max 500 words, running summary format.`,
           }],
-          700,
+          2000,
           (chunk) => { newMemory += chunk; }
         );
         if (newMemory.trim()) {
@@ -960,6 +961,7 @@ function ProductTeamTab({
     setThinking({ sarah: true });
     setTeamError("");
     setPrdDownloaded(false);
+    setScopeAdditions("");
     let prdText = "";
     try {
       await streamChat(
@@ -981,6 +983,28 @@ function ProductTeamTab({
       if (conversationId) await updateTeamPrd(conversationId, prdText);
       const slug = await fetchPrdSlug(problem, prdText);
       setPrdSlug(slug);
+
+      // ── Scope delta — non-blocking ────────────────────────────────────────
+      try {
+        let additions = "";
+        await streamChat(
+          TEAM_MODEL,
+          "You are a concise scope analyst. Respond in plain text only — no markdown, no bullet symbols, no headers.",
+          [{
+            role: "user",
+            content:
+              `Original problem statement: "${problem}"\n\n` +
+              `PRD proposed solution:\n${prdText}\n\n` +
+              `List only the items in the proposed solution that go beyond the original problem statement — scope that the team added during discussion. ` +
+              `If nothing meaningful was added, respond with exactly: "No scope additions."\n` +
+              `Be specific and brief. Three items maximum, one sentence each.`,
+          }],
+          300,
+          (chunk) => { additions += chunk; }
+        );
+        setScopeAdditions(additions.trim());
+      } catch { /* non-critical — ignore */ }
+
       // Save PRD back to the active Kanban card if one was pre-loaded
       if (activeObjectiveId) {
         await updateObjectivePrd(activeObjectiveId, prdText);
@@ -1138,6 +1162,12 @@ function ProductTeamTab({
                   </button>
                 )}
               </div>
+              {scopeAdditions && scopeAdditions !== "No scope additions." && !kanbanSaved && (
+                <div className="bg-amber-500/5 border border-amber-500/15 rounded-xl px-4 py-3">
+                  <p className="text-xs font-bold text-amber-500/60 uppercase tracking-widest mb-1.5">Team additions</p>
+                  <p className="text-xs text-gray-500 leading-relaxed whitespace-pre-wrap">{scopeAdditions}</p>
+                </div>
+              )}
               {(prdDownloaded || kanbanSaved) && (
                 <div className="flex flex-col gap-1">
                   {prdDownloaded && <p className="text-xs text-[#00D64F]">PRD downloaded</p>}
