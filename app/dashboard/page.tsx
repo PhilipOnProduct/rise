@@ -63,24 +63,24 @@ export default function DashboardPage() {
         </div>
 
         {/* Trip summary card */}
-        <div className="bg-white rounded-2xl p-7 mb-6">
+        <div className="bg-[#111] border border-[#1e1e1e] rounded-2xl p-7 mb-6">
           <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-5">Trip details</h2>
           <div className="grid grid-cols-2 gap-y-5">
             <div>
               <p className="text-xs text-gray-400 mb-1">Departure</p>
-              <p className="font-bold text-gray-900">{formatDate(traveler.departureDate)}</p>
+              <p className="font-bold text-white">{formatDate(traveler.departureDate)}</p>
             </div>
             <div>
               <p className="text-xs text-gray-400 mb-1">Return</p>
-              <p className="font-bold text-gray-900">{formatDate(traveler.returnDate)}</p>
+              <p className="font-bold text-white">{formatDate(traveler.returnDate)}</p>
             </div>
             <div>
               <p className="text-xs text-gray-400 mb-1">Duration</p>
-              <p className="font-bold text-gray-900">{nights > 0 ? `${nights} nights` : "—"}</p>
+              <p className="font-bold text-white">{nights > 0 ? `${nights} nights` : "—"}</p>
             </div>
             <div>
               <p className="text-xs text-gray-400 mb-1">Hotel</p>
-              <p className="font-bold text-gray-900">{traveler.hotel || "—"}</p>
+              <p className="font-bold text-white">{traveler.hotel || "—"}</p>
             </div>
           </div>
         </div>
