@@ -425,11 +425,11 @@ function downloadConversationFile(
     ``, `---`, ``,
     section("Elena", "Travel Expert", `${agents.elena.system}\n\n${mode}`, specialistInput, elenaContent),
     ``, `---`, ``,
-    section("Sarah", "Synthesis", `${agents.sarah.system}\n\n${mode}`, synthesisInput, synthesis),
+    section("Sarah", "Synthesis", sarahSystem, synthesisInput, synthesis),
   ];
 
   if (prd) {
-    parts.push(``, `---`, ``, section("Sarah", "PRD", `${agents.sarah.system}\n\n${mode}`, prdInput, prd));
+    parts.push(``, `---`, ``, section("Sarah", "PRD", sarahSystem, prdInput, prd));
   }
 
   const blob = new Blob([parts.join("\n")], { type: "text/markdown" });
