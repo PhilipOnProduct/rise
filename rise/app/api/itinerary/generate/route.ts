@@ -43,6 +43,12 @@ function buildFeedbackSegment(feedback: ActivityFeedbackEntry[]): string {
   return parts.length ? `\n\n${parts.join("\n\n")}` : "";
 }
 
+type BookingMeta = {
+  preferred_platform: "opentable" | "resy" | "thefork";
+  confidence: "high" | "medium" | "low";
+  search_query: string;
+};
+
 type ItineraryItem = {
   id: string;
   title: string;
@@ -51,6 +57,10 @@ type ItineraryItem = {
   time_block: TimeBlock;
   status: "idea";
   source: "ai_generated";
+  booking_meta?: BookingMeta;
+  cuisine?: string;
+  vibe?: string;
+  price_tier?: string;
 };
 
 type ItineraryDay = {
@@ -60,7 +70,7 @@ type ItineraryDay = {
 };
 
 export async function POST(req: NextRequest) {
-  const { destination, departureDate, returnDate, travelCompany, travelerTypes, activityFeedback } =
+  const { destination, departureDate, returnDate, travelCompany, travelerTypes, budgetTier, activityFeedback } =
     await req.json();
 
   if (!destination || !departureDate || !returnDate) {
@@ -74,11 +84,14 @@ export async function POST(req: NextRequest) {
   const days = Math.max(1, nights);
   const styleStr = travelerTypes?.length ? `Travel style: ${travelerTypes.join(", ")}.` : "";
   const companyStr = travelCompany ? `Travelling: ${travelCompany}.` : "";
+  const budgetStr = budgetTier ? `Budget tier: ${budgetTier}.` : "";
   const feedbackSegment = buildFeedbackSegment(activityFeedback ?? []);
 
   const prompt = `You are a trip planning AI. Generate a structured day-by-day itinerary for a ${days}-day trip to ${destination}.
+Travel dates: ${departureDate} to ${returnDate}.
 ${companyStr}
-${styleStr}${feedbackSegment}
+${styleStr}
+${budgetStr}${feedbackSegment}
 
 Return ONLY a valid JSON array — no markdown, no explanation, no code fences. The array must have exactly ${days} elements, one per day.
 
@@ -100,6 +113,18 @@ Each item object:
   "source": "ai_generated"
 }
 
+For items where type is "restaurant", include these additional fields:
+{
+  "cuisine": "Italian",           // cuisine category
+  "vibe": "romantic",             // one-word vibe descriptor
+  "price_tier": "€€€",           // €, €€, €€€, or €€€€
+  "booking_meta": {
+    "preferred_platform": "opentable" | "resy" | "thefork",  // your best guess for the primary booking platform this restaurant uses
+    "confidence": "high" | "medium" | "low",                  // how confident you are this restaurant is on that platform
+    "search_query": "exact restaurant name city"               // the exact search string to use in booking platform URLs — optimise for finding the right restaurant, not the raw name
+  }
+}
+
 Rules:
 - Cover morning, afternoon, and evening for each day (one item per slot minimum, max two)
 - Mix types: include at least one restaurant per day
@@ -107,7 +132,8 @@ Rules:
 - Final day evening: something easy near accommodation
 - Be specific to ${destination} — no generic suggestions
 - Keep descriptions under 20 words
-- id must be unique across all days (e.g. "day1-morning-1")`;
+- id must be unique across all days (e.g. "day1-morning-1")
+- For booking_meta.search_query: use the restaurant's commonly known name plus the city — this will be used to construct deep links, so accuracy matters more than matching the title field exactly`;
 
   const startTime = Date.now();
   try {
@@ -136,7 +162,7 @@ Rules:
       feature: "itinerary-generate",
       model: MODEL,
       prompt,
-      input: { destination, departureDate, returnDate, travelCompany, travelerTypes },
+      input: { destination, departureDate, returnDate, travelCompany, travelerTypes, budgetTier },
       output: jsonStr,
       latency_ms: Date.now() - startTime,
       input_tokens: response.usage.input_tokens,
