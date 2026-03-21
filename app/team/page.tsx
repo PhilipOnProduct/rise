@@ -377,6 +377,91 @@ function downloadPrdFile(problem: string, prdContent: string, slug: string): voi
   URL.revokeObjectURL(url);
 }
 
+function downloadConversationFile(
+  problem: string,
+  agents: typeof AGENTS,
+  buildMode: boolean,
+  sarahMemory: string,
+  sarahFrame: string,
+  alexContent: string,
+  mayaContent: string,
+  lucaContent: string,
+  elenaContent: string,
+  synthesis: string,
+  prd: string,
+): void {
+  const date = new Date().toISOString().slice(0, 10);
+  const slug = problem.trim().split(/\s+/).slice(0, 5).join("-").toLowerCase().replace(/[^a-z0-9-]/g, "");
+  const mode = getModeInstruction(buildMode);
+
+  const sarahSystem = sarahMemory
+    ? `${agents.sarah.system}\n\n${mode}\n\nHere is your memory of past product discussions for Rise:\n${sarahMemory}\n\nUse this to inform your framing — reference relevant past decisions, avoid repeating ground already covered, and build on what the team has already learned.`
+    : `${agents.sarah.system}\n\n${mode}`;
+
+  const specialistInput = `Problem: ${problem}\n\nSarah's framing: ${sarahFrame}\n\nShare your expert perspective.`;
+  const synthesisInput =
+    `Problem: ${problem}\n\nYour framing:\n${sarahFrame}\n\n` +
+    `Team input:\nAlex (Research): ${alexContent}\nMaya (Design): ${mayaContent}\nLuca (Tech): ${lucaContent}\nElena (Travel Expert): ${elenaContent}\n\n` +
+    `Synthesize the key insights and give a clear product recommendation.`;
+  const prdInput =
+    `Based on this product discussion, write a structured PRD.\n\nProblem: ${problem}\nFraming: ${sarahFrame}\n` +
+    `Research (Alex): ${alexContent}\nDesign (Maya): ${mayaContent}\nTech (Luca): ${lucaContent}\nTravel Expert (Elena): ${elenaContent}\n` +
+    `Synthesis: ${synthesis}`;
+
+  function section(name: string, role: string, system: string, input: string, response: string) {
+    return [
+      `## ${name} — ${role}`,
+      ``,
+      `<details>`,
+      `<summary>System prompt</summary>`,
+      ``,
+      system,
+      ``,
+      `</details>`,
+      ``,
+      `**Input**`,
+      ``,
+      input,
+      ``,
+      `**Response**`,
+      ``,
+      response,
+    ].join("\n");
+  }
+
+  const parts = [
+    `# ${problem}`,
+    ``,
+    `_${date} · Contributors: Sarah (PM), Alex (Researcher), Maya (Designer), Luca (Tech Lead), Elena (Travel Expert)_`,
+    ``,
+    `---`,
+    ``,
+    section("Sarah", "Framing", sarahSystem, `Frame this problem for the product team:\n\n${problem}`, sarahFrame),
+    ``, `---`, ``,
+    section("Alex", "Research", `${agents.alex.system}\n\n${mode}`, specialistInput, alexContent),
+    ``, `---`, ``,
+    section("Maya", "Design", `${agents.maya.system}\n\n${mode}`, specialistInput, mayaContent),
+    ``, `---`, ``,
+    section("Luca", "Tech", `${agents.luca.system}\n\n${mode}`, specialistInput, lucaContent),
+    ``, `---`, ``,
+    section("Elena", "Travel Expert", `${agents.elena.system}\n\n${mode}`, specialistInput, elenaContent),
+    ``, `---`, ``,
+    section("Sarah", "Synthesis", `${agents.sarah.system}\n\n${mode}`, synthesisInput, synthesis),
+  ];
+
+  if (prd) {
+    parts.push(``, `---`, ``, section("Sarah", "PRD", `${agents.sarah.system}\n\n${mode}`, prdInput, prd));
+  }
+
+  const blob = new Blob([parts.join("\n")], { type: "text/markdown" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${date}-${slug}.md`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 async function fetchKanbanTitle(problem: string, prdContent: string): Promise<string> {
   const fallback = problem.trim().split(/\s+/).slice(0, 6).join(" ");
   try {
@@ -1028,6 +1113,12 @@ function ProductTeamTab({
                   className="rounded-2xl border border-[#00D64F] text-[#00D64F] font-bold px-6 py-3 hover:bg-[#00D64F]/10 transition-colors text-sm"
                 >
                   {prd ? "Regenerate PRD →" : "Generate PRD →"}
+                </button>
+                <button
+                  onClick={() => downloadConversationFile(problem, AGENTS, buildMode, sarahMemory, sarahFrame, alexContent, mayaContent, lucaContent, elenaContent, synthesis, prd)}
+                  className="rounded-2xl border border-[#2a2a2a] text-gray-300 hover:text-white hover:border-[#444] font-semibold px-6 py-3 transition-colors text-sm"
+                >
+                  Download conversation ↓
                 </button>
                 {prd && (
                   <button
