@@ -881,7 +881,7 @@ function ProductTeamTab({
       setThinking({ sarah: true });
       let synthesisText = "";
       await streamChat(
-        TEAM_MODEL, `${AGENTS.sarah.system}\n\n${modeInstruction}`,
+        TEAM_MODEL, sarahSystemWithMemory,
         [{
           role: "user",
           content: `Problem: ${problem}\n\nYour framing:\n${frameText}\n\nTeam input:\nAlex (Research): ${alexText}\nMaya (Design): ${mayaText}\nLuca (Tech): ${lucaText}\nElena (Travel Expert): ${elenaText}\n\nSynthesize the key insights and give a clear product recommendation.`,
@@ -934,7 +934,7 @@ function ProductTeamTab({
       let prdText = "";
       try {
         await streamChat(
-          TEAM_MODEL, `${AGENTS.sarah.system}\n\n${modeInstruction}`,
+          TEAM_MODEL, sarahSystemWithMemory,
           [{
             role: "user",
             content:
@@ -944,7 +944,7 @@ function ProductTeamTab({
               `Synthesis: ${synthesisText}\n\n` +
               `Use these sections exactly:\n` +
               `## Overview\n## Problem Statement\n## User Need\n## Proposed Solution\n` +
-              `## User Stories\n## Success Metrics\n## Technical Considerations\n## Risks & Open Questions\n## Claude Code Implementation Prompt\n\n` +
+              `## User Stories\n## Success Metrics\n## Technical Considerations (strategic only — no implementation details)\n## Risks & Open Questions\n## Claude Code Implementation Prompt\n\n` +
               `For the Claude Code Implementation Prompt section: write a prompt the way a senior PM would brief a capable engineer verbally. Describe what to build and why it matters in plain language. Mention any hard constraints that affect how it must work. Do not describe how to implement it — no function names, no data structures, no component names, no step-by-step instructions. Write it the way you would explain the feature to someone who will figure out the implementation themselves.`,
           }],
           8000, (chunk) => { prdText += chunk; setPrd(prdText); }
@@ -997,6 +997,10 @@ function ProductTeamTab({
 
   async function regeneratePrd() {
     if (phase !== "done") return;
+    const modeInstruction = getModeInstruction(buildMode);
+    const sarahSystem = sarahMemory
+      ? `${AGENTS.sarah.system}\n\n${modeInstruction}\n\nHere is your memory of past product discussions for Rise:\n${sarahMemory}\n\nUse this to inform your framing — reference relevant past decisions, avoid repeating ground already covered, and build on what the team has already learned.`
+      : `${AGENTS.sarah.system}\n\n${modeInstruction}`;
     setPhase("prd");
     setThinking({ sarah: true });
     setTeamError("");
@@ -1004,7 +1008,7 @@ function ProductTeamTab({
     let prdText = "";
     try {
       await streamChat(
-        TEAM_MODEL, `${AGENTS.sarah.system}\n\n${getModeInstruction(buildMode)}`,
+        TEAM_MODEL, sarahSystem,
         [{
           role: "user",
           content:
@@ -1014,7 +1018,7 @@ function ProductTeamTab({
             `Synthesis: ${synthesis}\n\n` +
             `Use these sections exactly:\n` +
             `## Overview\n## Problem Statement\n## User Need\n## Proposed Solution\n` +
-            `## User Stories\n## Success Metrics\n## Technical Considerations\n## Risks & Open Questions\n## Claude Code Implementation Prompt\n\n` +
+            `## User Stories\n## Success Metrics\n## Technical Considerations (strategic only — no implementation details)\n## Risks & Open Questions\n## Claude Code Implementation Prompt\n\n` +
             `For the Claude Code Implementation Prompt section: write a prompt the way a senior PM would brief a capable engineer verbally. Describe what to build and why it matters in plain language. Mention any hard constraints that affect how it must work. Do not describe how to implement it — no function names, no data structures, no component names, no step-by-step instructions. Write it the way you would explain the feature to someone who will figure out the implementation themselves.`,
         }],
         8000, (chunk) => { prdText += chunk; setPrd(prdText); }
