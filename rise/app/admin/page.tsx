@@ -1,6 +1,23 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase";
+
+type TeamDiscussion = {
+  id: string;
+  title: string;
+  created_at: string;
+  prd: string | null;
+  messages: {
+    problem: string;
+    framing: string;
+    alex: string;
+    maya: string;
+    luca: string;
+    elena: string;
+    synthesis: string;
+  };
+};
 
 type Log = {
   id: string;
@@ -40,10 +57,25 @@ export default function AdminPage() {
   const [pendingNotes, setPendingNotes] = useState<Record<string, string>>({});
   const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
 
+  const [discussions, setDiscussions] = useState<TeamDiscussion[]>([]);
+  const [discussionsLoading, setDiscussionsLoading] = useState(true);
+  const [expandedDiscussionId, setExpandedDiscussionId] = useState<string | null>(null);
+  const [expandedPrdId, setExpandedPrdId] = useState<string | null>(null);
+
   useEffect(() => {
     fetch("/api/admin/logs")
       .then((r) => r.json())
       .then((data) => { setLogs(data); setLoading(false); });
+
+    supabase
+      .from("team_conversations")
+      .select("id, title, created_at, prd, messages")
+      .eq("type", "team")
+      .order("created_at", { ascending: false })
+      .then(({ data, error }) => {
+        if (!error && data) setDiscussions(data as TeamDiscussion[]);
+        setDiscussionsLoading(false);
+      });
   }, []);
 
   async function updateLog(id: string, patch: Partial<Pick<Log, "rating" | "notes">>) {
@@ -80,6 +112,76 @@ export default function AdminPage() {
     <main className="min-h-screen bg-[#0a0a0a] px-6 py-14">
       <div className="max-w-5xl mx-auto">
 
+        {/* ── Team discussions ───────────────────────────────────────────── */}
+        <div className="mb-14">
+          <div className="mb-6">
+            <h1 className="text-4xl font-extrabold tracking-tight">Team discussions</h1>
+            <p className="text-gray-500 mt-1">{discussions.length} discussions</p>
+          </div>
+
+          {discussionsLoading && <p className="text-gray-600 text-sm">Loading…</p>}
+          {!discussionsLoading && discussions.length === 0 && (
+            <p className="text-gray-600 text-sm">No team discussions yet.</p>
+          )}
+
+          <div className="flex flex-col gap-2">
+            {discussions.map((disc) => {
+              const isOpen = expandedDiscussionId === disc.id;
+              const isPrdOpen = expandedPrdId === disc.id;
+              const msgs = disc.messages;
+              return (
+                <div key={disc.id} className="bg-[#111] border border-[#1e1e1e] rounded-2xl overflow-hidden">
+                  <button
+                    onClick={() => setExpandedDiscussionId(isOpen ? null : disc.id)}
+                    className="w-full text-left px-5 py-4 flex items-center gap-4 hover:bg-[#161616] transition-colors"
+                  >
+                    <span className="flex-1 text-sm text-gray-300 truncate font-medium">{disc.title}</span>
+                    <span className="shrink-0 text-xs text-gray-600">5 agents</span>
+                    {disc.prd && <span className="shrink-0 text-xs text-[#00D64F]">PRD</span>}
+                    <span className="shrink-0 text-xs text-gray-600 hidden md:block">
+                      {new Date(disc.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                    </span>
+                    <span className="shrink-0 text-gray-600 text-xs">{isOpen ? "▲" : "▼"}</span>
+                  </button>
+
+                  {isOpen && (
+                    <div className="border-t border-[#1e1e1e] px-5 py-6 flex flex-col gap-6">
+                      {[
+                        { label: "Sarah — Framing", content: msgs.framing },
+                        { label: "Alex — Research", content: msgs.alex },
+                        { label: "Maya — Design", content: msgs.maya },
+                        { label: "Luca — Tech", content: msgs.luca },
+                        { label: "Elena — Travel Expert", content: msgs.elena },
+                        { label: "Sarah — Synthesis", content: msgs.synthesis },
+                      ].map(({ label, content }) => (
+                        <div key={label}>
+                          <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-2">{label}</h3>
+                          <pre className="bg-[#0a0a0a] border border-[#1e1e1e] rounded-xl p-4 text-xs text-gray-400 overflow-x-auto whitespace-pre-wrap font-mono">{content || <span className="italic text-gray-700">empty</span>}</pre>
+                        </div>
+                      ))}
+
+                      {disc.prd && (
+                        <div>
+                          <button
+                            onClick={() => setExpandedPrdId(isPrdOpen ? null : disc.id)}
+                            className="text-xs font-bold text-gray-500 uppercase tracking-widest hover:text-gray-300 transition-colors mb-2 flex items-center gap-2"
+                          >
+                            Sarah — PRD {isPrdOpen ? "▲" : "▼"}
+                          </button>
+                          {isPrdOpen && (
+                            <pre className="bg-[#0a0a0a] border border-[#1e1e1e] rounded-xl p-4 text-xs text-gray-400 overflow-x-auto whitespace-pre-wrap font-mono">{disc.prd}</pre>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ── AI Logs ────────────────────────────────────────────────────── */}
         <div className="mb-10">
           <h1 className="text-4xl font-extrabold tracking-tight">AI Logs</h1>
           <p className="text-gray-500 mt-1">{logs.length} interactions logged</p>
