@@ -135,6 +135,7 @@ type ActivityCardProps = {
   chipsEntry: ChipsEntry | undefined;
   feedback: ActivityFeedbackEntry | undefined;
   chipsOpen: boolean;
+  disabled?: boolean;
   onThumbsUp: () => void;
   onThumbsDown: () => void;
   onChipSelect: (chip: Chip) => void;
@@ -146,6 +147,7 @@ function ActivityCard({
   chipsEntry,
   feedback,
   chipsOpen,
+  disabled,
   onThumbsUp,
   onThumbsDown,
   onChipSelect,
@@ -175,7 +177,7 @@ function ActivityCard({
 
       {/* Default: thumbs buttons */}
       {!feedback && !chipsOpen && (
-        <div className="flex items-center gap-3">
+        <div className={`flex items-center gap-3 transition-opacity ${disabled ? "opacity-40 pointer-events-none" : ""}`}>
           <button
             onClick={onThumbsUp}
             className="flex items-center justify-center w-11 h-11 rounded-xl border border-[#2a2a2a] text-lg text-gray-500 hover:border-green-500/40 hover:text-green-400 transition-colors"
@@ -262,7 +264,6 @@ export default function WelcomePage() {
   const [travelerId, setTravelerId] = useState<string | null>(null);
 
   // AI Preview (step 4)
-  const [previewText, setPreviewText] = useState("");
   const [previewLoading, setPreviewLoading] = useState(false);
   const previewAbortRef = useRef<AbortController | null>(null);
 
@@ -298,19 +299,20 @@ export default function WelcomePage() {
     }
   }, [adultCount, childrenAges.length]);
 
-  // Fire streaming preview when entering step 4
+  // Fire streaming preview when entering step 4 — parse cards incrementally
   useEffect(() => {
     if (step !== 4) return;
 
     const controller = new AbortController();
     previewAbortRef.current = controller;
     setPreviewLoading(true);
-    setPreviewText("");
     setParsedActivities([]);
     chipsFetchedRef.current = new Set();
     submittedActivitiesRef.current = new Set();
 
     (async () => {
+      let accumulated = "";
+      let emittedCount = 0;
       try {
         const res = await fetch("/api/activities-stream", {
           method: "POST",
@@ -333,12 +335,34 @@ export default function WelcomePage() {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          setPreviewText((prev) => prev + decoder.decode(value, { stream: true }));
+          accumulated += decoder.decode(value, { stream: true });
+          // Parse all complete cards so far
+          const all = parseActivities(accumulated);
+          // A card is "complete" if there's a subsequent ** delimiter or we can count
+          // that more text follows after the card's *When:...* line. We detect this
+          // by checking if there's a next ** header after the current card's match.
+          // Since parseActivities uses a greedy regex that only matches fully-formed
+          // cards, we emit all parsed cards except the last one (which might still be
+          // streaming) unless a new ** header follows it.
+          const hasTrailingHeader = /\*When:[^*]+\*[^]*?\*\*/.test(
+            accumulated.slice(accumulated.lastIndexOf("*When:"))
+          );
+          const safeCount = all.length > 0 && !hasTrailingHeader ? all.length - 1 : all.length;
+          if (safeCount > emittedCount) {
+            const newCards = all.slice(0, safeCount);
+            emittedCount = safeCount;
+            setParsedActivities(newCards);
+          }
         }
       } catch (e: unknown) {
         if (e instanceof Error && e.name !== "AbortError") {
           console.error("[preview]", e);
         }
+      }
+      // Final parse — emit all remaining cards
+      const final = parseActivities(accumulated);
+      if (final.length > emittedCount) {
+        setParsedActivities(final);
       }
       setPreviewLoading(false);
     })();
@@ -347,13 +371,6 @@ export default function WelcomePage() {
       controller.abort();
     };
   }, [step, destination, departureDate, returnDate, travelCompany, travelerTypes, budgetTier]);
-
-  // Parse activities once streaming completes
-  useEffect(() => {
-    if (previewLoading || !previewText) return;
-    const activities = parseActivities(previewText);
-    setParsedActivities(activities);
-  }, [previewLoading, previewText]);
 
   // Generate dynamic chips for each card in the background as soon as they're parsed.
   // On thumbs-down, fallback chips are shown immediately; dynamic chips replace them
@@ -962,27 +979,17 @@ export default function WelcomePage() {
           {/* Step 4: AI Preview with activity cards */}
           {step === 4 && (
             <div className="flex flex-col gap-4">
-              {/* Streaming / loading state */}
-              {(previewLoading || parsedActivities.length === 0) && (
-                <div className="rounded-2xl border border-[#1e1e1e] bg-[#111] p-6 min-h-[280px]">
-                  {previewLoading && !previewText && (
-                    <div className="flex items-center gap-3 text-gray-400">
-                      <div className="w-4 h-4 rounded-full border-2 border-[#00D64F] border-t-transparent animate-spin flex-shrink-0" />
-                      <span>{previewLoadingLabel(destination, travelCompany)}</span>
-                    </div>
-                  )}
-                  {previewText && (
-                    <div className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">
-                      {previewText}
-                      {previewLoading && (
-                        <span className="inline-block w-1.5 h-4 bg-[#00D64F] ml-0.5 align-middle animate-pulse" />
-                      )}
-                    </div>
-                  )}
+              {/* Initial loading state — before any cards arrive */}
+              {previewLoading && parsedActivities.length === 0 && (
+                <div className="rounded-2xl border border-[#1e1e1e] bg-[#111] p-6 min-h-[140px] flex items-center">
+                  <div className="flex items-center gap-3 text-gray-400">
+                    <div className="w-4 h-4 rounded-full border-2 border-[#00D64F] border-t-transparent animate-spin flex-shrink-0" />
+                    <span>{previewLoadingLabel(destination, travelCompany)}</span>
+                  </div>
                 </div>
               )}
 
-              {/* Card view — shown once parsing completes */}
+              {/* Progressive card reveal — cards appear as they complete */}
               {parsedActivities.map((activity) => (
                 <ActivityCard
                   key={activity.id}
@@ -990,12 +997,21 @@ export default function WelcomePage() {
                   chipsEntry={activityChips[activity.id]}
                   feedback={activityFeedback[activity.id]}
                   chipsOpen={openChipId === activity.id}
+                  disabled={previewLoading}
                   onThumbsUp={() => handleThumbsUp(activity)}
                   onThumbsDown={() => handleThumbsDown(activity)}
                   onChipSelect={(chip) => handleChipSelect(activity, chip)}
                   onNoChipSubmit={() => handleNoChipSubmit(activity)}
                 />
               ))}
+
+              {/* Inline loading indicator while more cards are incoming */}
+              {previewLoading && parsedActivities.length > 0 && (
+                <div className="flex items-center gap-3 px-2 py-3 text-gray-500 text-sm">
+                  <div className="w-3.5 h-3.5 rounded-full border-2 border-gray-600 border-t-transparent animate-spin flex-shrink-0" />
+                  <span>Finding more ideas...</span>
+                </div>
+              )}
             </div>
           )}
 
