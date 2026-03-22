@@ -239,6 +239,25 @@ export default function AdminPage() {
                       <pre className="bg-[#0a0a0a] border border-[#1e1e1e] rounded-xl p-4 text-xs text-gray-400 overflow-x-auto whitespace-pre-wrap font-mono">{log.prompt}</pre>
                     </div>
 
+                    {/* Composition context — surfaced when present */}
+                    {(log.input.travelerCount != null || (log.input.childrenAges as string[] | null)?.length) && (
+                      <div>
+                        <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-2">Composition</h3>
+                        <div className="flex flex-wrap gap-2">
+                          {log.input.travelerCount != null && (
+                            <span className="rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs px-3 py-1.5 font-medium">
+                              {String(log.input.travelerCount)} {Number(log.input.travelerCount) === 1 ? "traveller" : "travellers"}
+                            </span>
+                          )}
+                          {(log.input.childrenAges as string[] | null)?.map((age, i) => (
+                            <span key={i} className="rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs px-3 py-1.5 font-medium">
+                              child: {age}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Input */}
                     <div>
                       <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-2">Input</h3>

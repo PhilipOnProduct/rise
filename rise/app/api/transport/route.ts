@@ -1,26 +1,12 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest } from "next/server";
 import { logAiInteraction } from "@/lib/ai-logger";
+import { buildCompositionSegment } from "@/lib/composition";
 
 const client = new Anthropic();
 const MODEL = "claude-sonnet-4-20250514";
 
-export async function POST(req: NextRequest) {
-  const { airport, hotel, city } = await req.json();
-
-  const prompt = `You are a practical travel advisor. A traveler needs to get from the airport to their hotel. Compare public transport vs taxi/rideshare for this specific journey.
-
-Journey details:
-- Departure airport: ${airport}
-- Destination city: ${city}
-- Hotel / area: ${hotel}
-
-For each option provide a clear comparison covering:
-1. Estimated cost (in local currency)
-2. Estimated travel time
-3. Comfort level (1–5 stars)
-4. Step-by-step instructions
-5. Any tips or things to watch out for
+const SYSTEM = `You are a practical travel advisor specialising in airport-to-hotel transport. Compare public transport vs taxi/rideshare for the journey provided. Cover: estimated cost (local currency), travel time, comfort, step-by-step instructions, and practical tips.
 
 Format your response as:
 
@@ -49,11 +35,27 @@ Format your response as:
 ## Verdict
 [One or two sentences on which option you recommend and why, based on the specific journey]`;
 
+export async function POST(req: NextRequest) {
+  const { airport, hotel, city, travelerCount, childrenAges } = await req.json();
+
+  const composition = buildCompositionSegment(travelerCount, childrenAges);
+
+  const userMessage =
+    `Journey: ${airport} → ${hotel}, ${city}.` +
+    (composition ? `\nTraveller composition: ${composition}` : "");
+
   const startTime = Date.now();
   const stream = client.messages.stream({
     model: MODEL,
     max_tokens: 1024,
-    messages: [{ role: "user", content: prompt }],
+    system: [
+      {
+        type: "text",
+        text: SYSTEM,
+        cache_control: { type: "ephemeral" },
+      },
+    ],
+    messages: [{ role: "user", content: userMessage }],
   });
 
   const encoder = new TextEncoder();
@@ -76,8 +78,14 @@ Format your response as:
         await logAiInteraction({
           feature: "transport",
           model: MODEL,
-          prompt,
-          input: { airport, hotel, city },
+          prompt: `${SYSTEM}\n\n---\n\n${userMessage}`,
+          input: {
+            airport,
+            hotel,
+            city,
+            travelerCount: travelerCount ?? null,
+            childrenAges: childrenAges ?? null,
+          },
           output,
           latency_ms: Date.now() - startTime,
           input_tokens: final.usage.input_tokens,

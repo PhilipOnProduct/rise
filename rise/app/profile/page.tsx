@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 type Profile = {
   name: string;
@@ -45,6 +45,19 @@ export default function ProfilePage() {
   const [profile, setProfile] = useState<Profile>(defaultProfile);
   const [recommendations, setRecommendations] = useState<string>("");
   const [loading, setLoading] = useState(false);
+  const [travelerCount, setTravelerCount] = useState<number | null>(null);
+  const [childrenAges, setChildrenAges] = useState<string[] | null>(null);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("rise_traveler");
+      if (raw) {
+        const t = JSON.parse(raw);
+        if (t.travelerCount) setTravelerCount(t.travelerCount);
+        if (t.childrenAges?.length) setChildrenAges(t.childrenAges);
+      }
+    } catch {}
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -60,7 +73,7 @@ export default function ProfilePage() {
     const res = await fetch("/api/recommendations", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(profile),
+      body: JSON.stringify({ ...profile, travelerCount, childrenAges }),
     });
 
     if (!res.body) { setLoading(false); return; }

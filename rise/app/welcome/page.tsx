@@ -34,6 +34,8 @@ const BUDGET_OPTIONS = [
 
 const MAX_STYLE_SELECTIONS = 3;
 
+const CHILD_AGE_RANGES = ["Under 2", "2–4", "5–8", "9–12"] as const;
+
 type Chip = {
   label: string;
   type: "hard_exclusion" | "soft_signal";
@@ -246,6 +248,8 @@ export default function WelcomePage() {
 
   // Preferences (Step 3)
   const [travelCompany, setTravelCompany] = useState("");
+  const [travelerCount, setTravelerCount] = useState(2);
+  const [childrenAges, setChildrenAges] = useState<string[]>([]);
   const [travelerTypes, setTravelerTypes] = useState<string[]>([]);
   const [budgetTier, setBudgetTier] = useState("");
 
@@ -302,6 +306,8 @@ export default function WelcomePage() {
             travelCompany: travelCompany || null,
             styleTags: travelerTypes.length > 0 ? travelerTypes : null,
             budgetTier: budgetTier || null,
+            travelerCount,
+            childrenAges: childrenAges.length > 0 ? childrenAges : null,
           }),
         });
         if (!res.body) return;
@@ -387,6 +393,18 @@ export default function WelcomePage() {
       if (prev.length >= MAX_STYLE_SELECTIONS) return prev;
       return [...prev, style];
     });
+  }
+
+  function addChild() {
+    setChildrenAges((prev) => [...prev, CHILD_AGE_RANGES[0]]);
+  }
+
+  function updateChildAge(idx: number, age: string) {
+    setChildrenAges((prev) => prev.map((a, i) => (i === idx ? age : a)));
+  }
+
+  function removeChild(idx: number) {
+    setChildrenAges((prev) => prev.filter((_, i) => i !== idx));
   }
 
   // Activity feedback handlers
@@ -505,6 +523,8 @@ export default function WelcomePage() {
             travelCompany: travelCompany || null,
             styleTags: travelerTypes.length > 0 ? travelerTypes : null,
             budgetTier: budgetTier || null,
+            travelerCount,
+            childrenAges: childrenAges.length > 0 ? childrenAges : null,
           }),
         });
       } else {
@@ -519,6 +539,8 @@ export default function WelcomePage() {
             travelCompany: travelCompany || null,
             styleTags: travelerTypes.length > 0 ? travelerTypes : null,
             budgetTier: budgetTier || null,
+            travelerCount,
+            childrenAges: childrenAges.length > 0 ? childrenAges : null,
             activities: [],
           }),
         });
@@ -555,6 +577,8 @@ export default function WelcomePage() {
             travelCompany: travelCompany || null,
             styleTags: travelerTypes.length > 0 ? travelerTypes : null,
             budgetTier: budgetTier || null,
+            travelerCount,
+            childrenAges: childrenAges.length > 0 ? childrenAges : null,
             activities: [],
           }),
         });
@@ -573,6 +597,8 @@ export default function WelcomePage() {
       returnDate,
       hotel,
       travelCompany,
+      travelerCount,
+      childrenAges: childrenAges.length > 0 ? childrenAges : null,
       travelerTypes,
       budgetTier,
       activities: [],
@@ -753,14 +779,42 @@ export default function WelcomePage() {
           {step === 3 && (
             <div className="flex flex-col gap-8">
               <div>
-                <label className="block text-sm font-semibold text-gray-400 uppercase tracking-widest mb-4">
-                  Who are you travelling with?
-                </label>
+                {/* Company + traveler count share a single heading — they are one question */}
+                <div className="flex items-center justify-between mb-4">
+                  <label className="text-sm font-semibold text-gray-400 uppercase tracking-widest">
+                    Who&apos;s coming?
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setTravelerCount((c) => Math.max(1, c - 1))}
+                      className="w-8 h-8 rounded-xl border border-[#2a2a2a] bg-[#111] text-gray-400 hover:text-white hover:border-[#444] transition-colors text-lg leading-none flex items-center justify-center"
+                    >
+                      −
+                    </button>
+                    <span className="w-6 text-center font-bold text-white text-sm">
+                      {travelerCount}
+                    </span>
+                    <button
+                      onClick={() => setTravelerCount((c) => c + 1)}
+                      className="w-8 h-8 rounded-xl border border-[#2a2a2a] bg-[#111] text-gray-400 hover:text-white hover:border-[#444] transition-colors text-lg leading-none flex items-center justify-center"
+                    >
+                      +
+                    </button>
+                    <span className="text-xs text-gray-600 ml-1">
+                      {travelerCount === 1 ? "traveller" : "travellers"}
+                    </span>
+                  </div>
+                </div>
                 <div className="flex flex-wrap gap-3">
                   {COMPANY_OPTIONS.map((opt) => (
                     <button
                       key={opt.id}
-                      onClick={() => setTravelCompany(travelCompany === opt.id ? "" : opt.id)}
+                      onClick={() => {
+                        setTravelCompany(travelCompany === opt.id ? "" : opt.id);
+                        // Clear children when switching away from family
+                        if (travelCompany !== "family" && opt.id !== "family") return;
+                        if (opt.id !== "family") setChildrenAges([]);
+                      }}
                       className={`flex items-center gap-2 px-4 py-3 rounded-2xl border text-sm font-semibold transition-all ${
                         travelCompany === opt.id
                           ? "border-[#00D64F] bg-[#00D64F]/10 text-white"
@@ -772,6 +826,50 @@ export default function WelcomePage() {
                     </button>
                   ))}
                 </div>
+
+                {/* Children's ages — only for Family */}
+                {travelCompany === "family" && (
+                  <div className="mt-5 pl-1">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">
+                      Children&apos;s ages
+                    </p>
+                    <div className="flex flex-col gap-3">
+                      {childrenAges.map((age, idx) => (
+                        <div key={idx} className="flex items-center gap-2 flex-wrap">
+                          <div className="flex gap-1.5 flex-wrap">
+                            {CHILD_AGE_RANGES.map((range) => (
+                              <button
+                                key={range}
+                                onClick={() => updateChildAge(idx, range)}
+                                className={`px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all ${
+                                  age === range
+                                    ? "border-[#00D64F] bg-[#00D64F]/10 text-white"
+                                    : "border-[#1e1e1e] bg-[#111] text-gray-400 hover:border-[#333] hover:text-white"
+                                }`}
+                              >
+                                {range}
+                              </button>
+                            ))}
+                          </div>
+                          <button
+                            onClick={() => removeChild(idx)}
+                            className="text-gray-600 hover:text-white transition-colors text-lg leading-none ml-1"
+                            title="Remove child"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <button
+                      onClick={addChild}
+                      className="mt-3 flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-300 transition-colors"
+                    >
+                      <span className="text-base leading-none">+</span>
+                      <span>Add a child</span>
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div>

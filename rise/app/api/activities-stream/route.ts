@@ -1,13 +1,33 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest } from "next/server";
 import { logAiInteraction } from "@/lib/ai-logger";
+import { buildCompositionSegment } from "@/lib/composition";
 
 const client = new Anthropic();
 const MODEL = "claude-sonnet-4-6";
 
+// Static instruction — cached on first call, served from cache on subsequent calls
+const SYSTEM = `You are a travel activity recommender. Suggest 5–6 must-do activities for the destination and traveller profile provided. For each, provide its name, a one-sentence description, and a brief note on when in the trip it works best.
+
+Format each as:
+
+**[Activity Name]** — [Category]
+[One-sentence description]
+*When: [timing or day suggestion]*
+
+Be specific to the destination — avoid generic suggestions that any visitor might do. Keep each entry concise.`;
+
 export async function POST(req: NextRequest) {
-  const { destination, departureDate, returnDate, travelCompany, styleTags, budgetTier } =
-    await req.json();
+  const {
+    destination,
+    departureDate,
+    returnDate,
+    travelCompany,
+    styleTags,
+    budgetTier,
+    travelerCount,
+    childrenAges,
+  } = await req.json();
 
   const nights =
     departureDate && returnDate
@@ -18,65 +38,52 @@ export async function POST(req: NextRequest) {
       : null;
   const duration = nights ? `${nights}-night trip` : "trip";
 
-  // Build constraint block from preferences
   const companyLabel: Record<string, string> = {
     solo: "solo traveller",
-    partner: "partner",
-    couple: "couple",
+    partner: "couple",
     friends: "group of friends",
     family: "family with children",
   };
-
   const budgetLabel: Record<string, string> = {
     budget: "savvy (budget-conscious)",
     comfortable: "comfortable (mid-range spend)",
     luxury: "flexible (willing to spend more for quality)",
   };
 
-  const company = travelCompany || "solo";
-  const budget = budgetTier || "comfortable";
-  const styleList: string[] = Array.isArray(styleTags) && styleTags.length > 0
-    ? styleTags
-    : ["mixed styles"];
+  const styleList: string[] =
+    Array.isArray(styleTags) && styleTags.length > 0 ? styleTags : ["mixed styles"];
 
-  const constraintLines: string[] = [];
-  if (travelCompany) {
-    constraintLines.push(
-      `- Travelling as: ${companyLabel[travelCompany] ?? travelCompany}`,
-    );
-  }
-  if (styleTags && styleTags.length > 0) constraintLines.push(`- Travel style: ${styleTags.join(", ")}`);
-  if (budgetTier) constraintLines.push(`- Budget: ${budgetLabel[budgetTier] ?? budgetTier}`);
+  const profileLines: string[] = [];
+  if (travelCompany)
+    profileLines.push(`- Travelling as: ${companyLabel[travelCompany] ?? travelCompany}`);
+  if (styleTags?.length) profileLines.push(`- Travel style: ${styleTags.join(", ")}`);
+  if (budgetTier) profileLines.push(`- Budget: ${budgetLabel[budgetTier] ?? budgetTier}`);
 
-  const constraintBlock =
-    constraintLines.length > 0
-      ? `\n\nTraveller profile (treat these as hard constraints — every suggestion must fit):\n${constraintLines.join("\n")}\n`
+  const composition = buildCompositionSegment(travelerCount, childrenAges);
+  if (composition) profileLines.push(`- Composition: ${composition}`);
+
+  const profileBlock =
+    profileLines.length > 0
+      ? `\n\nTraveller profile (treat these as hard constraints — every suggestion must fit):\n${profileLines.join("\n")}\n`
       : "";
 
-  const companyForPrompt = companyLabel[company] ?? company;
-  const budgetForPrompt = budgetLabel[budget] ?? budget;
-
-  const prompt = `You are recommending activities for a ${companyForPrompt} ${duration} to ${destination}.${constraintBlock}
-Budget tier: ${budgetForPrompt}. Style preferences: ${styleList.join(", ")}.
-Prioritise suggestions that match this profile specifically.
-Do not recommend options that contradict the budget tier.
-Every suggestion must genuinely suit the traveller profile above — not generic activities that any visitor might do.
-
-Suggest 5–6 must-do activities. For each provide its name, a one-sentence description, and a brief note on when in the trip it works best.
-
-Format each as:
-
-**[Activity Name]** — [Category]
-[One-sentence description]
-*When: [timing or day suggestion]*
-
-Be specific to ${destination} — avoid generic suggestions. Keep each entry concise.`;
+  const userMessage =
+    `Destination: ${destination} (${duration}).${profileBlock}\n` +
+    `Budget: ${budgetLabel[budgetTier ?? "comfortable"] ?? "comfortable"}. Style: ${styleList.join(", ")}.\n` +
+    `Every suggestion must genuinely suit this profile — not generic activities any visitor might do.`;
 
   const startTime = Date.now();
   const stream = client.messages.stream({
     model: MODEL,
     max_tokens: 1024,
-    messages: [{ role: "user", content: prompt }],
+    system: [
+      {
+        type: "text",
+        text: SYSTEM,
+        cache_control: { type: "ephemeral" },
+      },
+    ],
+    messages: [{ role: "user", content: userMessage }],
   });
 
   const encoder = new TextEncoder();
@@ -99,8 +106,17 @@ Be specific to ${destination} — avoid generic suggestions. Keep each entry con
         await logAiInteraction({
           feature: "activities-stream",
           model: MODEL,
-          prompt,
-          input: { destination, departureDate, returnDate, travelCompany, styleTags, budgetTier },
+          prompt: `${SYSTEM}\n\n---\n\n${userMessage}`,
+          input: {
+            destination,
+            departureDate,
+            returnDate,
+            travelCompany,
+            styleTags,
+            budgetTier,
+            travelerCount: travelerCount ?? null,
+            childrenAges: childrenAges ?? null,
+          },
           output,
           latency_ms: Date.now() - startTime,
           input_tokens: final.usage.input_tokens,
