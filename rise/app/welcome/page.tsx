@@ -6,12 +6,12 @@ import PlacesAutocomplete from "@/app/components/PlacesAutocomplete";
 
 const TOTAL_WIZARD_STEPS = 5; // steps 1–5
 
-const COMPANY_OPTIONS = [
-  { id: "solo", label: "Just me", emoji: "🧳" },
-  { id: "partner", label: "Couple", emoji: "💑" },
-  { id: "friends", label: "Friend group", emoji: "👯" },
-  { id: "family", label: "Family", emoji: "👨‍👩‍👧" },
-];
+const COMPANY_OPTIONS: Record<string, { label: string; emoji: string }> = {
+  solo: { label: "Just me", emoji: "🧳" },
+  partner: { label: "Couple", emoji: "💑" },
+  friends: { label: "Friend group", emoji: "👯" },
+  family: { label: "Family", emoji: "👨‍👩‍👧" },
+};
 
 const STYLE_OPTIONS = [
   "Adventure",
@@ -280,6 +280,23 @@ export default function WelcomePage() {
   useEffect(() => {
     if (departureDate) setReturnDate(addDays(departureDate, 7));
   }, [departureDate]);
+
+  // Derive valid trip type options from composition and auto-set/clear travelCompany
+  useEffect(() => {
+    if (childrenAges.length > 0) {
+      setTravelCompany("family");
+      return;
+    }
+    const validIds =
+      adultCount === 1 ? ["solo"] :
+      adultCount === 2 ? ["partner", "friends"] :
+      ["friends", "family"];
+    if (validIds.length === 1) {
+      setTravelCompany(validIds[0]);
+    } else {
+      setTravelCompany((prev) => validIds.includes(prev) ? prev : "");
+    }
+  }, [adultCount, childrenAges.length]);
 
   // Fire streaming preview when entering step 4
   useEffect(() => {
@@ -850,27 +867,40 @@ export default function WelcomePage() {
                 )}
               </div>
 
-              <div>
-                <label className="block text-sm font-semibold text-gray-400 uppercase tracking-widest mb-4">
-                  Trip type
-                </label>
-                <div className="flex flex-wrap gap-3">
-                  {COMPANY_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.id}
-                      onClick={() => setTravelCompany(travelCompany === opt.id ? "" : opt.id)}
-                      className={`flex items-center gap-2 px-4 py-3 rounded-2xl border text-sm font-semibold transition-all ${
-                        travelCompany === opt.id
-                          ? "border-[#00D64F] bg-[#00D64F]/10 text-white"
-                          : "border-[#1e1e1e] bg-[#111] text-gray-400 hover:border-[#333] hover:text-white"
-                      }`}
-                    >
-                      <span>{opt.emoji}</span>
-                      <span>{opt.label}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
+              {/* Trip type — hidden when auto-set (children > 0 or only one option) */}
+              {childrenAges.length === 0 && (() => {
+                const validIds =
+                  adultCount === 1 ? ["solo"] :
+                  adultCount === 2 ? ["partner", "friends"] :
+                  ["friends", "family"];
+                if (validIds.length <= 1) return null;
+                return (
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-400 uppercase tracking-widest mb-4">
+                      Trip type
+                    </label>
+                    <div className="flex flex-wrap gap-3">
+                      {validIds.map((id) => {
+                        const opt = COMPANY_OPTIONS[id];
+                        return (
+                          <button
+                            key={id}
+                            onClick={() => setTravelCompany(travelCompany === id ? "" : id)}
+                            className={`flex items-center gap-2 px-4 py-3 rounded-2xl border text-sm font-semibold transition-all ${
+                              travelCompany === id
+                                ? "border-[#00D64F] bg-[#00D64F]/10 text-white"
+                                : "border-[#1e1e1e] bg-[#111] text-gray-400 hover:border-[#333] hover:text-white"
+                            }`}
+                          >
+                            <span>{opt.emoji}</span>
+                            <span>{opt.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
 
               <div>
                 <label className="block text-sm font-semibold text-gray-400 uppercase tracking-widest mb-1">
