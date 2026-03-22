@@ -13,6 +13,8 @@ export async function POST(req: NextRequest) {
     travelCompany,
     styleTags,
     budgetTier,
+    travelerCount,
+    childrenAges,
   } = await req.json();
 
   if (!destination) {
@@ -32,6 +34,8 @@ export async function POST(req: NextRequest) {
       travel_company: travelCompany || null,
       style_tags: styleTags || null,
       budget_tier: budgetTier || null,
+      traveler_count: travelerCount ?? null,
+      children_ages: childrenAges?.length > 0 ? childrenAges : null,
     })
     .select()
     .single();
@@ -44,7 +48,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const { id, name, email, travelCompany, styleTags, budgetTier } = await req.json();
+  const { id, name, email, travelCompany, styleTags, budgetTier, travelerCount, childrenAges } =
+    await req.json();
 
   if (!id) {
     return NextResponse.json({ error: "id is required." }, { status: 400 });
@@ -56,6 +61,9 @@ export async function PATCH(req: NextRequest) {
   if (travelCompany !== undefined) updates.travel_company = travelCompany;
   if (styleTags !== undefined) updates.style_tags = styleTags;
   if (budgetTier !== undefined) updates.budget_tier = budgetTier;
+  if (travelerCount !== undefined) updates.traveler_count = travelerCount ?? null;
+  if (childrenAges !== undefined)
+    updates.children_ages = childrenAges?.length > 0 ? childrenAges : null;
 
   const { data, error } = await supabase
     .from("travelers")

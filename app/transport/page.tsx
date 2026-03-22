@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 function renderLine(line: string, i: number) {
   if (line.startsWith("## ")) {
@@ -23,6 +23,21 @@ export default function TransportPage() {
   const [city, setCity] = useState("");
   const [result, setResult] = useState("");
   const [loading, setLoading] = useState(false);
+  const [travelerCount, setTravelerCount] = useState<number | null>(null);
+  const [childrenAges, setChildrenAges] = useState<string[] | null>(null);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("rise_traveler");
+      if (raw) {
+        const t = JSON.parse(raw);
+        if (t.travelerCount) setTravelerCount(t.travelerCount);
+        if (t.childrenAges?.length) setChildrenAges(t.childrenAges);
+        if (t.destination && !city) setCity(t.destination);
+        if (t.hotel && !hotel) setHotel(t.hotel);
+      }
+    } catch {}
+  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -32,7 +47,13 @@ export default function TransportPage() {
     const res = await fetch("/api/transport", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ airport, hotel, city }),
+      body: JSON.stringify({
+        airport,
+        hotel,
+        city,
+        travelerCount,
+        childrenAges,
+      }),
     });
 
     if (!res.body) { setLoading(false); return; }

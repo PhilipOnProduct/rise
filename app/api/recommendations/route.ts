@@ -1,37 +1,45 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest } from "next/server";
 import { logAiInteraction } from "@/lib/ai-logger";
+import { buildCompositionSegment } from "@/lib/composition";
 
 const client = new Anthropic();
 const MODEL = "claude-sonnet-4-20250514";
 
-export async function POST(req: NextRequest) {
-  const profile = await req.json();
-
-  const prompt = `You are a knowledgeable restaurant advisor. Based on the following travel profile, recommend 5 restaurants for the traveler. For each restaurant provide: name, cuisine type, price range, a short description, and why it suits this specific traveler.
-
-Travel profile:
-- Destination: ${profile.destination || "not specified"}
-- Traveler types: ${profile.travelerTypes?.join(", ") || "not specified"}
-- Travel company: ${profile.travelCompany}
-- Budget: ${profile.budget || "not specified"}
-- Travel dates: ${profile.departureDate ? `${profile.departureDate} to ${profile.returnDate}` : "not specified"}
-- Dietary wishes: ${profile.dietaryWishes || "none"}
-
-IMPORTANT: strictly respect dietary wishes, do not recommend restaurants that conflict with them.
+const SYSTEM = `You are a knowledgeable restaurant advisor. Based on the travel profile provided, recommend 5 restaurants. For each provide: name, cuisine type, price range, a short description, and why it suits this specific traveler.
 
 Format each restaurant as:
 **[Restaurant Name]** — [Cuisine] · [Price range €/€€/€€€/€€€€]
 [Short description]
 *Why it suits you: [reason]*
 
-Keep descriptions concise and practical.`;
+Keep descriptions concise and practical. Strictly respect any dietary restrictions.`;
+
+export async function POST(req: NextRequest) {
+  const profile = await req.json();
+
+  const composition = buildCompositionSegment(profile.travelerCount, profile.childrenAges);
+
+  const userMessage = `Travel profile:
+- Destination: ${profile.destination || "not specified"}
+- Traveler types: ${profile.travelerTypes?.join(", ") || "not specified"}
+- Travel company: ${profile.travelCompany}
+- Budget: ${profile.budget || "not specified"}
+- Travel dates: ${profile.departureDate ? `${profile.departureDate} to ${profile.returnDate}` : "not specified"}
+- Dietary wishes: ${profile.dietaryWishes || "none"}${composition ? `\n- Composition: ${composition}` : ""}`;
 
   const startTime = Date.now();
   const stream = client.messages.stream({
     model: MODEL,
     max_tokens: 1024,
-    messages: [{ role: "user", content: prompt }],
+    system: [
+      {
+        type: "text",
+        text: SYSTEM,
+        cache_control: { type: "ephemeral" },
+      },
+    ],
+    messages: [{ role: "user", content: userMessage }],
   });
 
   const encoder = new TextEncoder();
@@ -54,8 +62,12 @@ Keep descriptions concise and practical.`;
         await logAiInteraction({
           feature: "recommendations",
           model: MODEL,
-          prompt,
-          input: profile,
+          prompt: `${SYSTEM}\n\n---\n\n${userMessage}`,
+          input: {
+            ...profile,
+            travelerCount: profile.travelerCount ?? null,
+            childrenAges: profile.childrenAges ?? null,
+          },
           output,
           latency_ms: Date.now() - startTime,
           input_tokens: final.usage.input_tokens,

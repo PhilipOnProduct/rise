@@ -28,7 +28,7 @@ Rise is an AI-powered trip planning app. It helps travellers plan trips day-by-d
 ## Current Features
 
 ### Traveller flows
-- **Onboarding wizard** (`/welcome`) — 6-step flow: Step 0 full-screen landing (destination) → Step 1 destination + dates → Step 2 hotel (Places autocomplete biased to destination) → Step 3 travel preferences (company, style tags, budget tier) → Step 4 AI activity preview (streaming, personalised using Step 3 preferences) → Step 5 account creation. Preferences are written to Supabase via partial upsert when the user advances from Step 3 to Step 4. Saves to Supabase `travelers` table and `localStorage` (`rise_traveler`, `rise_onboarded`).
+- **Onboarding wizard** (`/welcome`) — 6-step flow: Step 0 full-screen landing (destination) → Step 1 destination + dates → Step 2 hotel (Places autocomplete biased to destination) → Step 3 travel preferences (company + traveler count + children's ages + style tags + budget tier) → Step 4 AI activity preview (streaming, personalised using Step 3 preferences) → Step 5 account creation. Preferences are written to Supabase via partial upsert when the user advances from Step 3 to Step 4. Saves to Supabase `travelers` table and `localStorage` (`rise_traveler`, `rise_onboarded`). Step 3 composition UI: traveler count stepper (default 2, always visible, integer) and company selector share a single "Who's coming?" heading. When "Family" is selected, a children's ages section appears using the add-per-child pattern — one "Add a child" button appends a child with age range selector (Under 2, 2–4, 5–8, 9–12) and a × remove control. No cap on children added.
 - **Dashboard** (`/dashboard`) — Shows trip summary (destination, dates, nights, hotel, activities) read from `localStorage`. Links to itinerary, transport, profile, and guides.
 - **Day-by-day itinerary** (`/itinerary`) — Day-view timeline with one column per trip day and three time blocks (morning / afternoon / evening). AI pre-populates suggestions on first load via `/api/itinerary/generate`; persisted to `localStorage` (`rise_itinerary`). Editing surface: (1) Remove (×, hover-revealed); (2) Swap (⇄, hover-revealed) — calls `/api/itinerary/edit` with mode=`swap`, shows new suggestion in place of old item for review ("Looks good ✓" / "Not quite, try again →"); (3) AI add for empty slots ("Suggest something →") — calls `/api/itinerary/edit` with mode=`add`, shows loading placeholder then suggestion for review. Old item stays visible with loading overlay during API call; new item only committed to state after user confirms. Retry accumulates `rejectedTitles` across attempts. Conflict warning from API shown as dismissible amber banner. Users can also drag items between time blocks (HTML5 drag-and-drop) and add their own items inline.
 - **AI activity preview + feedback** (`/api/activities-stream`, `/api/activity-chips`, `/api/activity-feedback`) — Step 4 of onboarding streams 5–6 activity suggestions, then parses the completed response into individual cards. Each card has 👍/👎 controls. Chips are pre-generated on card render (not on tap) by calling `/api/activity-chips` — Claude Haiku with tool_use, returns 1 hard-exclusion ("Done it before") + 3 profile-specific soft-signal reasons. FALLBACK_CHIPS (3 static chips) are shown immediately on thumbs-down tap; dynamic chips swap in silently once loaded (guarded by `submittedActivitiesRef` so they never disrupt in-progress interactions). Chip selection is optional — a "Skip →" button submits thumbs-down with no chip (`thumbs_down_no_chip` state). Chip selection: hard-exclusion shows "We'll skip this." and blocks the activity; soft-signal shows "Noted." and adds a deprioritisation hint. Step 5 shows a "Skipped activities" panel of hard-excluded activities with × removal buttons (logs `exclusion_removed`). All interactions (thumbs_up, chips_shown, chip_selected, thumbs_down_no_chip, exclusion_removed) are logged to `activity_feedback` via `/api/activity-feedback` with `chipsSource` (fallback/dynamic) and `firstChipLabel`. On finish, feedback saved to `rise_activity_feedback` in localStorage and consumed by `/api/itinerary/generate` with three distinct cases: (1) hard exclusions → "NEVER include" block; (2) soft with reason → "avoid, suggest alternatives"; (3) thumbs-down no chip → "soft signal only — deprioritise but do not exclude".
@@ -66,6 +66,8 @@ Rise is an AI-powered trip planning app. It helps travellers plan trips day-by-d
 - **AI logging** (`lib/ai-logger.ts`) — Wraps every Claude call; logs to Supabase `ai_logs` table.
 - **Shared Supabase client** (`lib/supabase.ts`) — Single client instance used everywhere.
 - **Rise context API** (`/api/rise-context`) — Server-side GET route that reads and returns `CLAUDE.md` as JSON using Node `fs`. Used by the PM tab to inject the full product context into the system prompt.
+- **Traveler composition** (`lib/composition.ts`) — `buildCompositionSegment(travelerCount, childrenAges)` builds a plain-language context segment injected into every AI prompt. Translates age ranges to behavioural constraints: Under 2 → pram access required, nap windows mid-morning/afternoon, no loud environments; 2–4 → 45-min activity max, outdoor space; 5–8 → 90-min tolerance, interactive; 9–12 → near-adult stamina. Constraints are deduplicated across siblings. Used in activities-stream, itinerary/generate, itinerary/edit, recommendations, and transport routes.
+- **Prompt caching** — Static system prompt instructions are separated into a `system` array with `cache_control: { type: "ephemeral" }` on the streaming routes (activities-stream, recommendations, transport). Dynamic per-request context goes in the user message. Caches once the static portion reaches Anthropic's threshold (~1024 tokens).
 
 ---
 
@@ -79,7 +81,7 @@ rise/
 │   ├── globals.css               # Dark CSS variables, fadeSlideUp animation, date picker fix
 │   ├── welcome/page.tsx          # 6-step onboarding wizard (step 0 = landing, steps 1–5 = wizard)
 │   ├── dashboard/page.tsx        # Trip summary dashboard
-│   ├── itinerary/page.tsx        # Day-view itinerary — drag/drop, remove, AI swap/add, conflict banner
+│   ├── itinerary/page.tsx        # Day-view itinerary — drag/drop, remove, AI swap/add, conflict banner; passes travelerCount/childrenAges to edit API
 │   ├── profile/page.tsx          # Travel profile + restaurant recs
 │   ├── transport/page.tsx        # Airport → Hotel advice
 │   ├── feedback/page.tsx         # Full-page user feedback form
@@ -124,6 +126,7 @@ rise/
 ├── lib/
 │   ├── supabase.ts               # Shared Supabase client — always import from here
 │   ├── ai-logger.ts              # Claude call wrapper with Supabase logging
+│   ├── composition.ts            # buildCompositionSegment() — traveler count + children age constraints for AI prompts
 │   └── guides.ts                 # Shared types (Guide, Tip, Level) and helpers (getLevel, LEVEL_BADGE)
 ├── middleware.ts                 # Edge middleware — password protection
 └── CLAUDE.md                     # This file
@@ -135,7 +138,7 @@ rise/
 
 | Table | Purpose |
 |---|---|
-| `travelers` | Onboarding data — destination, dates, hotel, activities, account |
+| `travelers` | Onboarding data — destination, dates, hotel, activities, account, traveler_count (int), children_ages (text[]) |
 | `guides` | Local guide profiles — email, name, points |
 | `tips` | Guide tips — city, content, view count, guide_id |
 | `tip_ratings` | One row per rating event — tip_id, value |
@@ -146,6 +149,13 @@ rise/
 | `objectives` | PM 1-on-1 agreed objectives — title, description (1-sentence), prd (full PRD text), status (`backlog`/`refine`/`in-progress`/`done`) |
 | `user_feedback` | Floating button + /feedback form submissions — page URL, feedback text |
 | `activity_feedback` | Activity preview interaction log — event, activity name/category, chip label/type, chips_source (fallback/dynamic), first_chip_label |
+
+**Required SQL to add composition columns to `travelers` table:**
+```sql
+alter table travelers
+  add column if not exists traveler_count integer,
+  add column if not exists children_ages text[];
+```
 
 **Required SQL for `objectives` table** (run in Supabase dashboard if not yet created):
 ```sql
@@ -250,7 +260,7 @@ function dbErr(err: unknown): string {
 ### localStorage keys
 | Key | Contents |
 |---|---|
-| `rise_traveler` | Full traveller object (name, email, destination, dates, hotel, travelCompany, travelerTypes, budgetTier, activities) |
+| `rise_traveler` | Full traveller object (name, email, destination, dates, hotel, travelCompany, travelerCount, childrenAges, travelerTypes, budgetTier, activities) |
 | `rise_onboarded` | `"true"` — gates redirect from `/welcome` to `/dashboard` |
 | `rise_itinerary` | Cached `ItineraryDay[]` array — cleared and regenerated when user clicks Regenerate |
 | `rise_team_mode` | `"build"` or `"research"` — persists the Build/Research mode toggle on `/team` |

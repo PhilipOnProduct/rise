@@ -31,6 +31,8 @@ type Traveler = {
   travelCompany?: string;
   travelerTypes?: string[];
   budgetTier?: string;
+  travelerCount?: number;
+  childrenAges?: string[] | null;
 };
 
 type PendingEdit = {
@@ -120,6 +122,8 @@ export default function ItineraryPage() {
         travelCompany: t.travelCompany ?? "",
         travelerTypes: t.travelerTypes ?? [],
         activityFeedback,
+        travelerCount: t.travelerCount ?? null,
+        childrenAges: t.childrenAges ?? null,
       }),
     })
       .then((res) => res.json())
@@ -189,6 +193,8 @@ export default function ItineraryPage() {
           travelCompany: traveler.travelCompany,
           travelerTypes: traveler.travelerTypes,
           budgetTier: traveler.budgetTier,
+          travelerCount: traveler.travelerCount ?? null,
+          childrenAges: traveler.childrenAges ?? null,
         }),
       });
       const data = await res.json();
@@ -313,6 +319,8 @@ export default function ItineraryPage() {
         returnDate: traveler.returnDate,
         travelCompany: traveler.travelCompany ?? "",
         travelerTypes: traveler.travelerTypes ?? [],
+        travelerCount: traveler.travelerCount ?? null,
+        childrenAges: traveler.childrenAges ?? null,
       }),
     })
       .then((res) => res.json())

@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
 import { logAiInteraction } from "@/lib/ai-logger";
+import { buildCompositionSegment } from "@/lib/composition";
 
 const client = new Anthropic();
 const MODEL = "claude-sonnet-4-6";
@@ -74,8 +75,16 @@ type ItineraryDay = {
 };
 
 export async function POST(req: NextRequest) {
-  const { destination, departureDate, returnDate, travelCompany, travelerTypes, activityFeedback } =
-    await req.json();
+  const {
+    destination,
+    departureDate,
+    returnDate,
+    travelCompany,
+    travelerTypes,
+    activityFeedback,
+    travelerCount,
+    childrenAges,
+  } = await req.json();
 
   if (!destination || !departureDate || !returnDate) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -89,10 +98,12 @@ export async function POST(req: NextRequest) {
   const styleStr = travelerTypes?.length ? `Travel style: ${travelerTypes.join(", ")}.` : "";
   const companyStr = travelCompany ? `Travelling: ${travelCompany}.` : "";
   const feedbackSegment = buildFeedbackSegment(activityFeedback ?? []);
+  const composition = buildCompositionSegment(travelerCount, childrenAges);
+  const compositionStr = composition ? `\nTraveller composition: ${composition}` : "";
 
   const prompt = `You are a trip planning AI. Generate a structured day-by-day itinerary for a ${days}-day trip to ${destination}.
 ${companyStr}
-${styleStr}${feedbackSegment}
+${styleStr}${compositionStr}${feedbackSegment}
 
 Return ONLY a valid JSON array — no markdown, no explanation, no code fences. The array must have exactly ${days} elements, one per day.
 
@@ -150,7 +161,15 @@ Rules:
       feature: "itinerary-generate",
       model: MODEL,
       prompt,
-      input: { destination, departureDate, returnDate, travelCompany, travelerTypes },
+      input: {
+        destination,
+        departureDate,
+        returnDate,
+        travelCompany,
+        travelerTypes,
+        travelerCount: travelerCount ?? null,
+        childrenAges: childrenAges ?? null,
+      },
       output: jsonStr,
       latency_ms: Date.now() - startTime,
       input_tokens: response.usage.input_tokens,

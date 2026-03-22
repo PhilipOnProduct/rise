@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
 import { logAiInteraction } from "@/lib/ai-logger";
+import { buildCompositionSegment } from "@/lib/composition";
 
 const client = new Anthropic();
 const MODEL = "claude-sonnet-4-6";
@@ -26,6 +27,8 @@ export async function POST(req: NextRequest) {
     travelCompany,
     travelerTypes,
     budgetTier,
+    travelerCount,
+    childrenAges,
   } = await req.json();
 
   // Build neighbor context from adjacent time blocks
@@ -69,6 +72,8 @@ export async function POST(req: NextRequest) {
   if (travelerTypes?.length)
     profileParts.push(`travel style: ${(travelerTypes as string[]).join(", ")}`);
   if (budgetTier) profileParts.push(`budget: ${budgetTier}`);
+  const composition = buildCompositionSegment(travelerCount, childrenAges);
+  if (composition) profileParts.push(composition);
   const profile = profileParts.length ? profileParts.join("; ") : "traveller";
 
   const avoidClause =
@@ -185,6 +190,8 @@ export async function POST(req: NextRequest) {
         replacingTitle: replacingItem?.title ?? null,
         rejectedTitles,
         profile,
+        travelerCount: travelerCount ?? null,
+        childrenAges: childrenAges ?? null,
       },
       output: JSON.stringify(input),
       latency_ms: Date.now() - startTime,
