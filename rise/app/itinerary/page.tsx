@@ -30,6 +30,22 @@ type Traveler = {
   hotel: string;
   travelCompany?: string;
   travelerTypes?: string[];
+  budgetTier?: string;
+};
+
+type PendingEdit = {
+  dayIdx: number;
+  block: TimeBlock;
+  replacingId: string | null; // null = add mode
+  item: ItineraryItem;
+  rationale: string;
+  rejectedTitles: string[];
+};
+
+type LoadingEdit = {
+  dayIdx: number;
+  block: TimeBlock;
+  replacingId: string | null;
 };
 
 const TIME_BLOCKS: { key: TimeBlock; label: string; emoji: string }[] = [
@@ -60,6 +76,11 @@ export default function ItineraryPage() {
   const [error, setError] = useState<string | null>(null);
   const [activeDay, setActiveDay] = useState(0);
 
+  // Editing state
+  const [loadingEdit, setLoadingEdit] = useState<LoadingEdit | null>(null);
+  const [pendingEdit, setPendingEdit] = useState<PendingEdit | null>(null);
+  const [conflict, setConflict] = useState<string | null>(null);
+
   // Drag state
   const dragItem = useRef<{ dayIdx: number; itemId: string } | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -78,18 +99,15 @@ export default function ItineraryPage() {
     try { t = JSON.parse(raw); } catch { router.replace("/welcome"); return; }
     setTraveler(t);
 
-    // Try cached itinerary first
     const cached = localStorage.getItem(STORAGE_KEY);
     if (cached) {
       try {
-        const parsed = JSON.parse(cached);
-        setDays(parsed);
+        setDays(JSON.parse(cached));
         setLoading(false);
         return;
       } catch {}
     }
 
-    // Generate fresh
     const feedbackRaw = localStorage.getItem("rise_activity_feedback");
     const activityFeedback = feedbackRaw ? JSON.parse(feedbackRaw) : [];
     fetch("/api/itinerary/generate", {
@@ -121,8 +139,11 @@ export default function ItineraryPage() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
   }, []);
 
-  // Dismiss an item
-  function dismissItem(dayIdx: number, itemId: string) {
+  // Remove an item
+  function handleRemove(dayIdx: number, itemId: string) {
+    // Clear any pending/loading edit for this item
+    if (pendingEdit?.replacingId === itemId) setPendingEdit(null);
+    if (loadingEdit?.replacingId === itemId) setLoadingEdit(null);
     setDays((prev) => {
       const next = prev.map((d, i) =>
         i === dayIdx ? { ...d, items: d.items.filter((it) => it.id !== itemId) } : d
@@ -130,6 +151,96 @@ export default function ItineraryPage() {
       saveToStorage(next);
       return next;
     });
+  }
+
+  // AI edit: swap or add
+  async function triggerEdit(
+    dayIdx: number,
+    block: TimeBlock,
+    replacingItem: ItineraryItem | null,
+    rejectedTitles: string[] = []
+  ) {
+    if (!traveler) return;
+
+    setLoadingEdit({ dayIdx, block, replacingId: replacingItem?.id ?? null });
+    setPendingEdit(null);
+    setConflict(null);
+
+    const day = days[dayIdx];
+    const dayItems = day.items.filter((it) =>
+      replacingItem ? it.id !== replacingItem.id : true
+    );
+
+    try {
+      const res = await fetch("/api/itinerary/edit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: replacingItem ? "swap" : "add",
+          destination: traveler.destination,
+          dayNumber: day.day_number,
+          date: day.date,
+          block,
+          dayItems,
+          replacingItem: replacingItem
+            ? { title: replacingItem.title, description: replacingItem.description }
+            : null,
+          rejectedTitles,
+          travelCompany: traveler.travelCompany,
+          travelerTypes: traveler.travelerTypes,
+          budgetTier: traveler.budgetTier,
+        }),
+      });
+      const data = await res.json();
+      if (data.item) {
+        setPendingEdit({
+          dayIdx,
+          block,
+          replacingId: replacingItem?.id ?? null,
+          item: data.item,
+          rationale: data.rationale ?? "",
+          rejectedTitles,
+        });
+        if (data.conflict) setConflict(data.conflict);
+      } else {
+        setError("Couldn't generate a suggestion. Please try again.");
+      }
+    } catch {
+      setError("Network error generating suggestion.");
+    } finally {
+      setLoadingEdit(null);
+    }
+  }
+
+  // Commit a pending edit to state
+  function commitEdit(pending: PendingEdit) {
+    setDays((prev) => {
+      const next = prev.map((d, i) => {
+        if (i !== pending.dayIdx) return d;
+        let items = d.items;
+        if (pending.replacingId) {
+          items = items.map((it) =>
+            it.id === pending.replacingId ? { ...pending.item, status: "idea" as const } : it
+          );
+        } else {
+          items = [...items, { ...pending.item, status: "idea" as const }];
+        }
+        return { ...d, items };
+      });
+      saveToStorage(next);
+      return next;
+    });
+    setPendingEdit(null);
+  }
+
+  // Reject pending edit → retry
+  function rejectEdit(pending: PendingEdit) {
+    const newRejected = [...pending.rejectedTitles, pending.item.title];
+    const replacingItem = pending.replacingId
+      ? days[pending.dayIdx]?.items.find((it) => it.id === pending.replacingId) ?? null
+      : null;
+    setPendingEdit(null);
+    triggerEdit(pending.dayIdx, pending.block, replacingItem, newRejected);
   }
 
   // Drag handlers
@@ -149,14 +260,11 @@ export default function ItineraryPage() {
 
     setDays((prev) => {
       const next = prev.map((d) => ({ ...d, items: [...d.items] }));
-      // Find item
       const srcDay = next[srcDayIdx];
       const itemIdx = srcDay.items.findIndex((it) => it.id === itemId);
       if (itemIdx === -1) return prev;
       const [item] = srcDay.items.splice(itemIdx, 1);
-      // Drop into target
-      const targetDay = next[targetDayIdx];
-      targetDay.items.push({ ...item, time_block: targetBlock });
+      next[targetDayIdx].items.push({ ...item, time_block: targetBlock });
       saveToStorage(next);
       return next;
     });
@@ -193,6 +301,9 @@ export default function ItineraryPage() {
     setDays([]);
     setLoading(true);
     setError(null);
+    setPendingEdit(null);
+    setLoadingEdit(null);
+    setConflict(null);
     fetch("/api/itinerary/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -233,7 +344,7 @@ export default function ItineraryPage() {
       <main className="min-h-screen bg-[#0a0a0a] flex flex-col items-center justify-center gap-4 px-6">
         <p className="text-gray-300">{error}</p>
         <button
-          onClick={regenerate}
+          onClick={() => { setError(null); regenerate(); }}
           className="px-6 py-3 rounded-2xl bg-[#00D64F] text-black font-bold hover:bg-[#00c248] transition-colors"
         >
           Try again
@@ -293,11 +404,34 @@ export default function ItineraryPage() {
       {/* Day view */}
       {currentDay && (
         <div className="max-w-3xl mx-auto px-6 py-8">
+          {/* Conflict banner */}
+          {conflict && (
+            <div className="mb-6 flex items-start gap-3 bg-amber-950/40 border border-amber-700/40 rounded-2xl px-5 py-4">
+              <span className="text-amber-400 text-sm flex-1">{conflict}</span>
+              <button
+                onClick={() => setConflict(null)}
+                className="text-amber-600 hover:text-amber-400 text-lg leading-none flex-shrink-0"
+              >
+                ×
+              </button>
+            </div>
+          )}
+
           <div className="flex flex-col gap-6">
             {TIME_BLOCKS.map(({ key: block, label, emoji }) => {
               const items = currentDay.items.filter((it) => it.time_block === block);
               const isAddingHere =
                 addingSlot?.dayIdx === activeDay && addingSlot?.block === block;
+
+              const isLoadingAdd =
+                loadingEdit?.dayIdx === activeDay &&
+                loadingEdit?.block === block &&
+                loadingEdit?.replacingId === null;
+
+              const isPendingAdd =
+                pendingEdit?.dayIdx === activeDay &&
+                pendingEdit?.block === block &&
+                pendingEdit?.replacingId === null;
 
               return (
                 <div
@@ -316,43 +450,104 @@ export default function ItineraryPage() {
 
                   {/* Items */}
                   <div className="flex flex-col gap-2">
-                    {items.map((item) => (
-                      <div
-                        key={item.id}
-                        draggable
-                        onDragStart={() => handleDragStart(activeDay, item.id)}
-                        onDragEnd={handleDragEnd}
-                        className={`group flex items-start gap-3 bg-[#111] border rounded-2xl px-5 py-4 cursor-grab active:cursor-grabbing transition-all ${
-                          draggingId === item.id
-                            ? "opacity-40 border-[#00D64F]"
-                            : item.source === "user_added"
-                            ? "border-[#00D64F]/30 hover:border-[#00D64F]/60"
-                            : "border-[#1e1e1e] hover:border-[#333]"
-                        }`}
-                      >
-                        <span className="text-lg mt-0.5 flex-shrink-0">
-                          {TYPE_EMOJI[item.type]}
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <div className="font-semibold text-sm text-white">{item.title}</div>
-                          {item.description && (
-                            <div className="text-xs text-gray-500 mt-0.5">{item.description}</div>
+                    {items.map((item) => {
+                      const isLoadingSwap =
+                        loadingEdit?.dayIdx === activeDay &&
+                        loadingEdit?.replacingId === item.id;
+                      const isPendingSwap =
+                        pendingEdit?.dayIdx === activeDay &&
+                        pendingEdit?.replacingId === item.id;
+
+                      // Show pending suggestion in place of this item
+                      if (isPendingSwap && pendingEdit) {
+                        return (
+                          <PendingCard
+                            key={item.id}
+                            pending={pendingEdit}
+                            onCommit={() => commitEdit(pendingEdit)}
+                            onReject={() => rejectEdit(pendingEdit)}
+                          />
+                        );
+                      }
+
+                      return (
+                        <div
+                          key={item.id}
+                          draggable={!isLoadingSwap}
+                          onDragStart={() => handleDragStart(activeDay, item.id)}
+                          onDragEnd={handleDragEnd}
+                          className={`group relative flex items-start gap-3 bg-[#111] border rounded-2xl px-5 py-4 transition-all ${
+                            isLoadingSwap
+                              ? "opacity-50 cursor-default border-[#333]"
+                              : draggingId === item.id
+                              ? "opacity-40 border-[#00D64F] cursor-grab"
+                              : item.source === "user_added"
+                              ? "border-[#00D64F]/30 hover:border-[#00D64F]/60 cursor-grab active:cursor-grabbing"
+                              : "border-[#1e1e1e] hover:border-[#333] cursor-grab active:cursor-grabbing"
+                          }`}
+                        >
+                          {/* Loading overlay for swap */}
+                          {isLoadingSwap && (
+                            <div className="absolute inset-0 flex items-center justify-center rounded-2xl bg-[#111]/60">
+                              <div className="w-5 h-5 rounded-full border-2 border-[#00D64F] border-t-transparent animate-spin" />
+                            </div>
                           )}
-                          {item.source === "user_added" && (
-                            <div className="text-xs text-[#00D64F]/60 mt-1">Added by you</div>
+
+                          <span className="text-lg mt-0.5 flex-shrink-0">
+                            {TYPE_EMOJI[item.type]}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <div className="font-semibold text-sm text-white">{item.title}</div>
+                            {item.description && (
+                              <div className="text-xs text-gray-500 mt-0.5">{item.description}</div>
+                            )}
+                            {item.source === "user_added" && (
+                              <div className="text-xs text-[#00D64F]/60 mt-1">Added by you</div>
+                            )}
+                          </div>
+                          {!isLoadingSwap && (
+                            <div className="flex-shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-1">
+                              {/* Swap button */}
+                              <button
+                                onClick={() => triggerEdit(activeDay, block, item)}
+                                disabled={!!loadingEdit}
+                                className="text-gray-600 hover:text-gray-300 text-sm px-1.5 py-0.5 rounded-lg hover:bg-[#1a1a1a] transition-colors disabled:opacity-30"
+                                title="Swap for something different"
+                              >
+                                ⇄
+                              </button>
+                              {/* Remove button */}
+                              <button
+                                onClick={() => handleRemove(activeDay, item.id)}
+                                className="text-gray-600 hover:text-white text-lg leading-none px-0.5"
+                                title="Remove"
+                              >
+                                ×
+                              </button>
+                            </div>
                           )}
                         </div>
-                        <button
-                          onClick={() => dismissItem(activeDay, item.id)}
-                          className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-gray-600 hover:text-white text-lg leading-none -mt-0.5 ml-1"
-                          title="Dismiss"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    ))}
+                      );
+                    })}
 
-                    {/* Add item inline */}
+                    {/* Loading placeholder for AI add */}
+                    {isLoadingAdd && (
+                      <div className="flex items-center gap-3 bg-[#111] border border-[#1e1e1e] rounded-2xl px-5 py-4">
+                        <div className="w-5 h-5 rounded-full border-2 border-[#00D64F] border-t-transparent animate-spin flex-shrink-0" />
+                        <span className="text-sm text-gray-500">Finding something for your {label.toLowerCase()}…</span>
+                      </div>
+                    )}
+
+                    {/* Pending add suggestion */}
+                    {isPendingAdd && pendingEdit && (
+                      <PendingCard
+                        pending={pendingEdit}
+                        onCommit={() => commitEdit(pendingEdit)}
+                        onReject={() => rejectEdit(pendingEdit)}
+                      />
+                    )}
+
+                    {/* Add controls */}
                     {isAddingHere ? (
                       <div className="flex gap-2">
                         <input
@@ -382,13 +577,28 @@ export default function ItineraryPage() {
                         </button>
                       </div>
                     ) : (
-                      <button
-                        onClick={() => setAddingSlot({ dayIdx: activeDay, block })}
-                        className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-400 transition-colors py-1"
-                      >
-                        <span className="text-lg leading-none">+</span>
-                        <span>Add to {label.toLowerCase()}</span>
-                      </button>
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => setAddingSlot({ dayIdx: activeDay, block })}
+                          className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-400 transition-colors py-1"
+                        >
+                          <span className="text-lg leading-none">+</span>
+                          <span>Add to {label.toLowerCase()}</span>
+                        </button>
+                        {/* AI add button — shown when block is empty and not already loading/pending */}
+                        {items.length === 0 && !isLoadingAdd && !isPendingAdd && (
+                          <>
+                            <span className="text-gray-700 text-xs">·</span>
+                            <button
+                              onClick={() => triggerEdit(activeDay, block, null)}
+                              disabled={!!loadingEdit}
+                              className="text-sm text-gray-600 hover:text-gray-400 transition-colors py-1 disabled:opacity-30"
+                            >
+                              Suggest something →
+                            </button>
+                          </>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -398,5 +608,47 @@ export default function ItineraryPage() {
         </div>
       )}
     </main>
+  );
+}
+
+function PendingCard({
+  pending,
+  onCommit,
+  onReject,
+}: {
+  pending: PendingEdit;
+  onCommit: () => void;
+  onReject: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-3 bg-[#111] border border-amber-700/50 rounded-2xl px-5 py-4">
+      <div className="flex items-start gap-3">
+        <span className="text-lg mt-0.5 flex-shrink-0">{TYPE_EMOJI[pending.item.type]}</span>
+        <div className="flex-1 min-w-0">
+          <div className="font-semibold text-sm text-white">{pending.item.title}</div>
+          {pending.item.description && (
+            <div className="text-xs text-gray-500 mt-0.5">{pending.item.description}</div>
+          )}
+          {pending.rationale && (
+            <div className="text-xs text-gray-600 mt-1 italic">{pending.rationale}</div>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
+        <button
+          onClick={onCommit}
+          className="text-xs font-semibold text-[#00D64F] hover:text-[#00c248] transition-colors"
+        >
+          Looks good ✓
+        </button>
+        <span className="text-gray-700 text-xs">·</span>
+        <button
+          onClick={onReject}
+          className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+        >
+          Not quite, try again →
+        </button>
+      </div>
+    </div>
   );
 }
