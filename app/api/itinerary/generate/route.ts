@@ -132,7 +132,8 @@ Rules:
 - Final day evening: something easy near accommodation
 - Be specific to ${destination} — no generic suggestions
 - Keep descriptions under 20 words
-- id must be unique across all days (e.g. "day1-morning-1")`;
+- id must be unique across all days (e.g. "day1-morning-1")
+- Within each time block, order items in the sequence they should happen. Place meals at the right time: breakfast before morning activities, lunch before afternoon sightseeing, dinner before evening leisure. The items array order IS the display order.`;
 
   const startTime = Date.now();
   try {

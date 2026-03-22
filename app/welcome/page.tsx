@@ -659,7 +659,7 @@ export default function WelcomePage() {
     const feedbackArray = Object.values(activityFeedback);
     localStorage.setItem("rise_activity_feedback", JSON.stringify(feedbackArray));
     setSaving(false);
-    router.push("/itinerary/view");
+    router.push("/itinerary");
   }
 
   // ── Step 0: Full-screen landing ────────────────────────────────────────────
