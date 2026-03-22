@@ -9,20 +9,27 @@ type TimeBlock = "morning" | "afternoon" | "evening";
 
 type ActivityFeedbackEntry = {
   activityName: string;
-  feedbackType: "thumbs_up" | "chip_selected";
+  feedbackType: "thumbs_up" | "chip_selected" | "thumbs_down_no_chip";
   chip?: { label: string; type: "hard_exclusion" | "soft_signal" };
 };
 
 function buildFeedbackSegment(feedback: ActivityFeedbackEntry[]): string {
   if (!feedback?.length) return "";
 
+  // Case 1: hard exclusion — "Done it before" chip selected
   const hardExclusions = feedback
     .filter((f) => f.feedbackType === "chip_selected" && f.chip?.type === "hard_exclusion")
     .map((f) => f.activityName);
 
-  const softSignals = feedback
+  // Case 2: thumbs-down with a soft-signal chip selected
+  const softWithReason = feedback
     .filter((f) => f.feedbackType === "chip_selected" && f.chip?.type === "soft_signal")
     .map((f) => `${f.activityName} (${f.chip!.label})`);
+
+  // Case 3: thumbs-down with no chip — treat as weak signal, do not exclude
+  const softNoReason = feedback
+    .filter((f) => f.feedbackType === "thumbs_down_no_chip")
+    .map((f) => f.activityName);
 
   const parts: string[] = [];
 
@@ -33,10 +40,17 @@ function buildFeedbackSegment(feedback: ActivityFeedbackEntry[]): string {
     );
   }
 
-  if (softSignals.length) {
+  if (softWithReason.length) {
     parts.push(
-      `The user expressed hesitation about: ${softSignals.join("; ")}. ` +
-        `You may include similar alternatives but avoid these specific activities.`
+      `The user rejected these activities and stated a reason. Avoid them; you may suggest alternatives in the same category:\n` +
+        softWithReason.map((s) => `- ${s}`).join("\n")
+    );
+  }
+
+  if (softNoReason.length) {
+    parts.push(
+      `The user rejected these activities without stating a reason. Treat as soft signal only — deprioritise but do not exclude:\n` +
+        softNoReason.map((n) => `- ${n}`).join("\n")
     );
   }
 

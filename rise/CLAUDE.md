@@ -162,12 +162,14 @@ create table objectives (
 ```sql
 create table activity_feedback (
   id uuid primary key default gen_random_uuid(),
-  event text not null,
+  event text not null,           -- thumbs_up | chips_shown | chip_selected | thumbs_down_no_chip | exclusion_removed
   activity_id text,
   activity_name text,
   activity_category text,
-  chip_label text,
-  chip_type text,
+  chip_label text,               -- populated for chip_selected events
+  chip_type text,                -- hard_exclusion | soft_signal
+  chips_source text,             -- fallback | dynamic — which chips were showing at submission
+  first_chip_label text,         -- label of the first chip in the row at submission time
   created_at timestamptz default now()
 );
 ```
