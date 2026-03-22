@@ -172,8 +172,7 @@ function ActivityCard({
         <div className="font-bold text-white text-base leading-snug">{activity.name}</div>
         <div className="text-xs text-[#00D64F] font-semibold mt-0.5">{activity.category}</div>
       </div>
-      <p className="text-sm text-gray-400 leading-relaxed mb-1">{activity.description}</p>
-      <p className="text-xs text-gray-600 mb-4">When: {activity.when}</p>
+      <p className="text-sm text-gray-400 leading-relaxed mb-4">{activity.description}</p>
 
       {/* Default: thumbs buttons — hidden while streaming */}
       {!feedback && !chipsOpen && !disabled && (
