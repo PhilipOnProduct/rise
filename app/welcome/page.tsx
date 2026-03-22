@@ -666,13 +666,16 @@ export default function WelcomePage() {
 
   if (step === 0) {
     return (
-      <main className="min-h-screen bg-[#0a0a0a] flex flex-col items-center justify-center px-6">
+      <main className="min-h-screen flex flex-col items-center justify-center px-6" style={{ backgroundColor: "#f8f6f1" }}>
         <div className="w-full max-w-xl animate-step" key={animKey}>
-          <p className="text-[#00D64F] font-extrabold text-xl tracking-tight mb-16">Rise</p>
-          <h1 className="text-5xl md:text-6xl font-extrabold tracking-tight leading-tight mb-4">
+          <p className="font-extrabold text-xl tracking-tight mb-16" style={{ color: "#0e2a47" }}>Rise</p>
+          <h1
+            className="text-5xl md:text-6xl tracking-tight leading-tight mb-4"
+            style={{ color: "#0e2a47", fontWeight: 300, letterSpacing: "-1px" }}
+          >
             Where to?
           </h1>
-          <p className="text-gray-500 text-lg mb-10">
+          <p className="text-lg mb-10" style={{ color: "#4a6580" }}>
             Tell us your destination and we&apos;ll build your trip.
           </p>
           <PlacesAutocomplete
@@ -682,15 +685,18 @@ export default function WelcomePage() {
             placeholder="e.g. Tokyo, Japan"
             types={["(cities)"]}
             autoFocus
+            theme="light"
             onEnter={() => { if (destination.trim()) goTo(1); }}
-            className="w-full bg-transparent border-b-2 border-[#2a2a2a] focus:border-[#00D64F] outline-none text-3xl font-semibold text-white placeholder-[#2a2a2a] py-3 transition-colors"
+            className="w-full bg-white border-b-2 border-[#d4cfc5] focus:border-[#1a6b7f] outline-none text-3xl font-medium py-3 transition-colors placeholder-[#b8b0a4]"
+            style={{ color: "#0e2a47" }}
           />
           <button
             onClick={() => goTo(1)}
             disabled={!destination.trim()}
-            className="mt-10 w-full rounded-2xl bg-[#00D64F] text-black font-bold text-lg py-5 hover:bg-[#00c248] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            className="mt-10 w-full text-white font-semibold text-lg py-5 hover:opacity-90 transition-opacity disabled:opacity-30 disabled:cursor-not-allowed"
+            style={{ backgroundColor: "#1a6b7f", borderRadius: 50 }}
           >
-            Start planning →
+            Start planning &rarr;
           </button>
         </div>
       </main>

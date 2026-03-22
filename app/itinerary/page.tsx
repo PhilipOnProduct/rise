@@ -149,16 +149,20 @@ type ActivityCardProps = {
   activity: Activity;
   onRemove?: () => void;
   onSwap?: () => void;
+  swapping?: boolean;
+  swapSuggestion?: { title: string; description: string; type: string; conflict: string | null } | null;
+  onAcceptSwap?: () => void;
+  onRejectSwap?: () => void;
 };
 
-function ActivityCard({ activity, onRemove, onSwap }: ActivityCardProps) {
+function ActivityCard({ activity, onRemove, onSwap, swapping, swapSuggestion, onAcceptSwap, onRejectSwap }: ActivityCardProps) {
   const { emoji: timeEmoji, label: timeLabel } = TIME_BLOCK_LABEL[activity.time];
   const categoryIcon = CATEGORY_ICON[activity.category];
 
   return (
     <div className="group relative bg-[#111] border border-[#1e1e1e] rounded-2xl px-5 py-4">
-      {/* Hover controls */}
-      {(onRemove || onSwap) && (
+      {/* Hover controls — hidden during swap */}
+      {!swapping && !swapSuggestion && (onRemove || onSwap) && (
         <div className="absolute top-3 right-3 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           {onSwap && (
             <button
@@ -180,6 +184,49 @@ function ActivityCard({ activity, onRemove, onSwap }: ActivityCardProps) {
           )}
         </div>
       )}
+
+      {/* Loading overlay while swap is in progress */}
+      {swapping && !swapSuggestion && (
+        <div className="absolute inset-0 bg-[#111]/80 rounded-2xl flex items-center justify-center z-10">
+          <div className="flex items-center gap-2 text-gray-400 text-sm">
+            <div className="w-3.5 h-3.5 rounded-full border-2 border-gray-500 border-t-transparent animate-spin" />
+            <span>Finding an alternative...</span>
+          </div>
+        </div>
+      )}
+
+      {/* Swap suggestion overlay */}
+      {swapSuggestion && (
+        <div className="absolute inset-0 bg-[#111] border border-[#00D64F]/30 rounded-2xl px-5 py-4 z-10 flex flex-col">
+          <div className="flex items-start gap-3 flex-1">
+            <span className="text-xl flex-shrink-0 mt-0.5" aria-hidden>
+              {CATEGORY_ICON[(swapSuggestion.type as ActivityCategory) || "activity"]}
+            </span>
+            <div className="flex-1 min-w-0">
+              <h3 className="font-semibold text-[#00D64F] text-sm leading-snug">{swapSuggestion.title}</h3>
+              <p className="text-sm text-gray-400 mt-1 leading-relaxed">{swapSuggestion.description}</p>
+              {swapSuggestion.conflict && (
+                <p className="text-xs text-amber-500/80 mt-2">{swapSuggestion.conflict}</p>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-3 mt-3">
+            <button
+              onClick={onAcceptSwap}
+              className="text-xs font-semibold text-[#00D64F] hover:text-[#00c248] transition-colors"
+            >
+              Looks good ✓
+            </button>
+            <button
+              onClick={onRejectSwap}
+              className="text-xs font-semibold text-gray-500 hover:text-gray-300 transition-colors"
+            >
+              Not quite, try again →
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-start gap-3">
         <span className="text-xl flex-shrink-0 mt-0.5" aria-hidden>
           {categoryIcon}
@@ -211,11 +258,19 @@ function DaySection({
   scrollMarginTop,
   onRemoveActivity,
   onSwapActivity,
+  swappingId,
+  swapSuggestion,
+  onAcceptSwap,
+  onRejectSwap,
 }: {
   day: ItineraryDay;
   scrollMarginTop: number;
   onRemoveActivity: (dayNumber: number, activityId: string) => void;
   onSwapActivity: (dayNumber: number, activityId: string) => void;
+  swappingId: string | null;
+  swapSuggestion: { activityId: string; item: RawItem; conflict: string | null } | null;
+  onAcceptSwap: () => void;
+  onRejectSwap: () => void;
 }) {
   const sorted = sortActivities(day.activities);
 
@@ -248,14 +303,22 @@ function DaySection({
         <p className="text-sm text-gray-600 italic">Nothing planned for this day yet.</p>
       ) : (
         <div className="flex flex-col gap-3">
-          {sorted.map((activity) => (
-            <ActivityCard
-              key={activity.id}
-              activity={activity}
-              onRemove={() => onRemoveActivity(day.day_number, activity.id)}
-              onSwap={() => onSwapActivity(day.day_number, activity.id)}
-            />
-          ))}
+          {sorted.map((activity) => {
+            const isSwapping = swappingId === activity.id;
+            const suggestion = swapSuggestion?.activityId === activity.id ? swapSuggestion : null;
+            return (
+              <ActivityCard
+                key={activity.id}
+                activity={activity}
+                onRemove={() => onRemoveActivity(day.day_number, activity.id)}
+                onSwap={() => onSwapActivity(day.day_number, activity.id)}
+                swapping={isSwapping}
+                swapSuggestion={suggestion ? { title: suggestion.item.title, description: suggestion.item.description, type: suggestion.item.type, conflict: suggestion.conflict } : null}
+                onAcceptSwap={onAcceptSwap}
+                onRejectSwap={onRejectSwap}
+              />
+            );
+          })}
         </div>
       )}
     </section>
@@ -273,6 +336,9 @@ type StoredTraveler = {
   hotel?: string;
   travelCompany?: string;
   travelerTypes?: string[];
+  budgetTier?: string;
+  travelerCount?: number;
+  childrenAges?: string[] | null;
 };
 
 export default function ItineraryViewPage() {
@@ -281,8 +347,17 @@ export default function ItineraryViewPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [destination, setDestination] = useState("");
+  const [swappingId, setSwappingId] = useState<string | null>(null);
+  const [swapSuggestion, setSwapSuggestion] = useState<{
+    activityId: string;
+    dayNumber: number;
+    item: RawItem;
+    conflict: string | null;
+  } | null>(null);
+  const rejectedTitlesRef = useRef<string[]>([]);
 
   const shapeBarRef = useRef<HTMLDivElement | null>(null);
+  const travelerRef = useRef<StoredTraveler | null>(null);
 
   // ── Load itinerary ───────────────────────────────────────────────────────
 
@@ -302,6 +377,7 @@ export default function ItineraryViewPage() {
     }
 
     setDestination(traveler.destination ?? "");
+    travelerRef.current = traveler;
 
     async function load() {
       try {
@@ -426,8 +502,93 @@ export default function ItineraryViewPage() {
     });
   }
 
-  function handleSwapActivity(_dayNumber: number, _activityId: string) {
-    // TODO: call /api/itinerary/edit with mode=swap
+  async function handleSwapActivity(dayNumber: number, activityId: string) {
+    const day = days.find((d) => d.day_number === dayNumber);
+    const activity = day?.activities.find((a) => a.id === activityId);
+    if (!day || !activity) return;
+
+    const t = travelerRef.current;
+    setSwappingId(activityId);
+    setSwapSuggestion(null);
+
+    try {
+      const dayItems = day.activities
+        .filter((a) => a.id !== activityId)
+        .map((a) => ({ title: a.name, description: a.description, time_block: a.time }));
+
+      const res = await fetch("/api/itinerary/edit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "swap",
+          destination,
+          dayNumber,
+          date: day.date,
+          block: activity.time,
+          dayItems,
+          replacingItem: { title: activity.name, description: activity.description },
+          rejectedTitles: rejectedTitlesRef.current,
+          travelCompany: t?.travelCompany ?? null,
+          travelerTypes: t?.travelerTypes ?? [],
+          budgetTier: t?.budgetTier ?? null,
+          travelerCount: t?.travelerCount ?? null,
+          childrenAges: t?.childrenAges ?? null,
+        }),
+      });
+
+      if (!res.ok) {
+        setSwappingId(null);
+        return;
+      }
+
+      const data = await res.json() as {
+        item: RawItem;
+        conflict: string | null;
+      };
+
+      setSwapSuggestion({ activityId, dayNumber, item: data.item, conflict: data.conflict });
+    } catch {
+      setSwappingId(null);
+    }
+  }
+
+  function acceptSwap() {
+    if (!swapSuggestion) return;
+    const { activityId, dayNumber, item } = swapSuggestion;
+    rejectedTitlesRef.current = [];
+    setDays((prev) => {
+      const updated = prev.map((d) => {
+        if (d.day_number !== dayNumber) return d;
+        return {
+          ...d,
+          activities: d.activities.map((a) =>
+            a.id === activityId
+              ? {
+                  id: item.id,
+                  name: item.title,
+                  description: item.description,
+                  time: item.time_block as TimeBlock,
+                  sequence: a.sequence,
+                  category: item.type as ActivityCategory,
+                }
+              : a
+          ),
+        };
+      });
+      localStorage.setItem("rise_itinerary", JSON.stringify(updated));
+      return updated;
+    });
+    setSwapSuggestion(null);
+    setSwappingId(null);
+  }
+
+  function rejectSwap() {
+    if (!swapSuggestion) return;
+    rejectedTitlesRef.current.push(swapSuggestion.item.title);
+    const { dayNumber, activityId } = swapSuggestion;
+    setSwapSuggestion(null);
+    setSwappingId(null);
+    handleSwapActivity(dayNumber, activityId);
   }
 
   // ── Error state ──────────────────────────────────────────────────────────
@@ -486,6 +647,10 @@ export default function ItineraryViewPage() {
                 scrollMarginTop={scrollMarginTop}
                 onRemoveActivity={handleRemoveActivity}
                 onSwapActivity={handleSwapActivity}
+                swappingId={swappingId}
+                swapSuggestion={swapSuggestion?.dayNumber === day.day_number ? swapSuggestion : null}
+                onAcceptSwap={acceptSwap}
+                onRejectSwap={rejectSwap}
               />
             ))}
           </div>

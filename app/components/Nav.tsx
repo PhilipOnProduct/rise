@@ -73,8 +73,8 @@ export default function Nav() {
     setOpenSection((prev) => (prev === label ? null : label));
   }
 
-  // Don't show nav on welcome/onboarding
-  if (pathname === "/welcome") return null;
+  // Don't show nav on homepage or welcome/onboarding
+  if (pathname === "/" || pathname === "/welcome") return null;
 
   return (
     <nav ref={navRef} className="sticky top-0 z-50 w-full bg-[#0a0a0a] border-b border-[#1a1a1a]">
