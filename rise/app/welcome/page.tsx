@@ -7,9 +7,9 @@ import PlacesAutocomplete from "@/app/components/PlacesAutocomplete";
 const TOTAL_WIZARD_STEPS = 5; // steps 1–5
 
 const COMPANY_OPTIONS = [
-  { id: "solo", label: "Solo", emoji: "🧳" },
-  { id: "partner", label: "Partner", emoji: "💑" },
-  { id: "friends", label: "Friends", emoji: "👯" },
+  { id: "solo", label: "Just me", emoji: "🧳" },
+  { id: "partner", label: "Couple", emoji: "💑" },
+  { id: "friends", label: "Friend group", emoji: "👯" },
   { id: "family", label: "Family", emoji: "👨‍👩‍👧" },
 ];
 
@@ -825,7 +825,7 @@ export default function WelcomePage() {
 
                 {/* Child age selectors — one row per child */}
                 {childrenAges.length > 0 && (
-                  <div className="flex flex-col gap-3 mb-5">
+                  <div className="flex flex-col gap-3">
                     {childrenAges.map((age, idx) => (
                       <div key={idx} className="flex items-center gap-3 flex-wrap">
                         <span className="text-xs font-semibold text-gray-500 w-14 shrink-0">Child {idx + 1}</span>
@@ -848,7 +848,12 @@ export default function WelcomePage() {
                     ))}
                   </div>
                 )}
+              </div>
 
+              <div>
+                <label className="block text-sm font-semibold text-gray-400 uppercase tracking-widest mb-4">
+                  Trip type
+                </label>
                 <div className="flex flex-wrap gap-3">
                   {COMPANY_OPTIONS.map((opt) => (
                     <button
