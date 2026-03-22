@@ -43,9 +43,10 @@ type Chip = {
 
 // Shown immediately on thumbs-down; replaced silently by dynamic chips once they arrive
 const FALLBACK_CHIPS: Chip[] = [
-  { label: "Doesn't fit my itinerary", type: "soft_signal" },
   { label: "Done it before", type: "hard_exclusion" },
+  { label: "Doesn't fit my itinerary", type: "soft_signal" },
   { label: "Not really my thing", type: "soft_signal" },
+  { label: "Not for me", type: "soft_signal" },
 ];
 
 type ChipsEntry = {
@@ -174,12 +175,16 @@ function ActivityCard({
       </div>
       <p className="text-sm text-gray-400 leading-relaxed mb-4">{activity.description}</p>
 
-      {/* Default: thumbs buttons — hidden while streaming */}
-      {!feedback && !chipsOpen && !disabled && (
+      {/* Thumbs buttons — hidden while streaming or when chips are open */}
+      {!chipsOpen && !disabled && !isHardExcluded && !isNoted && (
         <div className="flex items-center gap-3">
           <button
             onClick={onThumbsUp}
-            className="flex items-center justify-center w-11 h-11 rounded-xl border border-[#2a2a2a] text-lg text-gray-500 hover:border-green-500/40 hover:text-green-400 transition-colors"
+            className={`flex items-center justify-center w-11 h-11 rounded-xl border text-lg transition-colors ${
+              isThumbsUp
+                ? "border-green-500/40 text-green-400"
+                : "border-[#2a2a2a] text-gray-500 hover:border-green-500/40 hover:text-green-400"
+            }`}
             title="Interested"
           >
             👍
@@ -194,9 +199,6 @@ function ActivityCard({
         </div>
       )}
 
-      {/* Thumbs up confirmed */}
-      {isThumbsUp && <p className="text-xs text-[#00D64F]">Liked ✓</p>}
-
       {/* Chips layer — always present immediately (fallback → dynamic swap happens silently) */}
       {chipsOpen && chipsEntry && (
         <div className="flex flex-col gap-3">
@@ -205,11 +207,7 @@ function ActivityCard({
               <button
                 key={chip.label}
                 onClick={() => onChipSelect(chip)}
-                className={`rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors ${
-                  chip.type === "hard_exclusion"
-                    ? "border-orange-500/30 text-orange-400 hover:bg-orange-500/10"
-                    : "border-[#2a2a2a] text-gray-400 hover:border-[#444] hover:text-white"
-                }`}
+                className="rounded-xl border border-[#2a2a2a] px-3 py-1.5 text-xs font-medium text-gray-400 hover:border-[#444] hover:text-white transition-colors"
               >
                 {chip.label}
               </button>
@@ -442,6 +440,16 @@ export default function WelcomePage() {
 
   // Activity feedback handlers
   function handleThumbsUp(activity: ParsedActivity) {
+    const current = activityFeedback[activity.id];
+    if (current?.feedbackType === "thumbs_up") {
+      // Deselect — return to neutral
+      setActivityFeedback((prev) => {
+        const next = { ...prev };
+        delete next[activity.id];
+        return next;
+      });
+      return;
+    }
     setActivityFeedback((prev) => ({
       ...prev,
       [activity.id]: {
@@ -460,6 +468,15 @@ export default function WelcomePage() {
   }
 
   function handleThumbsDown(activity: ParsedActivity) {
+    const current = activityFeedback[activity.id];
+    // Clear any existing feedback (e.g. thumbs-up) before opening chips
+    if (current) {
+      setActivityFeedback((prev) => {
+        const next = { ...prev };
+        delete next[activity.id];
+        return next;
+      });
+    }
     // Set fallback chips immediately so they're present the instant the layer opens.
     // If dynamic chips are already loaded, they take precedence.
     setActivityChips((prev) => {
@@ -708,7 +725,7 @@ export default function WelcomePage() {
     1: `Great choice. Now let's lock in the dates for ${destination}.`,
     2: "Your hotel helps us give better local advice — skip if you haven\u2019t booked yet.",
     3: "A few quick questions so we can personalise your experience.",
-    4: "AI activity ideas tailored to your trip — before you commit to anything.",
+    4: "Rate what excites you — and what doesn\u2019t. It shapes your itinerary.",
     5: "Your personalised plan is ready. Create an account to save it.",
   };
 
