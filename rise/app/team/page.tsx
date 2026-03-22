@@ -945,7 +945,7 @@ function ProductTeamTab({
               `Use these sections exactly:\n` +
               `## Overview\n## Problem Statement\n## User Need\n## Proposed Solution\n` +
               `## User Stories\n## Success Metrics\n## Technical Considerations (strategic only — no implementation details)\n## Risks & Open Questions\n## Claude Code Implementation Prompt\n\n` +
-              `For the Claude Code Implementation Prompt section: write a prompt the way a senior PM would brief a capable engineer verbally. Describe what to build and why it matters in plain language. Mention any hard constraints that affect how it must work. Do not describe how to implement it — no function names, no data structures, no component names, no step-by-step instructions. Write it the way you would explain the feature to someone who will figure out the implementation themselves.`,
+              `For the Claude Code Implementation Prompt section: write a prompt the way a senior PM would brief a capable engineer verbally. Describe what to build and why it matters in plain language. Mention any hard constraints that affect how it must work. Do not describe how to implement it — no function names, no data structures, no component names, no step-by-step instructions. Write it the way you would explain the feature to someone who will figure out the implementation themselves. Do not include manual testing instructions, QA steps, or scenario-based testing requirements — Claude Code cannot run these. Quality validation is the founder's responsibility after the build is complete.`,
           }],
           8000, (chunk) => { prdText += chunk; setPrd(prdText); }
         );
@@ -1019,7 +1019,7 @@ function ProductTeamTab({
             `Use these sections exactly:\n` +
             `## Overview\n## Problem Statement\n## User Need\n## Proposed Solution\n` +
             `## User Stories\n## Success Metrics\n## Technical Considerations (strategic only — no implementation details)\n## Risks & Open Questions\n## Claude Code Implementation Prompt\n\n` +
-            `For the Claude Code Implementation Prompt section: write a prompt the way a senior PM would brief a capable engineer verbally. Describe what to build and why it matters in plain language. Mention any hard constraints that affect how it must work. Do not describe how to implement it — no function names, no data structures, no component names, no step-by-step instructions. Write it the way you would explain the feature to someone who will figure out the implementation themselves.`,
+            `For the Claude Code Implementation Prompt section: write a prompt the way a senior PM would brief a capable engineer verbally. Describe what to build and why it matters in plain language. Mention any hard constraints that affect how it must work. Do not describe how to implement it — no function names, no data structures, no component names, no step-by-step instructions. Write it the way you would explain the feature to someone who will figure out the implementation themselves. Do not include manual testing instructions, QA steps, or scenario-based testing requirements — Claude Code cannot run these. Quality validation is the founder's responsibility after the build is complete.`,
         }],
         8000, (chunk) => { prdText += chunk; setPrd(prdText); }
       );
