@@ -175,9 +175,9 @@ function ActivityCard({
       <p className="text-sm text-gray-400 leading-relaxed mb-1">{activity.description}</p>
       <p className="text-xs text-gray-600 mb-4">When: {activity.when}</p>
 
-      {/* Default: thumbs buttons */}
-      {!feedback && !chipsOpen && (
-        <div className={`flex items-center gap-3 transition-opacity ${disabled ? "opacity-40 pointer-events-none" : ""}`}>
+      {/* Default: thumbs buttons — hidden while streaming */}
+      {!feedback && !chipsOpen && !disabled && (
+        <div className="flex items-center gap-3">
           <button
             onClick={onThumbsUp}
             className="flex items-center justify-center w-11 h-11 rounded-xl border border-[#2a2a2a] text-lg text-gray-500 hover:border-green-500/40 hover:text-green-400 transition-colors"
@@ -569,7 +569,7 @@ export default function WelcomePage() {
             destination,
             departureDate,
             returnDate,
-            hotel,
+            hotel: hotel || null,
             travelCompany: travelCompany || null,
             styleTags: travelerTypes.length > 0 ? travelerTypes : null,
             budgetTier: budgetTier || null,
@@ -607,7 +607,7 @@ export default function WelcomePage() {
             destination,
             departureDate,
             returnDate,
-            hotel,
+            hotel: hotel || null,
             travelCompany: travelCompany || null,
             styleTags: travelerTypes.length > 0 ? travelerTypes : null,
             budgetTier: budgetTier || null,
@@ -629,7 +629,7 @@ export default function WelcomePage() {
       destination,
       departureDate,
       returnDate,
-      hotel,
+      hotel: hotel || null,
       travelCompany,
       travelerCount: adultCount + childrenAges.length,
       childrenAges: childrenAges.length > 0 ? childrenAges : null,
@@ -685,7 +685,7 @@ export default function WelcomePage() {
 
   const canContinue: Record<number, boolean> = {
     1: destination.trim().length > 0 && departureDate.length > 0 && returnDate.length > 0,
-    2: hotel.trim().length > 0,
+    2: true,
     3: travelCompany.length > 0,
     4: true,
     5: name.trim().length > 0 && email.trim().length > 0,
@@ -707,7 +707,7 @@ export default function WelcomePage() {
 
   const subs: Record<number, string> = {
     1: `Great choice. Now let's lock in the dates for ${destination}.`,
-    2: "Your hotel helps us give you better transport and local advice.",
+    2: "Your hotel helps us give better local advice — skip if you haven\u2019t booked yet.",
     3: "A few quick questions so we can personalise your experience.",
     4: "AI activity ideas tailored to your trip — before you commit to anything.",
     5: "Your personalised plan is ready. Create an account to save it.",
@@ -794,19 +794,27 @@ export default function WelcomePage() {
             </div>
           )}
 
-          {/* Step 2: Hotel */}
+          {/* Step 2: Hotel (optional) */}
           {step === 2 && (
-            <PlacesAutocomplete
-              value={hotel}
-              onChange={setHotel}
-              onSelect={(v) => setHotel(v.split(",")[0].trim())}
-              placeholder="e.g. Hotel Arts"
-              types={["establishment"]}
-              locationBias={destinationBias}
-              autoFocus
-              onEnter={() => canContinue[2] && handleContinue()}
-              className={underlineInput}
-            />
+            <div className="flex flex-col gap-4">
+              <PlacesAutocomplete
+                value={hotel}
+                onChange={setHotel}
+                onSelect={(v) => setHotel(v.split(",")[0].trim())}
+                placeholder="e.g. Hotel Arts"
+                types={["establishment"]}
+                locationBias={destinationBias}
+                autoFocus
+                onEnter={() => handleContinue()}
+                className={underlineInput}
+              />
+              <button
+                onClick={() => { setHotel(""); handleContinue(); }}
+                className="self-start text-sm text-gray-500 hover:text-gray-300 transition-colors"
+              >
+                I haven&apos;t booked yet — skip →
+              </button>
+            </div>
           )}
 
           {/* Step 3: Travel preferences */}
