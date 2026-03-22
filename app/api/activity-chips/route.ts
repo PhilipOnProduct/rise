@@ -78,9 +78,11 @@ export async function POST(req: NextRequest) {
       .map((c) => ({ label: c.label, type: "soft_signal" as const }));
 
     // "Done it before" is always the hard exclusion chip, prepended
+    // "Not for me" is always appended as a generic soft-signal fallback
     const chips: Chip[] = [
       { label: "Done it before", type: "hard_exclusion" },
       ...softChips,
+      { label: "Not for me", type: "soft_signal" },
     ];
 
     await logAiInteraction({
@@ -103,6 +105,7 @@ export async function POST(req: NextRequest) {
       { label: "Not my travel style", type: "soft_signal" },
       { label: "Doesn't fit the itinerary", type: "soft_signal" },
       { label: "Timing doesn't work", type: "soft_signal" },
+      { label: "Not for me", type: "soft_signal" },
     ];
     return NextResponse.json({ chips: fallback });
   }
