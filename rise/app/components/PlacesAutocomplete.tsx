@@ -16,8 +16,10 @@ type Props = {
   types?: string[];
   locationBias?: { lat: number; lng: number } | null;
   className?: string;
+  style?: React.CSSProperties;
   autoFocus?: boolean;
   onEnter?: () => void;
+  theme?: "dark" | "light";
 };
 
 // Module-level singleton so the script loads only once per page
@@ -49,8 +51,10 @@ export default function PlacesAutocomplete({
   types,
   locationBias,
   className = "",
+  style,
   autoFocus,
   onEnter,
+  theme = "dark",
 }: Props) {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [open, setOpen] = useState(false);
@@ -183,22 +187,29 @@ export default function PlacesAutocomplete({
         placeholder={placeholder}
         autoFocus={autoFocus}
         className={className}
+        style={style}
       />
 
       {open && suggestions.length > 0 && (
-        <div className="absolute z-50 w-full mt-2 bg-[#1a1a1a] border border-[#2a2a2a] rounded-2xl overflow-hidden shadow-2xl">
+        <div className={`absolute z-50 w-full mt-2 rounded-2xl overflow-hidden shadow-2xl ${
+          theme === "light"
+            ? "bg-white border border-[#d4cfc5]"
+            : "bg-[#1a1a1a] border border-[#2a2a2a]"
+        }`}>
           {suggestions.map((s, i) => (
             <button
               key={s.placeId}
               type="button"
               onMouseDown={() => handleSelect(s)}
               className={`w-full text-left px-5 py-3.5 transition-colors ${
-                i === activeIdx ? "bg-[#2a2a2a]" : "hover:bg-[#222]"
-              } ${i > 0 ? "border-t border-[#222]" : ""}`}
+                theme === "light"
+                  ? `${i === activeIdx ? "bg-[#f0ede6]" : "hover:bg-[#f5f2ec]"} ${i > 0 ? "border-t border-[#e8e4dc]" : ""}`
+                  : `${i === activeIdx ? "bg-[#2a2a2a]" : "hover:bg-[#222]"} ${i > 0 ? "border-t border-[#222]" : ""}`
+              }`}
             >
-              <div className="text-sm font-semibold text-white">{s.mainText}</div>
+              <div className={`text-sm font-semibold ${theme === "light" ? "text-[#0e2a47]" : "text-white"}`}>{s.mainText}</div>
               {s.secondaryText && (
-                <div className="text-xs text-gray-500 mt-0.5">{s.secondaryText}</div>
+                <div className={`text-xs mt-0.5 ${theme === "light" ? "text-[#4a6580]" : "text-gray-500"}`}>{s.secondaryText}</div>
               )}
             </button>
           ))}
