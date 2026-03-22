@@ -39,6 +39,18 @@ type Chip = {
   type: "hard_exclusion" | "soft_signal";
 };
 
+// Shown immediately on thumbs-down; replaced silently by dynamic chips once they arrive
+const FALLBACK_CHIPS: Chip[] = [
+  { label: "Doesn't fit my itinerary", type: "soft_signal" },
+  { label: "Done it before", type: "hard_exclusion" },
+  { label: "Not really my thing", type: "soft_signal" },
+];
+
+type ChipsEntry = {
+  chips: Chip[];
+  source: "fallback" | "dynamic";
+};
+
 type ParsedActivity = {
   id: string;
   name: string;
@@ -51,7 +63,7 @@ export type ActivityFeedbackEntry = {
   activityId: string;
   activityName: string;
   activityCategory: string;
-  feedbackType: "thumbs_up" | "chip_selected";
+  feedbackType: "thumbs_up" | "chip_selected" | "thumbs_down_no_chip";
   chip?: Chip;
 };
 
@@ -104,6 +116,8 @@ function logActivityEvent(payload: {
   activityCategory: string;
   chipLabel?: string;
   chipType?: string;
+  chipsSource?: string;
+  firstChipLabel?: string;
 }) {
   fetch("/api/activity-feedback", {
     method: "POST",
@@ -116,27 +130,30 @@ function logActivityEvent(payload: {
 
 type ActivityCardProps = {
   activity: ParsedActivity;
-  chips: Chip[] | undefined;
+  chipsEntry: ChipsEntry | undefined;
   feedback: ActivityFeedbackEntry | undefined;
   chipsOpen: boolean;
   onThumbsUp: () => void;
   onThumbsDown: () => void;
   onChipSelect: (chip: Chip) => void;
+  onNoChipSubmit: () => void;
 };
 
 function ActivityCard({
   activity,
-  chips,
+  chipsEntry,
   feedback,
   chipsOpen,
   onThumbsUp,
   onThumbsDown,
   onChipSelect,
+  onNoChipSubmit,
 }: ActivityCardProps) {
   const isHardExcluded =
     feedback?.feedbackType === "chip_selected" && feedback.chip?.type === "hard_exclusion";
-  const isSoftNoted =
-    feedback?.feedbackType === "chip_selected" && feedback.chip?.type === "soft_signal";
+  const isNoted =
+    feedback?.feedbackType === "chip_selected" && feedback.chip?.type === "soft_signal" ||
+    feedback?.feedbackType === "thumbs_down_no_chip";
   const isThumbsUp = feedback?.feedbackType === "thumbs_up";
 
   return (
@@ -177,11 +194,11 @@ function ActivityCard({
       {/* Thumbs up confirmed */}
       {isThumbsUp && <p className="text-xs text-[#00D64F]">Noted ✓</p>}
 
-      {/* Chips layer */}
-      {chipsOpen && (
-        <div className="flex flex-wrap gap-2">
-          {chips ? (
-            chips.map((chip) => (
+      {/* Chips layer — always present immediately (fallback → dynamic swap happens silently) */}
+      {chipsOpen && chipsEntry && (
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap gap-2">
+            {chipsEntry.chips.map((chip) => (
               <button
                 key={chip.label}
                 onClick={() => onChipSelect(chip)}
@@ -193,18 +210,22 @@ function ActivityCard({
               >
                 {chip.label}
               </button>
-            ))
-          ) : (
-            <p className="text-xs text-gray-600">Loading reasons…</p>
-          )}
+            ))}
+          </div>
+          <button
+            onClick={onNoChipSubmit}
+            className="self-start text-xs text-gray-600 hover:text-gray-400 transition-colors"
+          >
+            Skip →
+          </button>
         </div>
       )}
 
       {/* Chip selected — hard exclusion */}
       {isHardExcluded && <p className="text-xs text-orange-400">We&apos;ll skip this.</p>}
 
-      {/* Chip selected — soft signal */}
-      {isSoftNoted && <p className="text-xs text-gray-500">Noted.</p>}
+      {/* Soft signal or no-chip submission */}
+      {isNoted && <p className="text-xs text-gray-500">Noted.</p>}
     </div>
   );
 }
@@ -243,12 +264,14 @@ export default function WelcomePage() {
 
   // Activity cards + feedback
   const [parsedActivities, setParsedActivities] = useState<ParsedActivity[]>([]);
-  const [activityChips, setActivityChips] = useState<Record<string, Chip[]>>({});
+  const [activityChips, setActivityChips] = useState<Record<string, ChipsEntry>>({});
   const [activityFeedback, setActivityFeedback] = useState<
     Record<string, ActivityFeedbackEntry>
   >({});
   const [openChipId, setOpenChipId] = useState<string | null>(null);
   const chipsFetchedRef = useRef<Set<string>>(new Set());
+  // Tracks submitted activities so dynamic chip swaps don't disrupt in-flight interactions
+  const submittedActivitiesRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (departureDate) setReturnDate(addDays(departureDate, 7));
@@ -264,6 +287,7 @@ export default function WelcomePage() {
     setPreviewText("");
     setParsedActivities([]);
     chipsFetchedRef.current = new Set();
+    submittedActivitiesRef.current = new Set();
 
     (async () => {
       try {
@@ -308,7 +332,9 @@ export default function WelcomePage() {
     setParsedActivities(activities);
   }, [previewLoading, previewText]);
 
-  // Generate chips for each card as soon as they're parsed
+  // Generate dynamic chips for each card in the background as soon as they're parsed.
+  // On thumbs-down, fallback chips are shown immediately; dynamic chips replace them
+  // silently when they arrive, unless the user has already submitted for that card.
   useEffect(() => {
     if (parsedActivities.length === 0) return;
     parsedActivities.forEach((activity) => {
@@ -327,9 +353,12 @@ export default function WelcomePage() {
       })
         .then((r) => r.json())
         .then((data: { chips?: Chip[] }) => {
-          if (data.chips) {
-            setActivityChips((prev) => ({ ...prev, [activity.id]: data.chips! }));
-          }
+          if (!data.chips) return;
+          setActivityChips((prev) => {
+            // Don't swap if the user has already submitted feedback for this card
+            if (submittedActivitiesRef.current.has(activity.id)) return prev;
+            return { ...prev, [activity.id]: { chips: data.chips!, source: "dynamic" } };
+          });
         })
         .catch(() => {});
     });
@@ -380,6 +409,12 @@ export default function WelcomePage() {
   }
 
   function handleThumbsDown(activity: ParsedActivity) {
+    // Set fallback chips immediately so they're present the instant the layer opens.
+    // If dynamic chips are already loaded, they take precedence.
+    setActivityChips((prev) => {
+      if (prev[activity.id]) return prev;
+      return { ...prev, [activity.id]: { chips: FALLBACK_CHIPS, source: "fallback" } };
+    });
     setOpenChipId(activity.id);
     logActivityEvent({
       event: "chips_shown",
@@ -390,6 +425,8 @@ export default function WelcomePage() {
   }
 
   function handleChipSelect(activity: ParsedActivity, chip: Chip) {
+    const chipsEntry = activityChips[activity.id];
+    submittedActivitiesRef.current.add(activity.id);
     setActivityFeedback((prev) => ({
       ...prev,
       [activity.id]: {
@@ -408,6 +445,31 @@ export default function WelcomePage() {
       activityCategory: activity.category,
       chipLabel: chip.label,
       chipType: chip.type,
+      chipsSource: chipsEntry?.source ?? "fallback",
+      firstChipLabel: chipsEntry?.chips[0]?.label ?? "",
+    });
+  }
+
+  function handleNoChipSubmit(activity: ParsedActivity) {
+    const chipsEntry = activityChips[activity.id];
+    submittedActivitiesRef.current.add(activity.id);
+    setActivityFeedback((prev) => ({
+      ...prev,
+      [activity.id]: {
+        activityId: activity.id,
+        activityName: activity.name,
+        activityCategory: activity.category,
+        feedbackType: "thumbs_down_no_chip",
+      },
+    }));
+    setOpenChipId(null);
+    logActivityEvent({
+      event: "thumbs_down_no_chip",
+      activityId: activity.id,
+      activityName: activity.name,
+      activityCategory: activity.category,
+      chipsSource: chipsEntry?.source ?? "fallback",
+      firstChipLabel: chipsEntry?.chips[0]?.label ?? "",
     });
   }
 
@@ -797,12 +859,13 @@ export default function WelcomePage() {
                 <ActivityCard
                   key={activity.id}
                   activity={activity}
-                  chips={activityChips[activity.id]}
+                  chipsEntry={activityChips[activity.id]}
                   feedback={activityFeedback[activity.id]}
                   chipsOpen={openChipId === activity.id}
                   onThumbsUp={() => handleThumbsUp(activity)}
                   onThumbsDown={() => handleThumbsDown(activity)}
                   onChipSelect={(chip) => handleChipSelect(activity, chip)}
+                  onNoChipSubmit={() => handleNoChipSubmit(activity)}
                 />
               ))}
             </div>

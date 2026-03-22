@@ -2,8 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 
 export async function POST(req: NextRequest) {
-  const { event, activityId, activityName, activityCategory, chipLabel, chipType } =
-    await req.json();
+  const {
+    event,
+    activityId,
+    activityName,
+    activityCategory,
+    chipLabel,
+    chipType,
+    chipsSource,
+    firstChipLabel,
+  } = await req.json();
 
   const { error } = await supabase.from("activity_feedback").insert({
     event,
@@ -12,6 +20,8 @@ export async function POST(req: NextRequest) {
     activity_category: activityCategory,
     chip_label: chipLabel ?? null,
     chip_type: chipType ?? null,
+    chips_source: chipsSource ?? null,
+    first_chip_label: firstChipLabel ?? null,
   });
 
   if (error) {
