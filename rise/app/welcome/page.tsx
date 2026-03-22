@@ -173,17 +173,17 @@ function ActivityCard({
 
       {/* Default: thumbs buttons */}
       {!feedback && !chipsOpen && (
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <button
             onClick={onThumbsUp}
-            className="rounded-xl border border-[#2a2a2a] px-3 py-1.5 text-sm text-gray-500 hover:border-green-500/40 hover:text-green-400 transition-colors"
+            className="flex items-center justify-center w-11 h-11 rounded-xl border border-[#2a2a2a] text-lg text-gray-500 hover:border-green-500/40 hover:text-green-400 transition-colors"
             title="Interested"
           >
             👍
           </button>
           <button
             onClick={onThumbsDown}
-            className="rounded-xl border border-[#2a2a2a] px-3 py-1.5 text-sm text-gray-500 hover:border-red-500/40 hover:text-red-400 transition-colors"
+            className="flex items-center justify-center w-11 h-11 rounded-xl border border-[#2a2a2a] text-lg text-gray-500 hover:border-red-500/40 hover:text-red-400 transition-colors"
             title="Not for me"
           >
             👎
@@ -192,7 +192,7 @@ function ActivityCard({
       )}
 
       {/* Thumbs up confirmed */}
-      {isThumbsUp && <p className="text-xs text-[#00D64F]">Noted ✓</p>}
+      {isThumbsUp && <p className="text-xs text-[#00D64F]">Liked ✓</p>}
 
       {/* Chips layer — always present immediately (fallback → dynamic swap happens silently) */}
       {chipsOpen && chipsEntry && (
@@ -583,7 +583,7 @@ export default function WelcomePage() {
     const feedbackArray = Object.values(activityFeedback);
     localStorage.setItem("rise_activity_feedback", JSON.stringify(feedbackArray));
     setSaving(false);
-    router.push("/dashboard");
+    router.push("/itinerary/view");
   }
 
   // ── Step 0: Full-screen landing ────────────────────────────────────────────
@@ -739,8 +739,8 @@ export default function WelcomePage() {
             <PlacesAutocomplete
               value={hotel}
               onChange={setHotel}
-              onSelect={setHotel}
-              placeholder="e.g. Park Hyatt Tokyo"
+              onSelect={(v) => setHotel(v.split(",")[0].trim())}
+              placeholder="e.g. Hotel Arts"
               types={["establishment"]}
               locationBias={destinationBias}
               autoFocus
