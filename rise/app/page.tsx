@@ -9,8 +9,7 @@ function LandmarkSkyline() {
     <svg
       viewBox="0 0 1200 160"
       preserveAspectRatio="xMidYMax slice"
-      className="w-full block"
-      style={{ height: 140 }}
+      className="w-full block h-full"
       xmlns="http://www.w3.org/2000/svg"
     >
       {/* Sky wash */}
@@ -131,9 +130,8 @@ export default function Home() {
         </a>
       </nav>
 
-      {/* Hero — visually centered between nav and illustration */}
-      <div className="flex-1 flex flex-col items-center px-6 min-h-0">
-        <div className="flex-[3]" />
+      {/* Hero — centered in upper 70% */}
+      <div className="flex flex-col items-center justify-center px-6 min-h-0" style={{ flex: "7 1 0%" }}>
         <div className="w-full max-w-2xl text-center">
           {/* Eyebrow */}
           <p
@@ -197,11 +195,10 @@ export default function Home() {
             ))}
           </div>
         </div>
-        <div className="flex-[4]" />
       </div>
 
-      {/* Skyline pinned to bottom */}
-      <div className="flex-shrink-0">
+      {/* Skyline fills bottom 30% */}
+      <div className="flex items-end overflow-hidden" style={{ flex: "3 1 0%" }}>
         <LandmarkSkyline />
       </div>
     </main>

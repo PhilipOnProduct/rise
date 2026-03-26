@@ -126,6 +126,55 @@ function getModeInstruction(buildMode: boolean): string {
   return buildMode ? BUILD_MODE_INSTRUCTION : RESEARCH_MODE_INSTRUCTION;
 }
 
+// ── Markdown renderer ─────────────────────────────────────────────────────────
+// Lightweight inline markdown → React for agent/coach/PM chat bubbles.
+
+function MarkdownText({ text, className }: { text: string; className?: string }) {
+  const lines = text.split("\n");
+  const elements: React.ReactNode[] = [];
+
+  function inlineBold(line: string, key: string): React.ReactNode {
+    const parts = line.split(/\*\*(.+?)\*\*/g);
+    if (parts.length === 1) return line;
+    return (
+      <span key={key}>
+        {parts.map((part, j) =>
+          j % 2 === 1 ? <strong key={j}>{part}</strong> : part
+        )}
+      </span>
+    );
+  }
+
+  let i = 0;
+  for (const line of lines) {
+    const k = String(i++);
+    if (line.match(/^---+\s*$/)) {
+      elements.push(<hr key={k} className="border-t border-[#d4cfc5] my-3" />);
+    } else if (line.startsWith("### ")) {
+      elements.push(<p key={k} className="font-semibold text-[#0e2a47] text-sm mt-3 mb-1">{inlineBold(line.slice(4), k)}</p>);
+    } else if (line.startsWith("## ")) {
+      elements.push(<p key={k} className="font-bold text-[#0e2a47] text-sm mt-4 mb-1">{inlineBold(line.slice(3), k)}</p>);
+    } else if (line.startsWith("# ")) {
+      elements.push(<p key={k} className="font-bold text-[#0e2a47] text-base mt-4 mb-1">{inlineBold(line.slice(2), k)}</p>);
+    } else if (line.startsWith("- ") || line.startsWith("* ")) {
+      elements.push(<p key={k} className="ml-4 before:content-['•'] before:mr-2 before:text-[#6a7f8f]">{inlineBold(line.slice(2), k)}</p>);
+    } else if (line.match(/^\d+\.\s/)) {
+      const match = line.match(/^(\d+\.)\s(.*)$/);
+      if (match) {
+        elements.push(<p key={k} className="ml-4"><span className="text-[#6a7f8f] mr-2">{match[1]}</span>{inlineBold(match[2], k)}</p>);
+      } else {
+        elements.push(<p key={k}>{inlineBold(line, k)}</p>);
+      }
+    } else if (line.trim() === "") {
+      elements.push(<br key={k} />);
+    } else {
+      elements.push(<p key={k}>{inlineBold(line, k)}</p>);
+    }
+  }
+
+  return <div className={className ?? "text-sm text-[#0e2a47] leading-relaxed"}>{elements}</div>;
+}
+
 // ── Supabase error serializer ──────────────────────────────────────────────────
 // Supabase PostgrestError has non-enumerable properties, so `console.error(err)`
 // prints `{}`. Extract them explicitly.
@@ -511,7 +560,7 @@ function AgentBubble({
           {thinking && <ThinkingDots />}
         </div>
         {content && (
-          <div className="text-sm text-[#0e2a47] leading-relaxed whitespace-pre-wrap">{content}</div>
+          <MarkdownText text={content} />
         )}
         {!content && thinking && (
           <div className="text-sm text-[#6a7f8f] italic">Thinking…</div>
@@ -524,9 +573,9 @@ function AgentBubble({
 function SectionDivider({ label }: { label: string }) {
   return (
     <div className="flex items-center gap-3">
-      <div className="flex-1 h-px bg-[#1e1e1e]" />
+      <div className="flex-1 h-px bg-[#d4cfc5]" />
       <span className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest">{label}</span>
-      <div className="flex-1 h-px bg-[#1e1e1e]" />
+      <div className="flex-1 h-px bg-[#d4cfc5]" />
     </div>
   );
 }
@@ -1334,7 +1383,7 @@ function ProductCoachTab({ buildMode }: { buildMode: boolean }) {
                     {thinking && i === messages.length - 1 && !msg.content && <ThinkingDots />}
                   </div>
                   {msg.content ? (
-                    <div className="text-sm text-[#0e2a47] leading-relaxed whitespace-pre-wrap">{msg.content}</div>
+                    <MarkdownText text={msg.content} />
                   ) : (
                     <div className="text-sm text-[#6a7f8f] italic">Thinking…</div>
                   )}
@@ -1387,10 +1436,10 @@ function ProductCoachTab({ buildMode }: { buildMode: boolean }) {
 // ── Kanban constants & helpers ─────────────────────────────────────────────────
 
 const STATUS_STYLES: Record<ObjectiveStatus, string> = {
-  backlog:       "bg-gray-500/10 text-[#4a6580] border border-gray-700",
-  refine:        "bg-[#185fa5]/15 text-[#185fa5] border border-[#185fa5]/40",
-  "in-progress": "bg-[#ba7517]/15 text-[#ba7517] border border-[#ba7517]/40",
-  done:          "bg-[#1a6b7f]/15 text-[#1a6b7f] border border-[#1a6b7f]/30",
+  backlog:       "bg-[#e8f0f4] text-[#1a6b7f] border border-[#1a6b7f]/20",
+  refine:        "bg-[#e8f0fb] text-[#185fa5] border border-[#185fa5]/20",
+  "in-progress": "bg-[#fef3e2] text-[#ba7517] border border-[#ba7517]/20",
+  done:          "bg-[#eaf4ee] text-[#2d7a4f] border border-[#2d7a4f]/20",
 };
 
 const KANBAN_COLUMNS: Array<{
@@ -1399,10 +1448,10 @@ const KANBAN_COLUMNS: Array<{
   borderClass: string;
   textClass: string;
 }> = [
-  { status: "backlog",     label: "Backlog",     borderClass: "border-gray-700",   textClass: "text-[#4a6580]" },
-  { status: "refine",      label: "Refine",      borderClass: "border-[#185fa5]",  textClass: "text-[#185fa5]" },
-  { status: "in-progress", label: "In Progress", borderClass: "border-[#ba7517]",  textClass: "text-[#ba7517]" },
-  { status: "done",        label: "Done",        borderClass: "border-[#1a6b7f]",  textClass: "text-[#1a6b7f]" },
+  { status: "backlog",     label: "Backlog",     borderClass: "border-[#c8c3bb]",  textClass: "text-[#4a6580]" },
+  { status: "refine",      label: "Refine",      borderClass: "border-[#c8c3bb]",  textClass: "text-[#4a6580]" },
+  { status: "in-progress", label: "In Progress", borderClass: "border-[#c8c3bb]",  textClass: "text-[#4a6580]" },
+  { status: "done",        label: "Done",        borderClass: "border-[#c8c3bb]",  textClass: "text-[#4a6580]" },
 ];
 
 function extractImplementationPrompt(prd: string): string {
@@ -1588,7 +1637,7 @@ function KanbanTab({ onDiscuss }: { onDiscuss: (objectiveId: string, problem: st
               }`}
             >
               {cards.length === 0 ? (
-                <div className={`border ${col.borderClass} border-dashed rounded-2xl p-4 text-xs text-[#6a7f8f] text-center`}>
+                <div className={`border ${col.borderClass} rounded-2xl p-4 text-xs text-[#6a7f8f] text-center`}>
                   Empty
                 </div>
               ) : (
@@ -1789,7 +1838,7 @@ function PMTab({ onSwitchToKanban, buildMode }: { onSwitchToKanban: () => void; 
                       {thinking && i === messages.length - 1 && !msg.content && <ThinkingDots />}
                     </div>
                     {msg.content ? (
-                      <div className="text-sm text-[#0e2a47] leading-relaxed whitespace-pre-wrap">{msg.content}</div>
+                      <MarkdownText text={msg.content} />
                     ) : (
                       <div className="text-sm text-[#6a7f8f] italic">Thinking…</div>
                     )}
