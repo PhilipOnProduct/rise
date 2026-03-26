@@ -8,7 +8,9 @@
       "Bash(mv app/itinerary/page.tsx.new app/itinerary/page.tsx)",
       "Bash(rm -rf app/itinerary/view)",
       "Bash(python3:*)",
-      "Bash(npx next:*)"
+      "Bash(npx next:*)",
+      "mcp__claude_ai_Supabase__list_projects",
+      "mcp__claude_ai_Supabase__execute_sql"
     ]
   }
 }
