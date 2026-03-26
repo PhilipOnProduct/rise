@@ -27,13 +27,25 @@ type ConversationRow = {
   created_at: string;
 };
 
-type ObjectiveStatus = "backlog" | "refine" | "in-progress" | "done";
+type ObjectiveStatus = "backlog" | "refine" | "implement" | "done";
+type CardType = "objective" | "improvement" | "bug";
+type Discussion = {
+  date: string;
+  summary: string;
+  transcript: TeamMessages;
+  prd: string | null;
+};
+
 type Objective = {
   id: string;
   title: string;
   description: string | null;
   status: ObjectiveStatus;
   prd: string | null;
+  card_type: CardType;
+  pm_summary: string | null;
+  claude_code_result: string | null;
+  discussions: Discussion[];
   created_at: string;
 };
 
@@ -88,7 +100,7 @@ const AGENTS: Record<
     role: "Designer",
     initial: "M",
     badge: "bg-purple-600 text-[#0e2a47]",
-    system: `You are Maya, a Product Designer for Rise. ${RISE_CONTEXT} Rise uses a dark Uber-inspired design: #0a0a0a background, #00D64F green accent, DM Sans font.\nYour role is to identify usability risk — where will users get confused, misunderstand the interaction, or fail to complete the intended action? Focus on the moment of highest friction in the proposed feature. What is the one thing most likely to go wrong in the user's hands?\nNo interaction design specs. No component suggestions. No visual design details. One to two paragraphs.`,
+    system: `You are Maya, a Product Designer for Rise. ${RISE_CONTEXT} Rise uses a light warm design: #f8f6f1 background, #1a6b7f teal accent, DM Sans font.\nYour role is to identify usability risk — where will users get confused, misunderstand the interaction, or fail to complete the intended action? Focus on the moment of highest friction in the proposed feature. What is the one thing most likely to go wrong in the user's hands?\nNo interaction design specs. No component suggestions. No visual design details. One to two paragraphs.`,
   },
   luca: {
     name: "Luca",
@@ -125,6 +137,25 @@ const RESEARCH_MODE_INSTRUCTION =
 function getModeInstruction(buildMode: boolean): string {
   return buildMode ? BUILD_MODE_INSTRUCTION : RESEARCH_MODE_INSTRUCTION;
 }
+
+const CARD_TYPE_STYLES: Record<CardType, { label: string; className: string }> = {
+  objective:   { label: "Objective",    className: "bg-[#e8f4f6] text-[#1a6b7f]" },
+  improvement: { label: "Improvement",  className: "bg-[#fef3e2] text-[#ba7517]" },
+  bug:         { label: "Bug",          className: "bg-[#fde8e8] text-[#c0392b]" },
+};
+
+const STATUS_LABELS: Record<ObjectiveStatus, string> = {
+  backlog: "Backlog",
+  refine: "Refine",
+  implement: "Implement",
+  done: "Done",
+};
+
+const NEXT_STATUS: Partial<Record<ObjectiveStatus, ObjectiveStatus>> = {
+  backlog: "refine",
+  refine: "implement",
+  implement: "done",
+};
 
 // ── Markdown renderer ─────────────────────────────────────────────────────────
 // Lightweight inline markdown → React for agent/coach/PM chat bubbles.
@@ -223,6 +254,8 @@ async function streamChat(
 
 // ── Supabase helpers ───────────────────────────────────────────────────────────
 
+const OBJECTIVE_COLUMNS = "id, title, description, status, prd, card_type, pm_summary, claude_code_result, discussions, created_at";
+
 async function saveTeamConversation(problem: string, msgs: TeamMessages): Promise<string | null> {
   const { data, error } = await supabase
     .from("team_conversations")
@@ -285,25 +318,38 @@ async function upsertPMConversation(
 async function loadObjectives(): Promise<Objective[]> {
   const { data, error } = await supabase
     .from("objectives")
-    .select("id, title, description, status, prd, created_at")
+    .select(OBJECTIVE_COLUMNS)
     .order("created_at", { ascending: false });
   if (error) { console.error("[objectives] load error", dbErr(error)); return []; }
-  return data as Objective[];
+  return (data ?? []).map((row) => ({
+    ...row,
+    card_type: row.card_type ?? "objective",
+    discussions: row.discussions ?? [],
+  })) as Objective[];
 }
 
 async function saveObjectiveWithDetails(
   title: string,
   description: string | null,
   status: ObjectiveStatus,
-  prd?: string | null
+  prd?: string | null,
+  cardType?: CardType,
+  pmSummary?: string | null,
 ): Promise<Objective | null> {
   const { data, error } = await supabase
     .from("objectives")
-    .insert({ title, description: description ?? null, status, prd: prd ?? null })
-    .select("id, title, description, status, prd, created_at")
+    .insert({
+      title,
+      description: description ?? null,
+      status,
+      prd: prd ?? null,
+      card_type: cardType ?? "objective",
+      pm_summary: pmSummary ?? null,
+    })
+    .select(OBJECTIVE_COLUMNS)
     .single();
   if (error) { console.error("[objectives] save error", dbErr(error)); return null; }
-  return data as Objective;
+  return { ...data, card_type: data.card_type ?? "objective", discussions: data.discussions ?? [] } as Objective;
 }
 
 async function updateObjectiveStatus(id: string, status: ObjectiveStatus): Promise<void> {
@@ -317,6 +363,11 @@ async function updateObjectivePrd(id: string, prd: string): Promise<void> {
     .update({ prd, status: "refine" })
     .eq("id", id);
   if (error) console.error("[objectives] prd update error", dbErr(error));
+}
+
+async function updateObjectiveField(id: string, fields: Partial<Record<string, unknown>>): Promise<void> {
+  const { error } = await supabase.from("objectives").update(fields).eq("id", id);
+  if (error) console.error("[objectives] field update error", dbErr(error));
 }
 
 async function deleteObjective(id: string): Promise<void> {
@@ -513,6 +564,23 @@ async function fetchKanbanTitle(problem: string, prdContent: string): Promise<st
   }
 }
 
+// ── Card context builder (for injecting into agent prompts) ─────────────────
+
+function buildCardContext(obj: Objective): string {
+  const parts = [`Card: ${obj.title} (${CARD_TYPE_STYLES[obj.card_type].label})`];
+  if (obj.description) parts.push(`Description: ${obj.description}`);
+  if (obj.pm_summary) parts.push(`PM conversation summary: ${obj.pm_summary}`);
+  if (obj.discussions.length > 0) {
+    parts.push("Previous discussions:");
+    obj.discussions.forEach((d, i) => {
+      parts.push(`  Discussion ${i + 1} (${d.date}): ${d.summary}`);
+    });
+  }
+  if (obj.prd) parts.push(`Existing PRD:\n${obj.prd}`);
+  if (obj.claude_code_result) parts.push(`Claude Code result:\n${obj.claude_code_result}`);
+  return parts.join("\n");
+}
+
 // ── Shared sub-components ──────────────────────────────────────────────────────
 
 function ThinkingDots() {
@@ -526,6 +594,40 @@ function ThinkingDots() {
         />
       ))}
     </span>
+  );
+}
+
+function CardTypeBadge({ type }: { type: CardType }) {
+  const style = CARD_TYPE_STYLES[type];
+  return (
+    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${style.className}`}>
+      {style.label}
+    </span>
+  );
+}
+
+function CardTypeSelector({ value, onChange }: { value: CardType; onChange: (v: CardType) => void }) {
+  const types: CardType[] = ["objective", "improvement", "bug"];
+  return (
+    <div className="flex gap-2">
+      {types.map((t) => {
+        const style = CARD_TYPE_STYLES[t];
+        const isActive = value === t;
+        return (
+          <button
+            key={t}
+            onClick={() => onChange(t)}
+            className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors ${
+              isActive
+                ? `${style.className} border-current`
+                : "bg-white text-[#6a7f8f] border-[#d4cfc5] hover:border-[#b8b3a9]"
+            }`}
+          >
+            {style.label}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -803,15 +905,291 @@ function PastConversations({
   );
 }
 
+// ── Card Detail Panel ─────────────────────────────────────────────────────────
+
+function CardDetailPanel({
+  obj,
+  onClose,
+  onUpdate,
+  onStartDiscussion,
+}: {
+  obj: Objective;
+  onClose: () => void;
+  onUpdate: (updated: Objective) => void;
+  onStartDiscussion: (obj: Objective) => void;
+}) {
+  const [codeResult, setCodeResult] = useState(obj.claude_code_result ?? "");
+  const [savingResult, setSavingResult] = useState(false);
+  const [resultSaved, setResultSaved] = useState(false);
+  const [expandedDiscIdx, setExpandedDiscIdx] = useState<number | null>(null);
+  const [prdOpen, setPrdOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const implPrompt = obj.prd ? extractImplementationPrompt(obj.prd) : "";
+  const nextStatus = NEXT_STATUS[obj.status];
+  const cleanTitle = obj.title.replace(/\*+/g, "");
+
+  function handleCopy() {
+    navigator.clipboard.writeText(implPrompt);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  async function handleSaveResult() {
+    setSavingResult(true);
+    await updateObjectiveField(obj.id, { claude_code_result: codeResult || null });
+    onUpdate({ ...obj, claude_code_result: codeResult || null });
+    setSavingResult(false);
+    setResultSaved(true);
+    setTimeout(() => setResultSaved(false), 2000);
+  }
+
+  async function handleMoveToNext() {
+    if (!nextStatus) return;
+    await updateObjectiveStatus(obj.id, nextStatus);
+    onUpdate({ ...obj, status: nextStatus });
+  }
+
+  async function handleDelete() {
+    await deleteObjective(obj.id);
+    onUpdate({ ...obj, status: "done", id: "__deleted__" });
+    onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/20" onClick={onClose} />
+
+      {/* Panel */}
+      <div className="relative w-full max-w-xl bg-[#f8f6f1] border-l border-[#d4cfc5] overflow-y-auto shadow-xl">
+        <div className="p-6 flex flex-col gap-6">
+
+          {/* Header */}
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-2 flex-wrap">
+                <CardTypeBadge type={obj.card_type} />
+                <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${STATUS_STYLES[obj.status]}`}>
+                  {STATUS_LABELS[obj.status]}
+                </span>
+              </div>
+              <h2 className="text-lg font-bold text-[#0e2a47] leading-snug">{cleanTitle}</h2>
+              <p className="text-xs text-[#6a7f8f] mt-1">
+                {new Date(obj.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+              </p>
+            </div>
+            <button onClick={onClose} className="text-[#6a7f8f] hover:text-[#0e2a47] text-lg shrink-0 p-1">×</button>
+          </div>
+
+          {/* Description */}
+          {obj.description && (
+            <div>
+              <p className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-2">Description</p>
+              <p className="text-sm text-[#0e2a47] leading-relaxed">{obj.description}</p>
+            </div>
+          )}
+
+          {/* PM summary */}
+          {obj.pm_summary && (
+            <div>
+              <p className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-2">PM conversation summary</p>
+              <p className="text-sm text-[#4a6580] leading-relaxed">{obj.pm_summary}</p>
+            </div>
+          )}
+
+          {/* Discussions */}
+          {obj.discussions.length > 0 && (
+            <div>
+              <p className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-2">
+                Team discussions ({obj.discussions.length})
+              </p>
+              <div className="flex flex-col gap-2">
+                {obj.discussions.map((disc, idx) => (
+                  <div key={idx} className="bg-white border border-[#e8e4de] rounded-xl p-3">
+                    <button
+                      onClick={() => setExpandedDiscIdx(expandedDiscIdx === idx ? null : idx)}
+                      className="w-full text-left"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-[#6a7f8f]">{disc.date}</span>
+                        <span className="text-xs text-[#6a7f8f]">{expandedDiscIdx === idx ? "▲" : "▼"}</span>
+                      </div>
+                      <p className="text-sm text-[#0e2a47] mt-1 leading-relaxed">{disc.summary}</p>
+                    </button>
+                    {expandedDiscIdx === idx && (
+                      <div className="mt-3 pt-3 border-t border-[#e8e4de] flex flex-col gap-3">
+                        {disc.transcript.framing && (
+                          <div>
+                            <p className="text-xs font-semibold text-[#4a6580] mb-1">Sarah (Framing)</p>
+                            <p className="text-xs text-[#6a7f8f] leading-relaxed whitespace-pre-wrap">{disc.transcript.framing}</p>
+                          </div>
+                        )}
+                        {disc.transcript.alex && (
+                          <div>
+                            <p className="text-xs font-semibold text-[#4a6580] mb-1">Alex (Research)</p>
+                            <p className="text-xs text-[#6a7f8f] leading-relaxed whitespace-pre-wrap">{disc.transcript.alex}</p>
+                          </div>
+                        )}
+                        {disc.transcript.maya && (
+                          <div>
+                            <p className="text-xs font-semibold text-[#4a6580] mb-1">Maya (Design)</p>
+                            <p className="text-xs text-[#6a7f8f] leading-relaxed whitespace-pre-wrap">{disc.transcript.maya}</p>
+                          </div>
+                        )}
+                        {disc.transcript.luca && (
+                          <div>
+                            <p className="text-xs font-semibold text-[#4a6580] mb-1">Luca (Tech)</p>
+                            <p className="text-xs text-[#6a7f8f] leading-relaxed whitespace-pre-wrap">{disc.transcript.luca}</p>
+                          </div>
+                        )}
+                        {disc.transcript.elena && (
+                          <div>
+                            <p className="text-xs font-semibold text-[#4a6580] mb-1">Elena (Travel Expert)</p>
+                            <p className="text-xs text-[#6a7f8f] leading-relaxed whitespace-pre-wrap">{disc.transcript.elena}</p>
+                          </div>
+                        )}
+                        {disc.transcript.synthesis && (
+                          <div>
+                            <p className="text-xs font-semibold text-[#4a6580] mb-1">Sarah (Synthesis)</p>
+                            <p className="text-xs text-[#6a7f8f] leading-relaxed whitespace-pre-wrap">{disc.transcript.synthesis}</p>
+                          </div>
+                        )}
+                        {disc.prd && (
+                          <div>
+                            <p className="text-xs font-semibold text-[#4a6580] mb-1">PRD</p>
+                            <p className="text-xs text-[#6a7f8f] leading-relaxed whitespace-pre-wrap max-h-48 overflow-y-auto">{disc.prd}</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Start team discussion — visible for refine cards */}
+          {obj.status === "refine" && (
+            <button
+              onClick={() => onStartDiscussion(obj)}
+              className="rounded-2xl bg-[#1a6b7f] text-white font-bold px-6 py-3 hover:bg-[#155a6b] transition-colors text-sm w-fit"
+            >
+              Start team discussion →
+            </button>
+          )}
+
+          {/* PRD */}
+          {obj.prd && (
+            <div>
+              <button
+                onClick={() => setPrdOpen(!prdOpen)}
+                className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-2 hover:text-[#4a6580] transition-colors"
+              >
+                {prdOpen ? "Hide PRD ▲" : "View PRD ▼"}
+              </button>
+              {prdOpen && (
+                <div className="bg-white border border-[#e8e4de] rounded-xl p-4 max-h-80 overflow-y-auto">
+                  <div className="flex flex-col gap-1">
+                    {obj.prd.split("\n").map((line, i) => <PrdLine key={i} line={line} i={i} />)}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Claude Code prompt */}
+          {implPrompt && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest">Claude Code Prompt</p>
+                <button onClick={handleCopy} className="text-xs font-semibold text-[#1a6b7f] hover:underline">
+                  {copied ? "Copied!" : "Copy prompt"}
+                </button>
+              </div>
+              <div className="bg-white border border-[#e8e4de] rounded-xl p-4">
+                <p className="text-xs text-[#0e2a47] leading-relaxed whitespace-pre-wrap">{implPrompt}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Claude Code result */}
+          <div>
+            <p className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-2">Claude Code Result</p>
+            <textarea
+              rows={5}
+              value={codeResult}
+              onChange={(e) => { setCodeResult(e.target.value); setResultSaved(false); }}
+              placeholder="Paste Claude Code output here…"
+              className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-[#0e2a47] placeholder-[#9ca3af] transition-colors text-xs resize-none"
+            />
+            <div className="flex items-center gap-2 mt-2">
+              <button
+                onClick={handleSaveResult}
+                disabled={savingResult}
+                className="text-xs font-semibold bg-[#1a6b7f] text-white rounded-xl px-4 py-2 hover:bg-[#155a6b] transition-colors disabled:opacity-40"
+              >
+                {savingResult ? "Saving…" : "Save result"}
+              </button>
+              {resultSaved && <span className="text-xs text-[#1a6b7f]">Saved</span>}
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex items-center gap-3 flex-wrap pt-2 border-t border-[#d4cfc5]">
+            {nextStatus && (
+              <button
+                onClick={handleMoveToNext}
+                className="rounded-2xl bg-[#1a6b7f] text-white font-bold px-6 py-3 hover:bg-[#155a6b] transition-colors text-sm"
+              >
+                Move to {STATUS_LABELS[nextStatus]} →
+              </button>
+            )}
+            {obj.status !== "done" && (
+              confirmDelete ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-[#6a7f8f]">Delete?</span>
+                  <button onClick={handleDelete} className="text-xs font-semibold text-red-400 hover:text-red-300">Yes</button>
+                  <button onClick={() => setConfirmDelete(false)} className="text-xs text-[#6a7f8f] hover:text-[#4a6580]">No</button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setConfirmDelete(true)}
+                  className="text-xs text-[#6a7f8f] hover:text-red-400 transition-colors"
+                >
+                  Delete card
+                </button>
+              )
+            )}
+          </div>
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function extractImplementationPrompt(prd: string): string {
+  const marker = "## Claude Code Implementation Prompt";
+  const idx = prd.indexOf(marker);
+  if (idx === -1) return "";
+  return prd.slice(idx + marker.length).trim();
+}
+
 // ── Product Team Tab ───────────────────────────────────────────────────────────
 
 function ProductTeamTab({
   pendingObjective,
+  cardContext,
   onObjectiveSaved,
+  onDiscussionSaved,
   buildMode,
 }: {
   pendingObjective?: { id: string; problem: string } | null;
+  cardContext?: Objective | null;
   onObjectiveSaved?: () => void;
+  onDiscussionSaved?: (objectiveId: string, discussion: Discussion, prd: string | null) => void;
   buildMode: boolean;
 }) {
   const [problem, setProblem] = useState("");
@@ -835,6 +1213,8 @@ function ProductTeamTab({
   const [savingToKanban, setSavingToKanban] = useState(false);
   const [kanbanSaved, setKanbanSaved] = useState(false);
   const [scopeAdditions, setScopeAdditions] = useState("");
+  const [savingToCard, setSavingToCard] = useState(false);
+  const [savedToCard, setSavedToCard] = useState(false);
 
   useEffect(() => {
     loadSarahMemory().then((mem) => {
@@ -850,7 +1230,7 @@ function ProductTeamTab({
     setSarahFrame(""); setAlexContent(""); setMayaContent("");
     setLucaContent(""); setElenaContent(""); setSynthesis(""); setPrd("");
     setPhase("idle"); setTeamError(""); setPrdSlug("");
-    setKanbanSaved(false);
+    setKanbanSaved(false); setSavedToCard(false);
   }, [pendingObjective]);
 
   const isRunning = phase !== "idle" && phase !== "done";
@@ -871,6 +1251,7 @@ function ProductTeamTab({
     setPrdSlug("");
     setActiveObjectiveId(null);
     setKanbanSaved(false);
+    setSavedToCard(false);
   }
 
   async function runDiscussion() {
@@ -879,7 +1260,10 @@ function ProductTeamTab({
     setSarahFrame(""); setAlexContent(""); setMayaContent("");
     setLucaContent(""); setElenaContent(""); setSynthesis(""); setPrd("");
     setTeamError(""); setConversationId(null); setPrdSlug("");
-    setKanbanSaved(false);
+    setKanbanSaved(false); setSavedToCard(false);
+
+    // Build card context injection if available
+    const cardCtx = cardContext ? `\n\nCard context:\n${buildCardContext(cardContext)}` : "";
 
     try {
       // ── Step 1: Sarah frames (with memory) ───────────────────────────────
@@ -892,7 +1276,7 @@ function ProductTeamTab({
       let frameText = "";
       await streamChat(
         TEAM_MODEL, sarahSystemWithMemory,
-        [{ role: "user", content: `Frame this problem for the product team:\n\n${problem}` }],
+        [{ role: "user", content: `Frame this problem for the product team:\n\n${problem}${cardCtx}` }],
         2048, (chunk) => { frameText += chunk; setSarahFrame(frameText); }
       );
       setThinking({});
@@ -900,7 +1284,7 @@ function ProductTeamTab({
       // ── Step 2: Specialists in parallel ──────────────────────────────────
       setPhase("specialists");
       setThinking({ alex: true, maya: true, luca: true, elena: true });
-      const specialistPrompt = `Problem: ${problem}\n\nSarah's framing: ${frameText}\n\nShare your expert perspective.`;
+      const specialistPrompt = `Problem: ${problem}\n\nSarah's framing: ${frameText}\n\nShare your expert perspective.${cardCtx}`;
       let alexText = "", mayaText = "", lucaText = "", elenaText = "";
 
       await Promise.all([
@@ -1100,6 +1484,50 @@ function ProductTeamTab({
     setSavingToKanban(false);
   }
 
+  async function handleSaveToCard() {
+    if (!cardContext || !onDiscussionSaved) return;
+    setSavingToCard(true);
+
+    // Generate a 3-5 sentence summary from Sarah
+    let summaryText = "";
+    try {
+      await streamChat(
+        TEAM_MODEL,
+        "You write concise discussion summaries. Reply with ONLY the summary — 3-5 sentences.",
+        [{
+          role: "user",
+          content:
+            `Summarize this product team discussion in 3-5 sentences.\n\n` +
+            `Problem: ${problem}\nFraming: ${sarahFrame}\nSynthesis: ${synthesis}\n` +
+            `PRD available: ${prd ? "yes" : "no"}`,
+        }],
+        200,
+        (chunk) => { summaryText += chunk; }
+      );
+    } catch {
+      summaryText = `Discussion about: ${problem.slice(0, 200)}`;
+    }
+
+    const discussion: Discussion = {
+      date: new Date().toISOString().slice(0, 10),
+      summary: summaryText.trim(),
+      transcript: {
+        problem,
+        framing: sarahFrame,
+        alex: alexContent,
+        maya: mayaContent,
+        luca: lucaContent,
+        elena: elenaContent,
+        synthesis,
+      },
+      prd: prd || null,
+    };
+
+    onDiscussionSaved(cardContext.id, discussion, prd || null);
+    setSavingToCard(false);
+    setSavedToCard(true);
+  }
+
 
   return (
     <div className="flex flex-col gap-8">
@@ -1132,6 +1560,15 @@ function ProductTeamTab({
           <p className="text-xs text-[#6a7f8f] italic">Updating Sarah's memory…</p>
         )}
       </div>
+
+      {/* Card context banner */}
+      {cardContext && (
+        <div className="bg-[#e8f4f6] border border-[#1a6b7f]/20 rounded-xl px-4 py-3">
+          <p className="text-xs font-bold text-[#1a6b7f] uppercase tracking-widest mb-1">Discussing card</p>
+          <p className="text-sm text-[#0e2a47] font-semibold">{cardContext.title.replace(/\*+/g, "")}</p>
+          {cardContext.description && <p className="text-xs text-[#4a6580] mt-1">{cardContext.description}</p>}
+        </div>
+      )}
 
       {/* Input */}
       <div>
@@ -1209,13 +1646,22 @@ function ProductTeamTab({
                     Regenerate PRD →
                   </button>
                 )}
-                {prd && !kanbanSaved && (
+                {prd && !kanbanSaved && !cardContext && (
                   <button
                     onClick={handleSaveToKanban}
                     disabled={savingToKanban}
                     className="rounded-2xl border border-[#d4cfc5] text-[#0e2a47] hover:text-[#0e2a47] hover:border-[#b8b3a9] font-semibold px-6 py-3 transition-colors text-sm disabled:opacity-40"
                   >
                     {savingToKanban ? "Saving…" : "Save to Kanban →"}
+                  </button>
+                )}
+                {cardContext && !savedToCard && (
+                  <button
+                    onClick={handleSaveToCard}
+                    disabled={savingToCard}
+                    className="rounded-2xl bg-[#1a6b7f] text-white font-bold px-6 py-3 hover:bg-[#155a6b] transition-colors text-sm disabled:opacity-40"
+                  >
+                    {savingToCard ? "Saving…" : "Save to card →"}
                   </button>
                 )}
               </div>
@@ -1226,9 +1672,10 @@ function ProductTeamTab({
                 </div>
               )}
               {kanbanSaved && (
-                <div className="flex flex-col gap-1">
-                  <p className="text-xs text-[#1a6b7f]">{activeObjectiveId ? "PRD saved to Kanban card" : "Saved to Kanban"}</p>
-                </div>
+                <p className="text-xs text-[#1a6b7f]">{activeObjectiveId ? "PRD saved to Kanban card" : "Saved to Kanban"}</p>
+              )}
+              {savedToCard && (
+                <p className="text-xs text-[#1a6b7f]">Discussion saved to card</p>
               )}
             </div>
           )}
@@ -1436,10 +1883,10 @@ function ProductCoachTab({ buildMode }: { buildMode: boolean }) {
 // ── Kanban constants & helpers ─────────────────────────────────────────────────
 
 const STATUS_STYLES: Record<ObjectiveStatus, string> = {
-  backlog:       "bg-[#e8f0f4] text-[#1a6b7f] border border-[#1a6b7f]/20",
-  refine:        "bg-[#e8f0fb] text-[#185fa5] border border-[#185fa5]/20",
-  "in-progress": "bg-[#fef3e2] text-[#ba7517] border border-[#ba7517]/20",
-  done:          "bg-[#eaf4ee] text-[#2d7a4f] border border-[#2d7a4f]/20",
+  backlog:    "bg-[#e8f0f4] text-[#1a6b7f] border border-[#1a6b7f]/20",
+  refine:     "bg-[#e8f0fb] text-[#185fa5] border border-[#185fa5]/20",
+  implement:  "bg-[#fef3e2] text-[#ba7517] border border-[#ba7517]/20",
+  done:       "bg-[#eaf4ee] text-[#2d7a4f] border border-[#2d7a4f]/20",
 };
 
 const KANBAN_COLUMNS: Array<{
@@ -1448,82 +1895,58 @@ const KANBAN_COLUMNS: Array<{
   borderClass: string;
   textClass: string;
 }> = [
-  { status: "backlog",     label: "Backlog",     borderClass: "border-[#c8c3bb]",  textClass: "text-[#4a6580]" },
-  { status: "refine",      label: "Refine",      borderClass: "border-[#c8c3bb]",  textClass: "text-[#4a6580]" },
-  { status: "in-progress", label: "In Progress", borderClass: "border-[#c8c3bb]",  textClass: "text-[#4a6580]" },
-  { status: "done",        label: "Done",        borderClass: "border-[#c8c3bb]",  textClass: "text-[#4a6580]" },
+  { status: "backlog",    label: "Backlog",    borderClass: "border-[#c8c3bb]",  textClass: "text-[#4a6580]" },
+  { status: "refine",     label: "Refine",     borderClass: "border-[#c8c3bb]",  textClass: "text-[#4a6580]" },
+  { status: "implement",  label: "Implement",  borderClass: "border-[#c8c3bb]",  textClass: "text-[#4a6580]" },
+  { status: "done",       label: "Done",       borderClass: "border-[#c8c3bb]",  textClass: "text-[#4a6580]" },
 ];
-
-function extractImplementationPrompt(prd: string): string {
-  const marker = "## Claude Code Implementation Prompt";
-  const idx = prd.indexOf(marker);
-  if (idx === -1) return "";
-  return prd.slice(idx + marker.length).trim();
-}
 
 // ── Kanban Card ────────────────────────────────────────────────────────────────
 
 function KanbanCard({
   obj,
   col,
-  onDiscuss,
+  onClick,
   onDelete,
   onDragStart,
 }: {
   obj: Objective;
   col: typeof KANBAN_COLUMNS[number];
-  onDiscuss: (id: string, problem: string) => void;
+  onClick: () => void;
   onDelete: (id: string) => void;
   onDragStart: (id: string, fromStatus: ObjectiveStatus) => void;
 }) {
-  const [prdOpen, setPrdOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const isDone = obj.status === "done";
-  const implPrompt = obj.prd ? extractImplementationPrompt(obj.prd) : "";
-  const discussProblem = obj.title + (obj.description ? `\n\n${obj.description}` : "");
-
-  function handleCopy() {
-    navigator.clipboard.writeText(implPrompt);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
+  const cleanTitle = obj.title.replace(/\*+/g, "");
 
   return (
     <div
       draggable={!isDone}
       onDragStart={isDone ? undefined : () => onDragStart(obj.id, obj.status)}
-      className={`bg-white border ${col.borderClass} rounded-2xl p-4 flex flex-col gap-3 ${!isDone ? "cursor-grab active:cursor-grabbing" : ""}`}
+      onClick={onClick}
+      className={`bg-white border ${col.borderClass} rounded-2xl p-4 flex flex-col gap-2 cursor-pointer hover:shadow-sm transition-shadow ${!isDone ? "active:cursor-grabbing" : ""}`}
     >
-      {/* Title */}
-      <div>
-        <p className="text-sm font-bold text-[#0e2a47] leading-snug line-clamp-2" title={obj.title.replace(/\*+/g, "")}>{obj.title.replace(/\*+/g, "")}</p>
-        {obj.description && (
-          <p className="text-xs text-[#6a7f8f] mt-1 leading-relaxed line-clamp-3 overflow-hidden">{obj.description}</p>
-        )}
+      {/* Type badge + title */}
+      <div className="flex items-start gap-2">
+        <CardTypeBadge type={obj.card_type} />
+        <p className="text-sm font-bold text-[#0e2a47] leading-snug line-clamp-2 flex-1" title={cleanTitle}>{cleanTitle}</p>
       </div>
+      {obj.description && (
+        <p className="text-xs text-[#6a7f8f] leading-relaxed line-clamp-2 overflow-hidden">{obj.description}</p>
+      )}
 
-      {/* Actions */}
-      <div className="flex items-center gap-3 flex-wrap">
-        {!isDone && (obj.status === "backlog" || obj.status === "refine") && (
-          <button
-            onClick={() => onDiscuss(obj.id, discussProblem)}
-            className="text-xs font-semibold text-[#1a6b7f] hover:underline"
-          >
-            Discuss with team →
-          </button>
-        )}
-        {obj.prd && (
-          <button
-            onClick={() => setPrdOpen(!prdOpen)}
-            className="text-xs text-[#6a7f8f] hover:text-[#0e2a47] transition-colors"
-          >
-            {prdOpen ? "Hide PRD" : "View PRD"}
-          </button>
-        )}
+      {/* Bottom row */}
+      <div className="flex items-center justify-between mt-1" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2">
+          {obj.prd && <span className="text-xs text-[#1a6b7f]">PRD</span>}
+          {obj.discussions.length > 0 && (
+            <span className="text-xs text-[#6a7f8f]">{obj.discussions.length} disc.</span>
+          )}
+        </div>
         {!isDone && (
           confirmDelete ? (
-            <div className="flex items-center gap-2 ml-auto">
+            <div className="flex items-center gap-2">
               <span className="text-xs text-[#6a7f8f]">Delete?</span>
               <button onClick={() => onDelete(obj.id)} className="text-xs font-semibold text-red-400 hover:text-red-300">Yes</button>
               <button onClick={() => setConfirmDelete(false)} className="text-xs text-[#6a7f8f] hover:text-[#4a6580]">No</button>
@@ -1531,7 +1954,7 @@ function KanbanCard({
           ) : (
             <button
               onClick={() => setConfirmDelete(true)}
-              className="text-xs text-[#6a7f8f] hover:text-red-400 transition-colors ml-auto"
+              className="text-xs text-[#6a7f8f] hover:text-red-400 transition-colors"
               title="Delete"
             >
               🗑
@@ -1539,33 +1962,19 @@ function KanbanCard({
           )
         )}
       </div>
-
-      {/* Expanded PRD */}
-      {prdOpen && obj.prd && (
-        <div className="border-t border-[#e8e4de] pt-3 flex flex-col gap-3">
-          <div className="text-xs text-[#4a6580] leading-relaxed max-h-64 overflow-y-auto whitespace-pre-wrap">
-            {obj.prd}
-          </div>
-          {implPrompt && (
-            <div className="bg-[#f8f6f1] border border-[#d4cfc5] rounded-xl p-3 flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest">Claude Code Prompt</span>
-                <button onClick={handleCopy} className="text-xs font-semibold text-[#1a6b7f] hover:underline">
-                  {copied ? "Copied!" : "Copy prompt"}
-                </button>
-              </div>
-              <p className="text-xs text-[#0e2a47] leading-relaxed whitespace-pre-wrap">{implPrompt}</p>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }
 
 // ── Kanban Tab ─────────────────────────────────────────────────────────────────
 
-function KanbanTab({ onDiscuss }: { onDiscuss: (objectiveId: string, problem: string) => void }) {
+function KanbanTab({
+  onCardClick,
+  refreshKey,
+}: {
+  onCardClick: (obj: Objective) => void;
+  refreshKey: number;
+}) {
   const [objectives, setObjectives] = useState<Objective[]>([]);
   const [loading, setLoading] = useState(true);
   const [dragging, setDragging] = useState<{ id: string; fromStatus: ObjectiveStatus } | null>(null);
@@ -1573,7 +1982,7 @@ function KanbanTab({ onDiscuss }: { onDiscuss: (objectiveId: string, problem: st
 
   useEffect(() => {
     loadObjectives().then((data) => { setObjectives(data); setLoading(false); });
-  }, []);
+  }, [refreshKey]);
 
   async function handleDelete(id: string) {
     await deleteObjective(id);
@@ -1646,7 +2055,7 @@ function KanbanTab({ onDiscuss }: { onDiscuss: (objectiveId: string, problem: st
                     key={obj.id}
                     obj={obj}
                     col={col}
-                    onDiscuss={onDiscuss}
+                    onClick={() => onCardClick(obj)}
                     onDelete={handleDelete}
                     onDragStart={handleDragStart}
                   />
@@ -1669,6 +2078,7 @@ function PMTab({ onSwitchToKanban, buildMode }: { onSwitchToKanban: () => void; 
   const [pmError, setPmError] = useState("");
   const [objectives, setObjectives] = useState<Objective[]>([]);
   const [objInput, setObjInput] = useState("");
+  const [objType, setObjType] = useState<CardType>("objective");
   const [savingObj, setSavingObj] = useState(false);
   const [riseContext, setRiseContext] = useState("");
   const conversationIdRef = useRef<string | null>(null);
@@ -1773,9 +2183,31 @@ function PMTab({ onSwitchToKanban, buildMode }: { onSwitchToKanban: () => void; 
       } catch { /* non-fatal */ }
     }
 
-    const obj = await saveObjectiveWithDetails(title, description, "backlog");
+    // Generate a PM summary from the conversation
+    let pmSummary: string | null = null;
+    if (messages.length >= 2) {
+      try {
+        let summary = "";
+        const convoSlice = messages.slice(-10).map((m) => `${m.role === "user" ? "Philip" : "Sarah"}: ${m.content}`).join("\n\n");
+        await streamChat(
+          PM_MODEL,
+          "You write concise conversation summaries. Reply with ONLY the summary — 3-5 sentences.",
+          [{
+            role: "user",
+            content:
+              `Summarize this PM conversation about "${title}" in 3-5 sentences. Focus on the key decisions and reasoning.\n\n${convoSlice}`,
+          }],
+          200,
+          (chunk) => { summary += chunk; }
+        );
+        if (summary.trim().length > 10) pmSummary = summary.trim();
+      } catch { /* non-fatal */ }
+    }
+
+    const obj = await saveObjectiveWithDetails(title, description, "backlog", null, objType, pmSummary);
     if (obj) {
       setObjInput("");
+      setObjType("objective");
       loadObjectives().then(setObjectives);
     }
     setSavingObj(false);
@@ -1886,7 +2318,7 @@ function PMTab({ onSwitchToKanban, buildMode }: { onSwitchToKanban: () => void; 
       </div>
 
       {/* Objectives */}
-      <div className="border-t border-[#1a1a1a] pt-8 flex flex-col gap-5">
+      <div className="border-t border-[#d4cfc5] pt-8 flex flex-col gap-5">
 
         <div className="flex items-center justify-between gap-4">
           <div>
@@ -1901,23 +2333,26 @@ function PMTab({ onSwitchToKanban, buildMode }: { onSwitchToKanban: () => void; 
           </button>
         </div>
 
-        {/* Save input */}
-        <div className="flex gap-3 items-end">
-          <input
-            type="text"
-            value={objInput}
-            onChange={(e) => setObjInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") handleSaveObjective(); }}
-            placeholder="Add an agreed objective…"
-            className="flex-1 bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-5 py-3.5 text-[#0e2a47] placeholder-[#9ca3af] transition-colors text-sm"
-          />
-          <button
-            onClick={handleSaveObjective}
-            disabled={!objInput.trim() || savingObj}
-            className="rounded-2xl bg-[#1a6b7f] text-white font-bold px-5 py-3.5 hover:bg-[#155a6b] transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm flex-shrink-0"
-          >
-            {savingObj ? "Saving…" : "Save objective"}
-          </button>
+        {/* Type selector + save input */}
+        <div className="flex flex-col gap-3">
+          <CardTypeSelector value={objType} onChange={setObjType} />
+          <div className="flex gap-3 items-end">
+            <input
+              type="text"
+              value={objInput}
+              onChange={(e) => setObjInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleSaveObjective(); }}
+              placeholder="Add an agreed objective…"
+              className="flex-1 bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-5 py-3.5 text-[#0e2a47] placeholder-[#9ca3af] transition-colors text-sm"
+            />
+            <button
+              onClick={handleSaveObjective}
+              disabled={!objInput.trim() || savingObj}
+              className="rounded-2xl bg-[#1a6b7f] text-white font-bold px-5 py-3.5 hover:bg-[#155a6b] transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm flex-shrink-0"
+            >
+              {savingObj ? "Saving…" : "Save objective"}
+            </button>
+          </div>
         </div>
 
         {/* List */}
@@ -1928,7 +2363,10 @@ function PMTab({ onSwitchToKanban, buildMode }: { onSwitchToKanban: () => void; 
             {objectives.map((obj) => (
               <div key={obj.id} className="bg-white border border-[#e8e4de] rounded-2xl px-5 py-4 flex items-start justify-between gap-4">
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm text-[#0e2a47] leading-relaxed">{obj.title}</p>
+                  <div className="flex items-center gap-2 mb-1">
+                    <CardTypeBadge type={obj.card_type} />
+                    <p className="text-sm text-[#0e2a47] leading-relaxed">{obj.title}</p>
+                  </div>
                   {obj.description && (
                     <p className="text-xs text-[#6a7f8f] mt-0.5 leading-relaxed">{obj.description}</p>
                   )}
@@ -1937,7 +2375,7 @@ function PMTab({ onSwitchToKanban, buildMode }: { onSwitchToKanban: () => void; 
                   </p>
                 </div>
                 <span className={`shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full capitalize ${STATUS_STYLES[obj.status]}`}>
-                  {obj.status}
+                  {STATUS_LABELS[obj.status]}
                 </span>
               </div>
             ))}
@@ -1955,7 +2393,10 @@ function PMTab({ onSwitchToKanban, buildMode }: { onSwitchToKanban: () => void; 
 export default function TeamPage() {
   const [activeTab, setActiveTab] = useState<"kanban" | "team" | "pm" | "coach">("kanban");
   const [pendingObjective, setPendingObjective] = useState<{ id: string; problem: string } | null>(null);
+  const [cardContext, setCardContext] = useState<Objective | null>(null);
+  const [selectedCard, setSelectedCard] = useState<Objective | null>(null);
   const [buildMode, setBuildMode] = useState<boolean>(true);
+  const [kanbanRefreshKey, setKanbanRefreshKey] = useState(0);
 
   // Pre-select tab from ?tab= query param; load persisted build mode
   useEffect(() => {
@@ -1974,9 +2415,39 @@ export default function TeamPage() {
     localStorage.setItem("rise_team_mode", next ? "build" : "research");
   }
 
-  function handleDiscuss(objectiveId: string, problem: string) {
-    setPendingObjective({ id: objectiveId, problem });
+  function handleStartDiscussion(obj: Objective) {
+    const problem = obj.title + (obj.description ? `\n\n${obj.description}` : "");
+    setPendingObjective({ id: obj.id, problem });
+    setCardContext(obj);
+    setSelectedCard(null);
     setActiveTab("team");
+  }
+
+  function handleDiscussionSaved(objectiveId: string, discussion: Discussion, prd: string | null) {
+    // Save discussion to the card
+    void (async () => {
+      const { data } = await supabase
+        .from("objectives")
+        .select("discussions, prd")
+        .eq("id", objectiveId)
+        .single();
+      const existing: Discussion[] = (data?.discussions as Discussion[]) ?? [];
+      const updated = [...existing, discussion];
+      const fields: Record<string, unknown> = { discussions: updated };
+      if (prd) fields.prd = prd;
+      await updateObjectiveField(objectiveId, fields);
+      setKanbanRefreshKey((k) => k + 1);
+    })();
+  }
+
+  function handleCardUpdate(updated: Objective) {
+    if (updated.id === "__deleted__") {
+      setSelectedCard(null);
+      setKanbanRefreshKey((k) => k + 1);
+      return;
+    }
+    setSelectedCard(updated);
+    setKanbanRefreshKey((k) => k + 1);
   }
 
   const tabs = [
@@ -2023,11 +2494,18 @@ export default function TeamPage() {
           ))}
         </div>
 
-        {activeTab === "kanban" && <KanbanTab onDiscuss={handleDiscuss} />}
+        {activeTab === "kanban" && (
+          <KanbanTab
+            onCardClick={(obj) => setSelectedCard(obj)}
+            refreshKey={kanbanRefreshKey}
+          />
+        )}
         {activeTab === "team" && (
           <ProductTeamTab
             pendingObjective={pendingObjective}
-            onObjectiveSaved={() => setPendingObjective(null)}
+            cardContext={cardContext}
+            onObjectiveSaved={() => { setPendingObjective(null); setKanbanRefreshKey((k) => k + 1); }}
+            onDiscussionSaved={handleDiscussionSaved}
             buildMode={buildMode}
           />
         )}
@@ -2035,6 +2513,16 @@ export default function TeamPage() {
         {activeTab === "coach" && <ProductCoachTab buildMode={buildMode} />}
 
       </div>
+
+      {/* Card detail slide-in panel */}
+      {selectedCard && (
+        <CardDetailPanel
+          obj={selectedCard}
+          onClose={() => setSelectedCard(null)}
+          onUpdate={handleCardUpdate}
+          onStartDiscussion={handleStartDiscussion}
+        />
+      )}
     </main>
   );
 }
