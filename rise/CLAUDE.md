@@ -52,16 +52,18 @@ Rise is an AI-powered trip planning app. It helps travellers plan trips day-by-d
 ### Admin
 - **AI Logs** (`/admin`) — Table of all Claude API calls with prompt, input, output, latency, token counts, and per-log rating/notes for evaluation. Team discussion titles strip markdown asterisks from display.
 - **User feedback** (`/feedback-admin`) — All `user_feedback` entries ordered by most recent, with page URL, feedback text, and date.
+- **Evals** (`/admin/evals`) — Three-level evaluation framework for AI output quality. Four tabs: (1) Test cases — lists pre-seeded family prompt scenarios with criteria tags; (2) Run evals — select a test case via `CustomSelect` dropdown, run against `/api/itinerary/generate`, view output, rate 1-5 with notes, "Ask Claude to judge →" for LLM-as-judge scoring with per-criterion pass/fail breakdown; (3) Results — sortable table of all eval results (test case, model, human score, LLM score, date); (4) Model comparison — select test case + Model A/B, run both in parallel, side-by-side output with auto-judging and win/loss summary. All dropdowns use `CustomSelect` (div-based, not native select) to avoid browser event issues. Data stored in `eval_test_cases` and `eval_results` Supabase tables. Judge route at `/api/evals/judge` calls Claude with structured scoring prompt.
 
 ### Product team (`/team`) — four tabs
 - **Build / Research mode toggle** — Persistent toggle in the page header (all tabs). Default: Build mode. Stored in `localStorage("rise_team_mode")`. Teal dot = Build mode, amber dot = Research mode. The active mode is injected as an `IMPORTANT:` instruction into every agent system prompt: Sarah (framing, synthesis, PRD), Alex, Maya, Luca, Elena, PM Sarah, and the product coach. Build mode instructs agents to ship complete features without research gates or phased rollouts; Research mode applies standard discovery practices.
-- **Card types** — Each objective has a `card_type` field: `objective` (teal), `improvement` (amber), `bug` (red). Type badges shown on kanban cards, detail panel, and PM tab objective list. `CardTypeSelector` component used when creating cards from PM tab.
-- **Kanban tab** — Board with four columns (Backlog / Refine / Implement / Done). Status values: `backlog` | `refine` | `implement` | `done`. Cards are sourced from the `objectives` table grouped by status. Each card: type badge + title (line-clamp-2, markdown asterisks stripped), description (line-clamp-2), PRD/discussion count indicators, drag-and-drop to move between columns (HTML5 `draggable`; Done column is read-only), delete with confirmation. Clicking a card opens the Card Detail Panel (slide-in). Column highlights with `bg-[#1a6b7f]/5 ring-1 ring-[#1a6b7f]/20` on dragover. Columns use solid `border-[#c8c3bb]` borders; headers use `text-[#4a6580]`. Container uses `grid grid-cols-4` and `overflow-x-hidden` on `<main>` to prevent horizontal page scroll. `refreshKey` state triggers re-fetch when cards are modified elsewhere.
-- **Card detail panel** — Slide-in panel (right side, `fixed z-50`) opened by clicking a kanban card. Shows: card title, type badge, status badge, created date, description, PM conversation summary (`pm_summary`), team discussions list (date + summary, expandable to full transcript), "Start team discussion →" button (visible for refine cards), expandable PRD, copyable Claude Code prompt, editable Claude Code result textarea (saved to `claude_code_result`), "Move to [next status] →" button, delete. `NEXT_STATUS` map: backlog→refine, refine→implement, implement→done.
-- **Team discussion flow** — When "Start team discussion →" is clicked from a card detail panel, switches to Product team tab with problem pre-filled and full card context (`buildCardContext()`) injected into all agent system prompts. Card context includes: title, type, description, pm_summary, previous discussion summaries, PRD, Claude Code result. After discussion + PRD generates, "Save to card →" button generates a 3-5 sentence summary via Sarah, then stores the discussion (summary + full transcript + PRD) in the card's `discussions` jsonb array.
+- **Card types** — Each objective has a `card_type` field: `objective` (teal), `improvement` (amber), `bug` (red). Type badges shown on kanban cards, detail panel, and PM tab objective list. `CardTypeSelector` component used when creating cards from the kanban "+ New card" form. PM tab always creates `objective` type cards.
+- **Kanban tab** — Board with four columns (Backlog / Refine / Implement / Done). Status values: `backlog` | `refine` | `implement` | `done`. "+ New card" button above the board opens an inline form (title + description + type selector) for directly creating Backlog cards — Bugs and Improvements are created here without PM conversation. Cards are sourced from the `objectives` table grouped by status. Each card: type badge + title (line-clamp-2, markdown asterisks stripped), description (line-clamp-2), PRD/discussion count indicators, drag-and-drop to move between columns (HTML5 `draggable`; Done column is read-only), delete with confirmation. Clicking a card opens the Card Detail Panel (slide-in). Column highlights with `bg-[#1a6b7f]/5 ring-1 ring-[#1a6b7f]/20` on dragover. Columns use solid `border-[#c8c3bb]` borders; headers use `text-[#4a6580]`. Container uses `grid grid-cols-4` and `overflow-x-hidden` on `<main>` to prevent horizontal page scroll. `refreshKey` state triggers re-fetch when cards are modified elsewhere.
+- **Card detail panel** — Slide-in panel (right side, `fixed z-50`) opened by clicking a kanban card. Shows: card title, type badge, status badge, created date, description, PM conversation summary (`pm_summary`), team discussions list (date + summary, expandable to full transcript), "Start team discussion →" button (visible for refine cards — opens full-screen modal), expandable PRD, copyable Claude Code prompt. Claude Code result textarea only shown on `implement`/`done` cards (hidden on `backlog`/`refine`). "Move to [next status] →" button with inline confirmation when moving Refine → Implement without any discussions ("No team discussion has been run for this card. Move to Implement anyway?" Yes/No). Delete button. `NEXT_STATUS` map: backlog→refine, refine→implement, implement→done.
+- **Team discussion flow** — "Start team discussion →" opens a full-screen modal (`fixed inset-0 z-[60]`) containing the complete `ProductTeamTab` with card context. Full card context (`buildCardContext()`) injected into all agent system prompts: title, type, description, pm_summary, previous discussion summaries, PRD, Claude Code result. After discussion + PRD generates, "Save to card →" closes the modal and returns to the card detail panel with the new discussion visible. Discussion stored as summary + full transcript + PRD in the card's `discussions` jsonb array.
+- **Alex in Build/Research mode** — In Build mode (`buildMode=true`), Alex (Researcher) is excluded from the parallel specialist calls in team discussions. Only included when `buildMode=false` (Research mode). The team roster display, synthesis prompt, PRD prompt, discussion output rendering, and download conversation contributors line all respect this flag.
 - **Markdown rendering** — Agent, coach, and PM chat bubbles use the `MarkdownText` component (defined in `team/page.tsx`) to render markdown: `##`/`###` as bold headings, `**text**` as bold, `---` as horizontal rules, `-`/`*` as bullet lists, numbered lists. Kanban card titles and admin discussion titles strip `**`/`*` via `.replace(/\*+/g, "")`.
 - **Product team tab** — Multi-agent discussion: Sarah (PM) frames the problem (2048 tokens), Alex/Maya/Luca/Elena respond in parallel (2048 tokens each), Sarah synthesises (4096 tokens). Generates PRD (8000 tokens). If launched from a card (`cardContext`), shows a card context banner and "Save to card →" button after completion. If launched without card context, "Save to Kanban →" creates a new card. Sarah's memory persisted in `agent_memory` table. Saves to `team_conversations` (type=`"team"`). PRD generation instructs Claude to write a Claude Code Implementation Prompt section: functional description of what to build, hard constraints on sequencing/data flow only — no acceptance criteria, copy templates, animation details, schema details, manual testing instructions, QA steps, or scenario-based testing requirements (Claude Code cannot run these; quality validation is the founder's responsibility). Synthesis and PRD generation both use `sarahSystemWithMemory` (Sarah's base system prompt + build mode instruction + rolling memory). PRD sections: Overview / Problem Statement / User Need / Proposed Solution / User Stories / Success Metrics / Technical Considerations (strategic only — no implementation details) / Risks & Open Questions / Claude Code Implementation Prompt.
-- **PM tab** — 1-on-1 conversation with Sarah (PM). Chat UI with streaming responses. On mount, fetches full CLAUDE.md content from `/api/rise-context` and injects it into the system prompt. Saves conversations to `team_conversations` (type=`"pm"`). Past conversations browsable via `PastConversations`. "View Kanban →" button next to the Agreed objectives heading switches to the Kanban tab. Objectives panel: card type selector (Objective / Improvement / Bug) + text input + "Save objective" button. On save, Claude extracts a 1-sentence description and generates a 3-5 sentence `pm_summary` from the conversation, then saves to `objectives` with `status="backlog"` and selected `card_type`. Sarah's instruction tells her to ask Philip to use the "Save objective" input — she cannot save objectives herself.
+- **PM tab** — 1-on-1 conversation with Sarah (PM). Chat UI with streaming responses. On mount, fetches full CLAUDE.md content from `/api/rise-context` and injects it into the system prompt. Saves conversations to `team_conversations` (type=`"pm"`). Past conversations browsable via `PastConversations`. "View Kanban →" button next to the Agreed objectives heading switches to the Kanban tab. Auto-detect objective agreement: `detectObjectiveAgreed()` checks Sarah's last message for trigger phrases ("shall we save that", "want me to add that to the kanban", etc.). When detected, an "Add to Kanban as Objective →" button appears. Clicking it auto-extracts title (max 8 words) and description (1 sentence) from the conversation via Claude, generates a 3-5 sentence `pm_summary`, and saves to `objectives` with `status="backlog"` and `card_type="objective"`. No manual input or type selector — PM conversations always create Objectives. Sarah's system prompt instructs her to use agreement phrases when an objective is agreed.
 - **Product coach tab** — 1-on-1 with a product coach (Claude Opus 4.6). Full conversation history maintained; saved to `team_conversations` (type=`"coach"`).
 - **Past conversations** (`PastConversations` component, used in all three chat tabs) — Expandable panel listing saved conversations. Each row has a hover-revealed `×` delete button; clicking shows inline "Delete this conversation? Yes / No" confirmation, then deletes from `team_conversations` and removes from local state. The currently active conversation cannot be deleted (no button shown, shows `· Active` label instead). Coach and PM tabs track `conversationId` in both a `useRef` (for in-flight updates) and a `useState` (to pass as `activeConversationId` prop).
 
@@ -72,6 +74,7 @@ Rise is an AI-powered trip planning app. It helps travellers plan trips day-by-d
 - **Rise context API** (`/api/rise-context`) — Server-side GET route that reads and returns `CLAUDE.md` as JSON using Node `fs`. Used by the PM tab to inject the full product context into the system prompt.
 - **Traveler composition** (`lib/composition.ts`) — `buildCompositionSegment(travelerCount, childrenAges)` builds a plain-language context segment injected into every AI prompt. Translates age ranges to behavioural constraints: Under 2 → pram access required, nap windows mid-morning/afternoon, no loud environments; 2–4 → 45-min activity max, outdoor space; 5–8 → 90-min tolerance, interactive; 9–12 → near-adult stamina. Constraints are deduplicated across siblings. Used in activities-stream, itinerary/generate, itinerary/edit, recommendations, and transport routes.
 - **Prompt caching** — Static system prompt instructions are separated into a `system` array with `cache_control: { type: "ephemeral" }` on the streaming routes (activities-stream, recommendations, transport). Dynamic per-request context goes in the user message. Caches once the static portion reaches Anthropic's threshold (~1024 tokens).
+- **Eval scripts** — `npm run eval:family` runs `scripts/eval-family-prompts.ts`: tests `buildCompositionSegment` against 7 family scenarios (solo, Under 2, 9–12, mixed, beach/city/adventure destinations) with 20 assertions. Exits with code 1 on failure. `npm run eval:recommendations` runs the restaurant recommendations eval.
 
 ---
 
@@ -90,7 +93,9 @@ rise/
 │   ├── transport/page.tsx        # Airport → Hotel advice
 │   ├── feedback/page.tsx         # Full-page user feedback form
 │   ├── feedback-admin/page.tsx   # Admin view of all user_feedback entries
-│   ├── admin/page.tsx            # AI log viewer
+│   ├── admin/
+│   │   ├── page.tsx              # AI log viewer
+│   │   └── evals/page.tsx        # Eval framework — test cases, run evals, results, model comparison
 │   ├── team/page.tsx             # Product agents — Kanban / Product team / PM / Coach tabs
 │   ├── guides/
 │   │   ├── page.tsx              # City search
@@ -120,11 +125,13 @@ rise/
 │   │   │   └── rate/route.ts     # POST: rate a tip, award guide points
 │   │   ├── team/
 │   │   │   └── chat/route.ts     # POST: non-streaming Claude call for product agents
+│   │   ├── evals/
+│   │   │   └── judge/route.ts    # POST: LLM-as-judge scoring against criteria
 │   │   └── admin/logs/
 │   │       ├── route.ts          # GET: all AI logs
 │   │       └── [id]/route.ts     # PATCH: update rating/notes
 │   └── components/
-│       ├── Nav.tsx               # Sticky top nav with dropdowns + mobile hamburger
+│       ├── Nav.tsx               # Sticky top nav with dropdowns + mobile hamburger (Admin: AI Logs, Evals, Product, PM, Feedback)
 │       ├── FeedbackButton.tsx    # Floating feedback button (hidden on /welcome and /team*)
 │       └── PlacesAutocomplete.tsx  # Google Places (New API) autocomplete input
 ├── lib/
@@ -132,6 +139,9 @@ rise/
 │   ├── ai-logger.ts              # Claude call wrapper with Supabase logging
 │   ├── composition.ts            # buildCompositionSegment() — traveler count + children age constraints for AI prompts
 │   └── guides.ts                 # Shared types (Guide, Tip, Level) and helpers (getLevel, LEVEL_BADGE)
+├── scripts/
+│   ├── eval-family-prompts.ts    # Level 1 — prompt inspection: 7 family scenarios, 20 assertions
+│   └── eval-recommendations.ts   # Recommendation eval script
 ├── middleware.ts                 # Edge middleware — password protection
 └── CLAUDE.md                     # This file
 ```
@@ -153,6 +163,8 @@ rise/
 | `objectives` | PM 1-on-1 agreed objectives — title, description (1-sentence), prd (full PRD text), status (`backlog`/`refine`/`implement`/`done`), card_type (`objective`/`improvement`/`bug`), pm_summary (text), claude_code_result (text), discussions (jsonb array of {date, summary, transcript, prd}) |
 | `user_feedback` | Floating button + /feedback form submissions — page URL, feedback text |
 | `activity_feedback` | Activity preview interaction log — event, activity name/category, chip label/type, chips_source (fallback/dynamic), first_chip_label |
+| `eval_test_cases` | Eval test scenarios — name, feature, inputs (jsonb), criteria (text[]). Pre-seeded with 7 family prompt scenarios |
+| `eval_results` | Eval run results — test_case_id (FK), model, prompt_used, ai_output, human_score (1-5), human_notes, llm_score (1-5), llm_reasoning |
 
 **Required SQL to add composition columns to `travelers` table:**
 ```sql
@@ -200,6 +212,31 @@ create table user_feedback (
   id uuid primary key default gen_random_uuid(),
   page text not null,
   feedback text not null,
+  created_at timestamptz default now()
+);
+```
+
+**Required SQL for eval tables:**
+```sql
+create table eval_test_cases (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  feature text not null default 'itinerary',
+  inputs jsonb not null,
+  criteria text[] not null,
+  created_at timestamptz default now()
+);
+
+create table eval_results (
+  id uuid primary key default gen_random_uuid(),
+  test_case_id uuid references eval_test_cases(id),
+  model text not null,
+  prompt_used text,
+  ai_output text not null,
+  human_score integer,
+  human_notes text,
+  llm_score integer,
+  llm_reasoning text,
   created_at timestamptz default now()
 );
 ```
