@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -42,6 +42,66 @@ type JudgeResponse = {
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
+
+function CustomSelect({
+  value,
+  onChange,
+  options,
+  placeholder = "Select…",
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  const selected = options.find((o) => o.value === value);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full bg-white border border-[#d4cfc5] rounded-xl px-4 py-3 text-sm text-left flex items-center justify-between gap-2 hover:border-[#b8b3a9] transition-colors"
+      >
+        <span className={selected ? "text-[#0e2a47]" : "text-[#9ca3af]"}>
+          {selected ? selected.label : placeholder}
+        </span>
+        <svg className={`w-3.5 h-3.5 text-[#6a7f8f] transition-transform ${open ? "rotate-180" : ""}`} viewBox="0 0 16 16" fill="none">
+          <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {open && (
+        <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-[#d4cfc5] rounded-xl shadow-lg overflow-hidden max-h-64 overflow-y-auto">
+          {options.map((o) => (
+            <button
+              key={o.value}
+              type="button"
+              onClick={() => { onChange(o.value); setOpen(false); }}
+              className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
+                o.value === value
+                  ? "bg-[#1a6b7f]/10 text-[#1a6b7f] font-semibold"
+                  : "text-[#0e2a47] hover:bg-[#f0ede8]"
+              }`}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function ScoreBadge({ score }: { score: number | null }) {
   if (score == null) return <span className="text-xs text-[#6a7f8f]">—</span>;
@@ -125,23 +185,25 @@ function RunEvalsTab() {
       .then(({ data }) => { setCases((data ?? []) as TestCase[]); });
   }, []);
 
-  const selected = cases.find((c) => c.id === selectedId);
+  const selected = cases.find((c) => c.id === selectedId) ?? null;
 
   async function handleRun() {
-    if (!selected) return;
-    setRunning(true);
+    const tc = cases.find((c) => c.id === selectedId);
+    if (!tc) return;
+
     setOutput("");
     setResultId(null);
     setHumanScore(null);
     setHumanNotes("");
     setHumanSaved(false);
     setJudgeResult(null);
+    setRunning(true);
 
     try {
       const res = await fetch("/api/itinerary/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(selected.inputs),
+        body: JSON.stringify(tc.inputs),
       });
       const data = await res.json();
       const outputStr = JSON.stringify(data, null, 2);
@@ -151,9 +213,9 @@ function RunEvalsTab() {
       const { data: row } = await supabase
         .from("eval_results")
         .insert({
-          test_case_id: selected.id,
+          test_case_id: tc.id,
           model: "claude-sonnet-4-6",
-          prompt_used: `itinerary/generate with inputs: ${JSON.stringify(selected.inputs)}`,
+          prompt_used: `itinerary/generate with inputs: ${JSON.stringify(tc.inputs)}`,
           ai_output: outputStr,
         })
         .select("id")
@@ -206,14 +268,12 @@ function RunEvalsTab() {
       <div className="flex gap-3 items-end">
         <div className="flex-1">
           <label className="block text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-2">Test case</label>
-          <select
+          <CustomSelect
             value={selectedId}
-            onChange={(e) => setSelectedId(e.target.value)}
-            className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-[#0e2a47] text-sm"
-          >
-            <option value="">Select a test case…</option>
-            {cases.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
+            onChange={setSelectedId}
+            options={cases.map((c) => ({ value: c.id, label: c.name }))}
+            placeholder="Select a test case…"
+          />
         </div>
         <button
           onClick={handleRun}
@@ -494,34 +554,28 @@ function ModelComparisonTab() {
       <div className="grid grid-cols-3 gap-3">
         <div>
           <label className="block text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-2">Test case</label>
-          <select
+          <CustomSelect
             value={selectedId}
-            onChange={(e) => setSelectedId(e.target.value)}
-            className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-[#0e2a47] text-sm"
-          >
-            <option value="">Select…</option>
-            {cases.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
+            onChange={setSelectedId}
+            options={cases.map((c) => ({ value: c.id, label: c.name }))}
+            placeholder="Select…"
+          />
         </div>
         <div>
           <label className="block text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-2">Model A</label>
-          <select
+          <CustomSelect
             value={modelA}
-            onChange={(e) => setModelA(e.target.value)}
-            className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-[#0e2a47] text-sm"
-          >
-            {models.map((m) => <option key={m} value={m}>{m}</option>)}
-          </select>
+            onChange={setModelA}
+            options={models.map((m) => ({ value: m, label: m }))}
+          />
         </div>
         <div>
           <label className="block text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-2">Model B</label>
-          <select
+          <CustomSelect
             value={modelB}
-            onChange={(e) => setModelB(e.target.value)}
-            className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-[#0e2a47] text-sm"
-          >
-            {models.map((m) => <option key={m} value={m}>{m}</option>)}
-          </select>
+            onChange={setModelB}
+            options={models.map((m) => ({ value: m, label: m }))}
+          />
         </div>
       </div>
 
