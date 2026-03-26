@@ -574,7 +574,7 @@ function SectionDivider({ label }: { label: string }) {
   return (
     <div className="flex items-center gap-3">
       <div className="flex-1 h-px bg-[#d4cfc5]" />
-      <span className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest">{label}</span>
+      <span className="text-xs font-bold text-[#4a6580] uppercase tracking-widest">{label}</span>
       <div className="flex-1 h-px bg-[#d4cfc5]" />
     </div>
   );
@@ -1497,7 +1497,7 @@ function KanbanCard({
     >
       {/* Title */}
       <div>
-        <p className="text-sm font-bold text-[#0e2a47] leading-snug line-clamp-2" title={obj.title}>{obj.title}</p>
+        <p className="text-sm font-bold text-[#0e2a47] leading-snug line-clamp-2" title={obj.title.replace(/\*+/g, "")}>{obj.title.replace(/\*+/g, "")}</p>
         {obj.description && (
           <p className="text-xs text-[#6a7f8f] mt-1 leading-relaxed line-clamp-3 overflow-hidden">{obj.description}</p>
         )}
