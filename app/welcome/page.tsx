@@ -1082,6 +1082,8 @@ export default function WelcomePage() {
                   placeholder="e.g. Sofia"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
+                  autoComplete="name"
+                  name="name"
                   autoFocus
                   className={darkInput}
                 />
@@ -1095,6 +1097,8 @@ export default function WelcomePage() {
                   placeholder="you@example.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="email"
+                  name="email"
                   className={darkInput}
                 />
               </div>

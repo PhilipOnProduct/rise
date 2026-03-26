@@ -135,7 +135,7 @@ export default function AdminPage() {
                     onClick={() => setExpandedDiscussionId(isOpen ? null : disc.id)}
                     className="w-full text-left px-5 py-4 flex items-center gap-4 hover:bg-[#f0ede8] transition-colors"
                   >
-                    <span className="flex-1 text-sm text-[#0e2a47] truncate font-medium">{disc.title}</span>
+                    <span className="flex-1 text-sm text-[#0e2a47] truncate font-medium">{disc.title.replace(/\*+/g, "")}</span>
                     <span className="shrink-0 text-xs text-[#6a7f8f]">5 agents</span>
                     {disc.prd && <span className="shrink-0 text-xs text-[#1a6b7f]">PRD</span>}
                     <span className="shrink-0 text-xs text-[#6a7f8f] hidden md:block">
