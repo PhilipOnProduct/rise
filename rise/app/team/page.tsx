@@ -73,7 +73,7 @@ const PM_SYSTEM =
   "You are Sarah, the Product Manager for Rise, a travel assistant app. " +
   "You are having a 1-on-1 conversation with Philip, the founder. " +
   "Your role is to help him clarify thinking, discuss ideas and issues, and agree on clear objectives to work on. " +
-  "When you and Philip agree on an objective, summarize it clearly and tell him to save it using the 'Save objective' input below the chat. You cannot save it yourself. " +
+  "When you and Philip agree on an objective, summarize it clearly in one sentence and ask if he'd like to add it to the kanban board. Use a phrase like 'Shall we save that as an objective?' or 'Want me to add that to the kanban?' to signal agreement. " +
   "Keep responses concise and conversational — this is a 1-on-1, not a formal meeting. " +
   "Be direct, ask good questions, and push back when needed.";
 
@@ -511,13 +511,12 @@ function downloadConversationFile(
   const parts = [
     `# ${problem}`,
     ``,
-    `_${date} · Contributors: Sarah (PM), Alex (Researcher), Maya (Designer), Luca (Tech Lead), Elena (Travel Expert)_`,
+    `_${date} · Contributors: Sarah (PM)${alexContent ? ", Alex (Researcher)" : ""}, Maya (Designer), Luca (Tech Lead), Elena (Travel Expert)_`,
     ``,
     `---`,
     ``,
     section("Sarah", "Framing", sarahSystem, `Frame this problem for the product team:\n\n${problem}`, sarahFrame),
-    ``, `---`, ``,
-    section("Alex", "Research", `${agents.alex.system}\n\n${mode}`, specialistInput, alexContent),
+    ...(alexContent ? [``, `---`, ``, section("Alex", "Research", `${agents.alex.system}\n\n${mode}`, specialistInput, alexContent)] : []),
     ``, `---`, ``,
     section("Maya", "Design", `${agents.maya.system}\n\n${mode}`, specialistInput, mayaContent),
     ``, `---`, ``,
@@ -911,13 +910,16 @@ function CardDetailPanel({
   obj,
   onClose,
   onUpdate,
-  onStartDiscussion,
+  onDiscussionSaved,
+  buildMode,
 }: {
   obj: Objective;
   onClose: () => void;
   onUpdate: (updated: Objective) => void;
-  onStartDiscussion: (obj: Objective) => void;
+  onDiscussionSaved: (objectiveId: string, discussion: Discussion, prd: string | null) => void;
+  buildMode: boolean;
 }) {
+  const [showDiscussionModal, setShowDiscussionModal] = useState(false);
   const [codeResult, setCodeResult] = useState(obj.claude_code_result ?? "");
   const [savingResult, setSavingResult] = useState(false);
   const [resultSaved, setResultSaved] = useState(false);
@@ -925,6 +927,7 @@ function CardDetailPanel({
   const [prdOpen, setPrdOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmNoDisc, setConfirmNoDisc] = useState(false);
 
   const implPrompt = obj.prd ? extractImplementationPrompt(obj.prd) : "";
   const nextStatus = NEXT_STATUS[obj.status];
@@ -945,8 +948,14 @@ function CardDetailPanel({
     setTimeout(() => setResultSaved(false), 2000);
   }
 
-  async function handleMoveToNext() {
+  async function handleMoveToNext(force?: boolean) {
     if (!nextStatus) return;
+    // Warn when moving refine → implement without any discussions
+    if (obj.status === "refine" && nextStatus === "implement" && obj.discussions.length === 0 && !force) {
+      setConfirmNoDisc(true);
+      return;
+    }
+    setConfirmNoDisc(false);
     await updateObjectiveStatus(obj.id, nextStatus);
     onUpdate({ ...obj, status: nextStatus });
   }
@@ -1073,11 +1082,39 @@ function CardDetailPanel({
           {/* Start team discussion — visible for refine cards */}
           {obj.status === "refine" && (
             <button
-              onClick={() => onStartDiscussion(obj)}
+              onClick={() => setShowDiscussionModal(true)}
               className="rounded-2xl bg-[#1a6b7f] text-white font-bold px-6 py-3 hover:bg-[#155a6b] transition-colors text-sm w-fit"
             >
               Start team discussion →
             </button>
+          )}
+
+          {/* Full-screen discussion modal */}
+          {showDiscussionModal && (
+            <div className="fixed inset-0 z-[60] bg-[#f8f6f1] overflow-y-auto">
+              <div className="max-w-3xl mx-auto px-6 py-8">
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-lg font-bold text-[#0e2a47]">Team discussion: {cleanTitle}</h2>
+                  <button
+                    onClick={() => setShowDiscussionModal(false)}
+                    className="text-[#6a7f8f] hover:text-[#0e2a47] text-xl p-1"
+                  >×</button>
+                </div>
+                <ProductTeamTab
+                  pendingObjective={{ id: obj.id, problem: obj.title + (obj.description ? `\n\n${obj.description}` : "") }}
+                  cardContext={obj}
+                  onObjectiveSaved={() => {}}
+                  onDiscussionSaved={(objId, disc, prd) => {
+                    onDiscussionSaved(objId, disc, prd);
+                    setShowDiscussionModal(false);
+                    // Refresh the card with new discussion
+                    const updated = { ...obj, discussions: [...obj.discussions, disc], prd: prd || obj.prd };
+                    onUpdate(updated);
+                  }}
+                  buildMode={buildMode}
+                />
+              </div>
+            </div>
           )}
 
           {/* PRD */}
@@ -1114,33 +1151,36 @@ function CardDetailPanel({
             </div>
           )}
 
-          {/* Claude Code result */}
-          <div>
-            <p className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-2">Claude Code Result</p>
-            <textarea
-              rows={5}
-              value={codeResult}
-              onChange={(e) => { setCodeResult(e.target.value); setResultSaved(false); }}
-              placeholder="Paste Claude Code output here…"
-              className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-[#0e2a47] placeholder-[#9ca3af] transition-colors text-xs resize-none"
-            />
-            <div className="flex items-center gap-2 mt-2">
-              <button
-                onClick={handleSaveResult}
-                disabled={savingResult}
-                className="text-xs font-semibold bg-[#1a6b7f] text-white rounded-xl px-4 py-2 hover:bg-[#155a6b] transition-colors disabled:opacity-40"
-              >
-                {savingResult ? "Saving…" : "Save result"}
-              </button>
-              {resultSaved && <span className="text-xs text-[#1a6b7f]">Saved</span>}
+          {/* Claude Code result — only on implement/done */}
+          {(obj.status === "implement" || obj.status === "done") && (
+            <div>
+              <p className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-2">Claude Code Result</p>
+              <textarea
+                rows={5}
+                value={codeResult}
+                onChange={(e) => { setCodeResult(e.target.value); setResultSaved(false); }}
+                placeholder="Paste Claude Code output here…"
+                className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-[#0e2a47] placeholder-[#9ca3af] transition-colors text-xs resize-none"
+              />
+              <div className="flex items-center gap-2 mt-2">
+                <button
+                  onClick={handleSaveResult}
+                  disabled={savingResult}
+                  className="text-xs font-semibold bg-[#1a6b7f] text-white rounded-xl px-4 py-2 hover:bg-[#155a6b] transition-colors disabled:opacity-40"
+                >
+                  {savingResult ? "Saving…" : "Save result"}
+                </button>
+                {resultSaved && <span className="text-xs text-[#1a6b7f]">Saved</span>}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Actions */}
-          <div className="flex items-center gap-3 flex-wrap pt-2 border-t border-[#d4cfc5]">
+          <div className="flex flex-col gap-3 pt-2 border-t border-[#d4cfc5]">
+            <div className="flex items-center gap-3 flex-wrap">
             {nextStatus && (
               <button
-                onClick={handleMoveToNext}
+                onClick={() => handleMoveToNext()}
                 className="rounded-2xl bg-[#1a6b7f] text-white font-bold px-6 py-3 hover:bg-[#155a6b] transition-colors text-sm"
               >
                 Move to {STATUS_LABELS[nextStatus]} →
@@ -1161,6 +1201,16 @@ function CardDetailPanel({
                   Delete card
                 </button>
               )
+            )}
+            </div>
+            {confirmNoDisc && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+                <p className="text-xs text-amber-700">No team discussion has been run for this card. Move to Implement anyway?</p>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button onClick={() => handleMoveToNext(true)} className="text-xs font-semibold text-amber-700 hover:text-amber-900">Yes</button>
+                  <button onClick={() => setConfirmNoDisc(false)} className="text-xs text-[#6a7f8f] hover:text-[#4a6580]">No</button>
+                </div>
+              </div>
             )}
           </div>
 
@@ -1281,18 +1331,14 @@ function ProductTeamTab({
       );
       setThinking({});
 
-      // ── Step 2: Specialists in parallel ──────────────────────────────────
+      // ── Step 2: Specialists in parallel (Alex excluded in Build mode) ──
+      const includeAlex = !buildMode;
       setPhase("specialists");
-      setThinking({ alex: true, maya: true, luca: true, elena: true });
+      setThinking({ ...(includeAlex ? { alex: true } : {}), maya: true, luca: true, elena: true });
       const specialistPrompt = `Problem: ${problem}\n\nSarah's framing: ${frameText}\n\nShare your expert perspective.${cardCtx}`;
       let alexText = "", mayaText = "", lucaText = "", elenaText = "";
 
-      await Promise.all([
-        streamChat(TEAM_MODEL, `${AGENTS.alex.system}\n\n${modeInstruction}`,
-          [{ role: "user", content: specialistPrompt }], 2048,
-          (chunk) => { alexText += chunk; setAlexContent(alexText); }
-        ).then(() => setThinking((p) => { const n = { ...p }; delete n.alex; return n; })),
-
+      const specialistCalls: Promise<void>[] = [
         streamChat(TEAM_MODEL, `${AGENTS.maya.system}\n\n${modeInstruction}`,
           [{ role: "user", content: specialistPrompt }], 2048,
           (chunk) => { mayaText += chunk; setMayaContent(mayaText); }
@@ -1307,7 +1353,18 @@ function ProductTeamTab({
           [{ role: "user", content: specialistPrompt }], 2048,
           (chunk) => { elenaText += chunk; setElenaContent(elenaText); }
         ).then(() => setThinking((p) => { const n = { ...p }; delete n.elena; return n; })),
-      ]);
+      ];
+
+      if (includeAlex) {
+        specialistCalls.push(
+          streamChat(TEAM_MODEL, `${AGENTS.alex.system}\n\n${modeInstruction}`,
+            [{ role: "user", content: specialistPrompt }], 2048,
+            (chunk) => { alexText += chunk; setAlexContent(alexText); }
+          ).then(() => setThinking((p) => { const n = { ...p }; delete n.alex; return n; }))
+        );
+      }
+
+      await Promise.all(specialistCalls);
 
       // ── Step 3: Sarah synthesizes ─────────────────────────────────────────
       setPhase("synthesis");
@@ -1317,7 +1374,7 @@ function ProductTeamTab({
         TEAM_MODEL, sarahSystemWithMemory,
         [{
           role: "user",
-          content: `Problem: ${problem}\n\nYour framing:\n${frameText}\n\nTeam input:\nAlex (Research): ${alexText}\nMaya (Design): ${mayaText}\nLuca (Tech): ${lucaText}\nElena (Travel Expert): ${elenaText}\n\nSynthesize the key insights and give a clear product recommendation.`,
+          content: `Problem: ${problem}\n\nYour framing:\n${frameText}\n\nTeam input:\n${includeAlex ? `Alex (Research): ${alexText}\n` : ""}Maya (Design): ${mayaText}\nLuca (Tech): ${lucaText}\nElena (Travel Expert): ${elenaText}\n\nSynthesize the key insights and give a clear product recommendation.`,
         }],
         4096, (chunk) => { synthesisText += chunk; setSynthesis(synthesisText); }
       );
@@ -1373,7 +1430,7 @@ function ProductTeamTab({
             content:
               `Based on this product discussion, write a structured PRD.\n\n` +
               `Problem: ${problem}\nFraming: ${frameText}\n` +
-              `Research (Alex): ${alexText}\nDesign (Maya): ${mayaText}\nTech (Luca): ${lucaText}\nTravel Expert (Elena): ${elenaText}\n` +
+              `${includeAlex ? `Research (Alex): ${alexText}\n` : ""}Design (Maya): ${mayaText}\nTech (Luca): ${lucaText}\nTravel Expert (Elena): ${elenaText}\n` +
               `Synthesis: ${synthesisText}\n\n` +
               `Use these sections exactly:\n` +
               `## Overview\n## Problem Statement\n## User Need\n## Proposed Solution\n` +
@@ -1538,7 +1595,7 @@ function ProductTeamTab({
       {/* Team roster + memory status */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex gap-3 flex-wrap">
-          {(Object.entries(AGENTS) as [AgentId, typeof AGENTS[AgentId]][]).map(([id, a]) => (
+          {(Object.entries(AGENTS) as [AgentId, typeof AGENTS[AgentId]][]).filter(([id]) => id !== "alex" || !buildMode).map(([id, a]) => (
             <div key={id} className="flex items-center gap-2 bg-white border border-[#e8e4de] rounded-xl px-3 py-2">
               <div
                 className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${a.badge}`}
@@ -1615,7 +1672,7 @@ function ProductTeamTab({
           {(alexContent || mayaContent || lucaContent || elenaContent || phase === "specialists") && (
             <>
               <SectionDivider label="Team response" />
-              <AgentBubble agentId="alex" content={alexContent} thinking={!!thinking.alex} />
+              {(alexContent || thinking.alex) && <AgentBubble agentId="alex" content={alexContent} thinking={!!thinking.alex} />}
               <AgentBubble agentId="maya" content={mayaContent} thinking={!!thinking.maya} />
               <AgentBubble agentId="luca" content={lucaContent} thinking={!!thinking.luca} />
               <AgentBubble agentId="elena" content={elenaContent} thinking={!!thinking.elena} />
@@ -1979,6 +2036,11 @@ function KanbanTab({
   const [loading, setLoading] = useState(true);
   const [dragging, setDragging] = useState<{ id: string; fromStatus: ObjectiveStatus } | null>(null);
   const [dragOverCol, setDragOverCol] = useState<ObjectiveStatus | null>(null);
+  const [showNewCard, setShowNewCard] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
+  const [newDesc, setNewDesc] = useState("");
+  const [newType, setNewType] = useState<CardType>("objective");
+  const [savingNew, setSavingNew] = useState(false);
 
   useEffect(() => {
     loadObjectives().then((data) => { setObjectives(data); setLoading(false); });
@@ -2012,17 +2074,74 @@ function KanbanTab({
     await updateObjectiveStatus(id, toStatus);
   }
 
+  async function handleCreateCard() {
+    if (!newTitle.trim()) return;
+    setSavingNew(true);
+    const obj = await saveObjectiveWithDetails(newTitle.trim(), newDesc.trim() || null, "backlog", null, newType);
+    if (obj) {
+      setObjectives((prev) => [obj, ...prev]);
+      setNewTitle(""); setNewDesc(""); setNewType("objective"); setShowNewCard(false);
+    }
+    setSavingNew(false);
+  }
+
   if (loading) return <p className="text-sm text-[#6a7f8f] py-4">Loading…</p>;
+
+  const newCardForm = showNewCard ? (
+    <div className="bg-white border border-[#e8e4de] rounded-2xl p-5 mb-4 flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest">New card</span>
+        <button onClick={() => setShowNewCard(false)} className="text-[#6a7f8f] hover:text-[#0e2a47] text-sm">×</button>
+      </div>
+      <CardTypeSelector value={newType} onChange={setNewType} />
+      <input
+        type="text"
+        value={newTitle}
+        onChange={(e) => setNewTitle(e.target.value)}
+        placeholder="Card title…"
+        autoFocus
+        className="w-full bg-[#f8f6f1] border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-[#0e2a47] placeholder-[#9ca3af] transition-colors text-sm"
+      />
+      <textarea
+        rows={2}
+        value={newDesc}
+        onChange={(e) => setNewDesc(e.target.value)}
+        placeholder="Description (optional)…"
+        className="w-full bg-[#f8f6f1] border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-[#0e2a47] placeholder-[#9ca3af] transition-colors text-xs resize-none"
+      />
+      <button
+        onClick={handleCreateCard}
+        disabled={!newTitle.trim() || savingNew}
+        className="rounded-2xl bg-[#1a6b7f] text-white font-bold px-6 py-3 hover:bg-[#155a6b] transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm w-fit"
+      >
+        {savingNew ? "Creating…" : "Create card →"}
+      </button>
+    </div>
+  ) : (
+    <div className="mb-4">
+      <button
+        onClick={() => setShowNewCard(true)}
+        className="text-sm font-semibold text-[#1a6b7f] hover:underline"
+      >
+        + New card
+      </button>
+    </div>
+  );
 
   if (objectives.length === 0) {
     return (
-      <div className="border border-dashed border-[#d4cfc5] rounded-2xl p-10 text-center">
-        <p className="text-sm text-[#6a7f8f]">No cards yet — save objectives from the PM tab to populate the board.</p>
+      <div>
+        {newCardForm}
+        <div className="border border-dashed border-[#d4cfc5] rounded-2xl p-10 text-center">
+          <p className="text-sm text-[#6a7f8f]">No cards yet — save objectives from the PM tab or create one above.</p>
+        </div>
       </div>
     );
   }
 
   return (
+    <div>
+    {newCardForm}
     <div className="grid grid-cols-4 gap-3 pb-4">
       {KANBAN_COLUMNS.map((col) => {
         const cards = objectives.filter((o) => o.status === col.status);
@@ -2066,20 +2185,31 @@ function KanbanTab({
         );
       })}
     </div>
+    </div>
   );
 }
 
 // ── PM 1-on-1 Tab ─────────────────────────────────────────────────────────────
 
-function PMTab({ onSwitchToKanban, buildMode }: { onSwitchToKanban: () => void; buildMode: boolean }) {
+// Detect if Sarah's last message suggests saving an objective
+function detectObjectiveAgreed(content: string): boolean {
+  const lower = content.toLowerCase();
+  const patterns = [
+    "shall we save", "want me to add", "add that to the kanban", "save that as an objective",
+    "add it to the board", "shall we add", "want to save that", "lock that in",
+    "add this to the kanban", "save this as", "shall i add", "want to add that",
+  ];
+  return patterns.some((p) => lower.includes(p));
+}
+
+function PMTab({ onSwitchToKanban, onObjectiveSaved, buildMode }: { onSwitchToKanban: () => void; onObjectiveSaved: () => void; buildMode: boolean }) {
   const [messages, setMessages] = useState<CoachMessage[]>([]);
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   const [pmError, setPmError] = useState("");
   const [objectives, setObjectives] = useState<Objective[]>([]);
-  const [objInput, setObjInput] = useState("");
-  const [objType, setObjType] = useState<CardType>("objective");
   const [savingObj, setSavingObj] = useState(false);
+  const [savedObj, setSavedObj] = useState(false);
   const [riseContext, setRiseContext] = useState("");
   const conversationIdRef = useRef<string | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -2155,60 +2285,70 @@ function PMTab({ onSwitchToKanban, buildMode }: { onSwitchToKanban: () => void; 
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
   }
 
-  async function handleSaveObjective() {
-    const title = objInput.trim();
-    if (!title) return;
+  async function handleAddToKanban() {
     setSavingObj(true);
+    setSavedObj(false);
 
-    // Extract a one-sentence description from Sarah's last message
+    const convoSlice = messages.slice(-10).map((m) => `${m.role === "user" ? "Philip" : "Sarah"}: ${m.content}`).join("\n\n");
+
+    // Extract title and description from the conversation
+    let title = "";
     let description: string | null = null;
-    const lastSarahMsg = [...messages].reverse().find((m) => m.role === "assistant")?.content ?? "";
-    if (lastSarahMsg) {
-      try {
-        let desc = "";
-        await streamChat(
-          PM_MODEL,
-          "You extract concise one-sentence descriptions. Reply with ONLY the sentence — no extra text.",
-          [{
-            role: "user",
-            content:
-              `Write a one-sentence description for this product objective based on the conversation context.\n\n` +
-              `Objective: "${title}"\n\nContext (last message):\n${lastSarahMsg.slice(0, 600)}`,
-          }],
-          80,
-          (chunk) => { desc += chunk; }
-        );
-        const clean = desc.trim().replace(/^["']|["']$/g, "").replace(/\.+$/, "") + ".";
-        if (clean.length > 5) description = clean;
-      } catch { /* non-fatal */ }
+    try {
+      let extracted = "";
+      await streamChat(
+        PM_MODEL,
+        "You extract objective titles. Reply with ONLY the title — max 8 words, no quotes, no punctuation at end.",
+        [{
+          role: "user",
+          content: `Extract the agreed objective from this PM conversation as a concise kanban card title (max 8 words).\n\n${convoSlice}`,
+        }],
+        30,
+        (chunk) => { extracted += chunk; }
+      );
+      title = extracted.trim().replace(/^["']|["']$/g, "").replace(/\.$/g, "");
+    } catch {
+      title = "New objective";
     }
 
-    // Generate a PM summary from the conversation
+    try {
+      let desc = "";
+      await streamChat(
+        PM_MODEL,
+        "You extract concise one-sentence descriptions. Reply with ONLY the sentence — no extra text.",
+        [{
+          role: "user",
+          content: `Write a one-sentence description for the agreed objective from this conversation.\n\n${convoSlice}`,
+        }],
+        80,
+        (chunk) => { desc += chunk; }
+      );
+      const clean = desc.trim().replace(/^["']|["']$/g, "").replace(/\.+$/, "") + ".";
+      if (clean.length > 5) description = clean;
+    } catch { /* non-fatal */ }
+
+    // Generate PM summary
     let pmSummary: string | null = null;
-    if (messages.length >= 2) {
-      try {
-        let summary = "";
-        const convoSlice = messages.slice(-10).map((m) => `${m.role === "user" ? "Philip" : "Sarah"}: ${m.content}`).join("\n\n");
-        await streamChat(
-          PM_MODEL,
-          "You write concise conversation summaries. Reply with ONLY the summary — 3-5 sentences.",
-          [{
-            role: "user",
-            content:
-              `Summarize this PM conversation about "${title}" in 3-5 sentences. Focus on the key decisions and reasoning.\n\n${convoSlice}`,
-          }],
-          200,
-          (chunk) => { summary += chunk; }
-        );
-        if (summary.trim().length > 10) pmSummary = summary.trim();
-      } catch { /* non-fatal */ }
-    }
+    try {
+      let summary = "";
+      await streamChat(
+        PM_MODEL,
+        "You write concise conversation summaries. Reply with ONLY the summary — 3-5 sentences.",
+        [{
+          role: "user",
+          content: `Summarize this PM conversation in 3-5 sentences. Focus on the key decisions and reasoning.\n\n${convoSlice}`,
+        }],
+        200,
+        (chunk) => { summary += chunk; }
+      );
+      if (summary.trim().length > 10) pmSummary = summary.trim();
+    } catch { /* non-fatal */ }
 
-    const obj = await saveObjectiveWithDetails(title, description, "backlog", null, objType, pmSummary);
+    const obj = await saveObjectiveWithDetails(title, description, "backlog", null, "objective", pmSummary);
     if (obj) {
-      setObjInput("");
-      setObjType("objective");
       loadObjectives().then(setObjectives);
+      setSavedObj(true);
+      onObjectiveSaved();
     }
     setSavingObj(false);
   }
@@ -2333,27 +2473,25 @@ function PMTab({ onSwitchToKanban, buildMode }: { onSwitchToKanban: () => void; 
           </button>
         </div>
 
-        {/* Type selector + save input */}
-        <div className="flex flex-col gap-3">
-          <CardTypeSelector value={objType} onChange={setObjType} />
-          <div className="flex gap-3 items-end">
-            <input
-              type="text"
-              value={objInput}
-              onChange={(e) => setObjInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") handleSaveObjective(); }}
-              placeholder="Add an agreed objective…"
-              className="flex-1 bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-5 py-3.5 text-[#0e2a47] placeholder-[#9ca3af] transition-colors text-sm"
-            />
+        {/* Add to Kanban button — shown when Sarah suggests saving an objective */}
+        {messages.length >= 2 && !thinking && !savedObj && (() => {
+          const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+          return lastAssistant && detectObjectiveAgreed(lastAssistant.content);
+        })() && (
+          <div className="bg-[#e8f4f6] border border-[#1a6b7f]/20 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+            <p className="text-sm text-[#0e2a47]">Sarah suggested saving an objective from this conversation.</p>
             <button
-              onClick={handleSaveObjective}
-              disabled={!objInput.trim() || savingObj}
-              className="rounded-2xl bg-[#1a6b7f] text-white font-bold px-5 py-3.5 hover:bg-[#155a6b] transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm flex-shrink-0"
+              onClick={handleAddToKanban}
+              disabled={savingObj}
+              className="rounded-2xl bg-[#1a6b7f] text-white font-bold px-5 py-3 hover:bg-[#155a6b] transition-colors disabled:opacity-40 text-sm flex-shrink-0 whitespace-nowrap"
             >
-              {savingObj ? "Saving…" : "Save objective"}
+              {savingObj ? "Saving…" : "Add to Kanban as Objective →"}
             </button>
           </div>
-        </div>
+        )}
+        {savedObj && (
+          <p className="text-xs text-[#1a6b7f]">Objective added to Kanban board</p>
+        )}
 
         {/* List */}
         {objectives.length === 0 ? (
@@ -2413,14 +2551,6 @@ export default function TeamPage() {
     const next = !buildMode;
     setBuildMode(next);
     localStorage.setItem("rise_team_mode", next ? "build" : "research");
-  }
-
-  function handleStartDiscussion(obj: Objective) {
-    const problem = obj.title + (obj.description ? `\n\n${obj.description}` : "");
-    setPendingObjective({ id: obj.id, problem });
-    setCardContext(obj);
-    setSelectedCard(null);
-    setActiveTab("team");
   }
 
   function handleDiscussionSaved(objectiveId: string, discussion: Discussion, prd: string | null) {
@@ -2509,7 +2639,7 @@ export default function TeamPage() {
             buildMode={buildMode}
           />
         )}
-        {activeTab === "pm" && <PMTab onSwitchToKanban={() => setActiveTab("kanban")} buildMode={buildMode} />}
+        {activeTab === "pm" && <PMTab onSwitchToKanban={() => setActiveTab("kanban")} onObjectiveSaved={() => setKanbanRefreshKey((k) => k + 1)} buildMode={buildMode} />}
         {activeTab === "coach" && <ProductCoachTab buildMode={buildMode} />}
 
       </div>
@@ -2520,7 +2650,8 @@ export default function TeamPage() {
           obj={selectedCard}
           onClose={() => setSelectedCard(null)}
           onUpdate={handleCardUpdate}
-          onStartDiscussion={handleStartDiscussion}
+          onDiscussionSaved={handleDiscussionSaved}
+          buildMode={buildMode}
         />
       )}
     </main>
