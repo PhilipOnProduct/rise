@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "eval:recommendations": "tsx --env-file=.env.local scripts/eval-recommendations.ts"
+    "eval:recommendations": "tsx --env-file=.env.local scripts/eval-recommendations.ts",
+    "eval:family": "tsx scripts/eval-family-prompts.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",

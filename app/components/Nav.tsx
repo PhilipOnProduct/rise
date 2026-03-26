@@ -31,6 +31,7 @@ const sections: NavSection[] = [
     label: "Admin",
     links: [
       { href: "/admin", label: "AI Logs" },
+      { href: "/admin/evals", label: "Evals" },
       { href: "/team", label: "Product" },
       { href: "/team?tab=pm", label: "PM" },
       { href: "/feedback-admin", label: "Feedback" },
