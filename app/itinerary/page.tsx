@@ -98,12 +98,12 @@ function TripShapeBar({ days, loading, onDayClick, barRef }: TripShapeBarProps) 
     // Sticky below the nav (top-14 = 56px). z-40 keeps it below the nav's z-50.
     <div
       ref={barRef}
-      className="sticky top-14 z-40 w-full bg-[#0a0a0a] border-b border-[#1a1a1a]"
+      className="sticky top-14 z-40 w-full bg-[#f8f6f1] border-b border-[#e8e4de]"
     >
       {loading ? (
         <div className="flex items-center gap-2 px-6 py-4">
-          <div className="w-4 h-4 rounded-full border-2 border-[#00D64F] border-t-transparent animate-spin flex-shrink-0" />
-          <span className="text-xs text-gray-600">Building your itinerary…</span>
+          <div className="w-4 h-4 rounded-full border-2 border-[#1a6b7f] border-t-transparent animate-spin flex-shrink-0" />
+          <span className="text-xs text-[#6a7f8f]">Building your itinerary…</span>
         </div>
       ) : (
         // overflow-x: auto only on the inner container — the sole permitted horizontal scroll
@@ -117,20 +117,20 @@ function TripShapeBar({ days, loading, onDayClick, barRef }: TripShapeBarProps) 
                 <button
                   key={day.day_number}
                   onClick={() => onDayClick(day.day_number)}
-                  className="flex flex-col items-center gap-1.5 px-3 py-2 rounded-xl hover:bg-[#1a1a1a] transition-colors group flex-shrink-0 min-w-[56px]"
+                  className="flex flex-col items-center gap-1.5 px-3 py-2 rounded-xl hover:bg-[#f0ede8] transition-colors group flex-shrink-0 min-w-[56px]"
                   title={`${day.label} — ${day.activities.length} activities`}
                 >
-                  <span className="text-xs font-semibold text-gray-400 group-hover:text-white transition-colors whitespace-nowrap">
+                  <span className="text-xs font-semibold text-[#4a6580] group-hover:text-[#0e2a47] transition-colors whitespace-nowrap">
                     {day.label}
                   </span>
                   {/* Density fill bar */}
-                  <div className="w-full h-1.5 rounded-full bg-[#1e1e1e] overflow-hidden">
+                  <div className="w-full h-1.5 rounded-full bg-[#e8e4de] overflow-hidden">
                     <div
-                      className="h-full rounded-full bg-[#00D64F] transition-all"
+                      className="h-full rounded-full bg-[#1a6b7f] transition-all"
                       style={{ width: `${fillPct}%` }}
                     />
                   </div>
-                  <span className="text-[10px] text-gray-600 group-hover:text-gray-500 transition-colors whitespace-nowrap">
+                  <span className="text-[10px] text-[#6a7f8f] group-hover:text-[#6a7f8f] transition-colors whitespace-nowrap">
                     {day.activities.length} {day.activities.length === 1 ? "activity" : "activities"}
                   </span>
                 </button>
@@ -160,14 +160,14 @@ function ActivityCard({ activity, onRemove, onSwap, swapping, swapSuggestion, on
   const categoryIcon = CATEGORY_ICON[activity.category];
 
   return (
-    <div className="group relative bg-[#111] border border-[#1e1e1e] rounded-2xl px-5 py-4">
+    <div className="group relative bg-white border border-[#e8e4de] rounded-2xl px-5 py-4">
       {/* Hover controls — hidden during swap */}
       {!swapping && !swapSuggestion && (onRemove || onSwap) && (
         <div className="absolute top-3 right-3 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           {onSwap && (
             <button
               onClick={onSwap}
-              className="w-7 h-7 rounded-lg bg-[#1a1a1a] border border-[#2a2a2a] text-gray-500 hover:text-white hover:border-[#444] transition-colors flex items-center justify-center text-xs"
+              className="w-7 h-7 rounded-lg bg-[#f0ede8] border border-[#d4cfc5] text-[#6a7f8f] hover:text-[#0e2a47] hover:border-[#b8b3a9] transition-colors flex items-center justify-center text-xs"
               title="Swap"
             >
               ⇄
@@ -176,7 +176,7 @@ function ActivityCard({ activity, onRemove, onSwap, swapping, swapSuggestion, on
           {onRemove && (
             <button
               onClick={onRemove}
-              className="w-7 h-7 rounded-lg bg-[#1a1a1a] border border-[#2a2a2a] text-gray-500 hover:text-red-400 hover:border-red-500/30 transition-colors flex items-center justify-center text-xs"
+              className="w-7 h-7 rounded-lg bg-[#f0ede8] border border-[#d4cfc5] text-[#6a7f8f] hover:text-red-400 hover:border-red-500/30 transition-colors flex items-center justify-center text-xs"
               title="Remove"
             >
               ×
@@ -187,8 +187,8 @@ function ActivityCard({ activity, onRemove, onSwap, swapping, swapSuggestion, on
 
       {/* Loading overlay while swap is in progress */}
       {swapping && !swapSuggestion && (
-        <div className="absolute inset-0 bg-[#111]/80 rounded-2xl flex items-center justify-center z-10">
-          <div className="flex items-center gap-2 text-gray-400 text-sm">
+        <div className="absolute inset-0 bg-white/80 rounded-2xl flex items-center justify-center z-10">
+          <div className="flex items-center gap-2 text-[#4a6580] text-sm">
             <div className="w-3.5 h-3.5 rounded-full border-2 border-gray-500 border-t-transparent animate-spin" />
             <span>Finding an alternative...</span>
           </div>
@@ -197,14 +197,14 @@ function ActivityCard({ activity, onRemove, onSwap, swapping, swapSuggestion, on
 
       {/* Swap suggestion overlay */}
       {swapSuggestion && (
-        <div className="absolute inset-0 bg-[#111] border border-[#00D64F]/30 rounded-2xl px-5 py-4 z-10 flex flex-col">
+        <div className="absolute inset-0 bg-white border border-[#1a6b7f]/30 rounded-2xl px-5 py-4 z-10 flex flex-col">
           <div className="flex items-start gap-3 flex-1">
             <span className="text-xl flex-shrink-0 mt-0.5" aria-hidden>
               {CATEGORY_ICON[(swapSuggestion.type as ActivityCategory) || "activity"]}
             </span>
             <div className="flex-1 min-w-0">
-              <h3 className="font-semibold text-[#00D64F] text-sm leading-snug">{swapSuggestion.title}</h3>
-              <p className="text-sm text-gray-400 mt-1 leading-relaxed">{swapSuggestion.description}</p>
+              <h3 className="font-semibold text-[#1a6b7f] text-sm leading-snug">{swapSuggestion.title}</h3>
+              <p className="text-sm text-[#4a6580] mt-1 leading-relaxed">{swapSuggestion.description}</p>
               {swapSuggestion.conflict && (
                 <p className="text-xs text-amber-500/80 mt-2">{swapSuggestion.conflict}</p>
               )}
@@ -213,13 +213,13 @@ function ActivityCard({ activity, onRemove, onSwap, swapping, swapSuggestion, on
           <div className="flex items-center gap-3 mt-3">
             <button
               onClick={onAcceptSwap}
-              className="text-xs font-semibold text-[#00D64F] hover:text-[#00c248] transition-colors"
+              className="text-xs font-semibold text-[#1a6b7f] hover:text-[#155a6b] transition-colors"
             >
               Looks good ✓
             </button>
             <button
               onClick={onRejectSwap}
-              className="text-xs font-semibold text-gray-500 hover:text-gray-300 transition-colors"
+              className="text-xs font-semibold text-[#6a7f8f] hover:text-[#0e2a47] transition-colors"
             >
               Not quite, try again →
             </button>
@@ -232,16 +232,16 @@ function ActivityCard({ activity, onRemove, onSwap, swapping, swapSuggestion, on
           {categoryIcon}
         </span>
         <div className="flex-1 min-w-0">
-          <h3 className="font-semibold text-white text-sm leading-snug">{activity.name}</h3>
+          <h3 className="font-semibold text-[#0e2a47] text-sm leading-snug">{activity.name}</h3>
           {activity.description && (
-            <p className="text-sm text-gray-400 mt-1 leading-relaxed">{activity.description}</p>
+            <p className="text-sm text-[#4a6580] mt-1 leading-relaxed">{activity.description}</p>
           )}
           <div className="flex items-center gap-3 mt-2.5">
-            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-gray-500 bg-[#1a1a1a] rounded-lg px-2 py-0.5">
+            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[#6a7f8f] bg-[#f0ede8] rounded-lg px-2 py-0.5">
               <span aria-hidden>{timeEmoji}</span>
               {timeLabel}
             </span>
-            <span className="text-[11px] font-medium text-gray-600 capitalize">
+            <span className="text-[11px] font-medium text-[#6a7f8f] capitalize">
               {activity.category}
             </span>
           </div>
@@ -278,13 +278,13 @@ function DaySection({
     <section
       id={dayAnchorId(day.day_number)}
       style={{ scrollMarginTop }}
-      className="py-8 border-b border-[#111] last:border-0"
+      className="py-8 border-b border-[#e8e4de] last:border-0"
     >
       {/* Day header */}
       <div className="flex items-baseline gap-3 mb-5">
-        <h2 className="text-xl font-extrabold tracking-tight text-white">{day.label}</h2>
+        <h2 className="text-xl font-extrabold tracking-tight text-[#0e2a47]">{day.label}</h2>
         {day.date && (
-          <span className="text-sm text-gray-600">
+          <span className="text-sm text-[#6a7f8f]">
             {new Date(day.date).toLocaleDateString("en-GB", {
               weekday: "short",
               day: "numeric",
@@ -292,7 +292,7 @@ function DaySection({
             })}
           </span>
         )}
-        <span className="text-xs text-gray-700 ml-auto">
+        <span className="text-xs text-[#6a7f8f] ml-auto">
           {day.activities.length === 0
             ? "No activities"
             : `${day.activities.length} ${day.activities.length === 1 ? "activity" : "activities"}`}
@@ -300,7 +300,7 @@ function DaySection({
       </div>
 
       {sorted.length === 0 ? (
-        <p className="text-sm text-gray-600 italic">Nothing planned for this day yet.</p>
+        <p className="text-sm text-[#6a7f8f] italic">Nothing planned for this day yet.</p>
       ) : (
         <div className="flex flex-col gap-3">
           {sorted.map((activity) => {
@@ -595,8 +595,8 @@ export default function ItineraryViewPage() {
 
   if (error) {
     return (
-      <main className="min-h-screen bg-[#0a0a0a] flex flex-col items-center justify-center gap-4 px-6">
-        <p className="text-gray-300">{error}</p>
+      <main className="min-h-screen bg-[#f8f6f1] flex flex-col items-center justify-center gap-4 px-6">
+        <p className="text-[#0e2a47]">{error}</p>
         <button
           onClick={() => {
             setError(null);
@@ -604,7 +604,7 @@ export default function ItineraryViewPage() {
             localStorage.removeItem("rise_itinerary");
             router.replace("/itinerary");
           }}
-          className="px-6 py-3 rounded-2xl bg-[#00D64F] text-black font-bold hover:bg-[#00c248] transition-colors"
+          className="px-6 py-3 rounded-2xl bg-[#1a6b7f] text-white font-bold hover:bg-[#155a6b] transition-colors"
         >
           Try again
         </button>
@@ -615,7 +615,7 @@ export default function ItineraryViewPage() {
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a]">
+    <div className="min-h-screen bg-[#f8f6f1]">
       {/* Sticky trip shape bar */}
       <TripShapeBar
         days={days}
@@ -629,8 +629,8 @@ export default function ItineraryViewPage() {
         {/* Header — only shown once data is ready to avoid layout shift */}
         {!loading && days.length > 0 && (
           <div className="pt-10 pb-2">
-            <h1 className="text-3xl font-extrabold tracking-tight text-white">{destination}</h1>
-            <p className="text-gray-500 text-sm mt-1">
+            <h1 className="text-3xl font-extrabold tracking-tight text-[#0e2a47]">{destination}</h1>
+            <p className="text-[#6a7f8f] text-sm mt-1">
               {days.length} {days.length === 1 ? "day" : "days"} ·{" "}
               {days.reduce((sum, d) => sum + d.activities.length, 0)} activities
             </p>

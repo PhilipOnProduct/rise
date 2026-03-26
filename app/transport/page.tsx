@@ -68,39 +68,39 @@ export default function TransportPage() {
     setLoading(false);
   }
 
-  const inputCls = "w-full bg-[#111] border border-[#2a2a2a] focus:border-[#00D64F] outline-none rounded-xl px-5 py-4 text-white placeholder-[#444] transition-colors text-sm";
+  const inputCls = "w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-5 py-4 text-[#0e2a47] placeholder-[#9ca3af] transition-colors text-sm";
 
   return (
-    <main className="min-h-screen bg-[#0a0a0a] px-6 py-14">
+    <main className="min-h-screen bg-[#f8f6f1] px-6 py-14">
       <div className="max-w-xl mx-auto">
 
         <div className="mb-10">
           <h1 className="text-4xl font-extrabold tracking-tight mb-2">Airport → Hotel</h1>
-          <p className="text-gray-400">Compare public transport vs taxi for your journey.</p>
+          <p className="text-[#4a6580]">Compare public transport vs taxi for your journey.</p>
         </div>
 
         <form className="flex flex-col gap-5" onSubmit={handleSubmit}>
 
           <div>
-            <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">Departure airport</label>
+            <label className="block text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-3">Departure airport</label>
             <input type="text" placeholder="e.g. Amsterdam Schiphol (AMS)"
               value={airport} onChange={(e) => setAirport(e.target.value)} required className={inputCls} />
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">Destination city</label>
+            <label className="block text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-3">Destination city</label>
             <input type="text" placeholder="e.g. Amsterdam"
               value={city} onChange={(e) => setCity(e.target.value)} required className={inputCls} />
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">Hotel or area</label>
+            <label className="block text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-3">Hotel or area</label>
             <input type="text" placeholder="e.g. Hotel V Nesplein, or city centre"
               value={hotel} onChange={(e) => setHotel(e.target.value)} required className={inputCls} />
           </div>
 
           <button type="submit" disabled={loading}
-            className="w-full rounded-2xl bg-[#00D64F] text-black font-bold py-5 text-lg hover:bg-[#00c248] transition-colors disabled:opacity-40 mt-2">
+            className="w-full rounded-2xl bg-[#1a6b7f] text-white font-bold py-5 text-lg hover:bg-[#155a6b] transition-colors disabled:opacity-40 mt-2">
             {loading ? "Comparing options…" : "Compare transport →"}
           </button>
 
@@ -108,10 +108,10 @@ export default function TransportPage() {
 
         {(result || loading) && (
           <div className="mt-8 bg-white rounded-2xl p-7">
-            <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-5">Your options</h2>
+            <h2 className="text-xs font-bold text-[#4a6580] uppercase tracking-widest mb-5">Your options</h2>
             <div>
               {result.split("\n").map((line, i) => renderLine(line, i))}
-              {loading && <span className="inline-block w-2 h-4 bg-[#00D64F] animate-pulse ml-0.5 align-middle rounded-sm" />}
+              {loading && <span className="inline-block w-2 h-4 bg-[#1a6b7f] animate-pulse ml-0.5 align-middle rounded-sm" />}
             </div>
           </div>
         )}

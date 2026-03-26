@@ -73,35 +73,35 @@ const AGENTS: Record<
     name: "Sarah",
     role: "PM",
     initial: "S",
-    badge: "bg-[#00D64F] text-black",
+    badge: "bg-[#1a6b7f] text-white",
     system: `You are Sarah, the Product Manager at Rise — a travel assistant app. ${RISE_CONTEXT}\nFrame problems clearly, identify the core user need, and make decisive product recommendations. Be concise and strategic. Use short paragraphs.`,
   },
   alex: {
     name: "Alex",
     role: "Researcher",
     initial: "A",
-    badge: "bg-blue-600 text-white",
+    badge: "bg-blue-600 text-[#0e2a47]",
     system: `You are Alex, a User Researcher for Rise. ${RISE_CONTEXT}\nYour role is to identify the core user assumption embedded in this objective — what must be true about how users think or behave for this feature to work. Flag the single biggest assumption risk clearly and concisely. One paragraph. No research methodology, no validation recommendations.`,
   },
   maya: {
     name: "Maya",
     role: "Designer",
     initial: "M",
-    badge: "bg-purple-600 text-white",
+    badge: "bg-purple-600 text-[#0e2a47]",
     system: `You are Maya, a Product Designer for Rise. ${RISE_CONTEXT} Rise uses a dark Uber-inspired design: #0a0a0a background, #00D64F green accent, DM Sans font.\nYour role is to identify usability risk — where will users get confused, misunderstand the interaction, or fail to complete the intended action? Focus on the moment of highest friction in the proposed feature. What is the one thing most likely to go wrong in the user's hands?\nNo interaction design specs. No component suggestions. No visual design details. One to two paragraphs.`,
   },
   luca: {
     name: "Luca",
     role: "Tech Lead",
     initial: "L",
-    badge: "bg-orange-500 text-white",
+    badge: "bg-orange-500 text-[#0e2a47]",
     system: `You are Luca, the Tech Lead for Rise. ${RISE_CONTEXT}\nYour role in every product discussion is exactly two things:\n1. Feasibility risk — what is the single biggest technical risk that could prevent this from working or make it significantly harder than expected? Be specific about why it's a risk for Rise specifically, not in general.\n2. What's newly possible — what does current technology (AI, APIs, browser capabilities, Supabase features) make possible that's directly relevant to this objective and that the team might not be aware of?\nNo implementation details. No architecture suggestions. No function names. No data structures. Two paragraphs maximum.\nImportant: your observations are input for Sarah to consider — not decisions for the team to adopt. Explicitly frame your 'what's newly possible' point as an option worth exploring, not a recommendation to implement.`,
   },
   elena: {
     name: "Elena",
     role: "Travel Expert",
     initial: "ET",
-    badge: "text-white",
+    badge: "text-[#0e2a47]",
     bgColor: "#185fa5",
     system: `You are Elena, a Senior Travel Planner with 15 years experience creating personalised trips. ${RISE_CONTEXT}\nYour role is to flag mismatches between the product assumption and how real travellers actually think and behave. What in this objective contradicts real travel psychology, real traveller behaviour, or how trips actually get planned and experienced? Be specific and direct. One to two paragraphs maximum. No design suggestions, no technical input, no product strategy.`,
   },
@@ -472,7 +472,7 @@ function ThinkingDots() {
       {[0, 1, 2].map((i) => (
         <span
           key={i}
-          className="w-1.5 h-1.5 rounded-full bg-[#00D64F] animate-pulse"
+          className="w-1.5 h-1.5 rounded-full bg-[#1a6b7f] animate-pulse"
           style={{ animationDelay: `${i * 150}ms` }}
         />
       ))}
@@ -504,17 +504,17 @@ function AgentBubble({
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-2">
-          <span className="text-sm font-bold text-white">{agent.name}</span>
-          <span className="text-xs text-gray-600 bg-[#1a1a1a] px-2 py-0.5 rounded-full">
+          <span className="text-sm font-bold text-[#0e2a47]">{agent.name}</span>
+          <span className="text-xs text-[#6a7f8f] bg-[#f0ede8] px-2 py-0.5 rounded-full">
             {roleOverride ?? agent.role}
           </span>
           {thinking && <ThinkingDots />}
         </div>
         {content && (
-          <div className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap">{content}</div>
+          <div className="text-sm text-[#0e2a47] leading-relaxed whitespace-pre-wrap">{content}</div>
         )}
         {!content && thinking && (
-          <div className="text-sm text-gray-600 italic">Thinking…</div>
+          <div className="text-sm text-[#6a7f8f] italic">Thinking…</div>
         )}
       </div>
     </div>
@@ -525,7 +525,7 @@ function SectionDivider({ label }: { label: string }) {
   return (
     <div className="flex items-center gap-3">
       <div className="flex-1 h-px bg-[#1e1e1e]" />
-      <span className="text-xs font-bold text-gray-600 uppercase tracking-widest">{label}</span>
+      <span className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest">{label}</span>
       <div className="flex-1 h-px bg-[#1e1e1e]" />
     </div>
   );
@@ -534,7 +534,7 @@ function SectionDivider({ label }: { label: string }) {
 function PrdLine({ line, i }: { line: string; i: number }) {
   if (line.startsWith("## ")) {
     return (
-      <h3 key={i} className="text-xs font-bold text-gray-500 uppercase tracking-widest mt-6 mb-2 first:mt-0">
+      <h3 key={i} className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mt-6 mb-2 first:mt-0">
         {line.slice(3)}
       </h3>
     );
@@ -542,10 +542,10 @@ function PrdLine({ line, i }: { line: string; i: number }) {
   if (line.trim() === "") return <div key={i} className="h-1" />;
   const parts = line.split(/(\*\*[^*]+\*\*)/g);
   return (
-    <p key={i} className="text-sm text-gray-300 leading-relaxed">
+    <p key={i} className="text-sm text-[#0e2a47] leading-relaxed">
       {parts.map((part, j) =>
         part.startsWith("**") && part.endsWith("**")
-          ? <strong key={j} className="text-white font-semibold">{part.slice(2, -2)}</strong>
+          ? <strong key={j} className="text-[#0e2a47] font-semibold">{part.slice(2, -2)}</strong>
           : part
       )}
     </p>
@@ -616,7 +616,7 @@ function PastConversations({
     return (
       <button
         onClick={() => setOpen(true)}
-        className="self-start text-xs text-gray-600 hover:text-gray-300 transition-colors"
+        className="self-start text-xs text-[#6a7f8f] hover:text-[#0e2a47] transition-colors"
       >
         Past discussions →
       </button>
@@ -624,16 +624,16 @@ function PastConversations({
   }
 
   return (
-    <div className="bg-[#111] border border-[#1e1e1e] rounded-2xl p-4">
+    <div className="bg-white border border-[#e8e4de] rounded-2xl p-4">
       <div className="flex items-center justify-between mb-3">
-        <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">Past discussions</span>
-        <button onClick={() => setOpen(false)} className="text-xs text-gray-600 hover:text-gray-300 transition-colors">
+        <span className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest">Past discussions</span>
+        <button onClick={() => setOpen(false)} className="text-xs text-[#6a7f8f] hover:text-[#0e2a47] transition-colors">
           Close
         </button>
       </div>
-      {loading && <p className="text-xs text-gray-600 py-2">Loading…</p>}
+      {loading && <p className="text-xs text-[#6a7f8f] py-2">Loading…</p>}
       {!loading && rows.length === 0 && (
-        <p className="text-xs text-gray-600 py-2">No past conversations yet.</p>
+        <p className="text-xs text-[#6a7f8f] py-2">No past conversations yet.</p>
       )}
       {!loading && rows.length > 0 && (
         <div className="flex flex-col gap-1">
@@ -650,22 +650,22 @@ function PastConversations({
             return (
               <div key={row.id}>
                 {/* Title row — click to load + delete button */}
-                <div className="flex items-start gap-1 group/row rounded-xl hover:bg-[#1a1a1a] transition-colors">
+                <div className="flex items-start gap-1 group/row rounded-xl hover:bg-[#f0ede8] transition-colors">
                   <button
                     onClick={() => { onLoad(row); setOpen(false); }}
                     className="flex-1 text-left px-3 py-2.5 min-w-0"
                   >
-                    <p className="text-sm text-gray-300 group-hover/row:text-white break-words">{row.title}</p>
-                    <p className="text-xs text-gray-600 mt-0.5">
+                    <p className="text-sm text-[#0e2a47] group-hover/row:text-[#0e2a47] break-words">{row.title}</p>
+                    <p className="text-xs text-[#6a7f8f] mt-0.5">
                       {new Date(row.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
-                      {hasPrd && <span className="ml-2 text-[#00D64F]">· PRD</span>}
-                      {isActive && <span className="ml-2 text-gray-600">· Active</span>}
+                      {hasPrd && <span className="ml-2 text-[#1a6b7f]">· PRD</span>}
+                      {isActive && <span className="ml-2 text-[#6a7f8f]">· Active</span>}
                     </p>
                   </button>
                   {!isActive && (
                     <button
                       onClick={() => setConfirmDeleteId(isConfirmingDelete ? null : row.id)}
-                      className="shrink-0 mt-2 mr-2 p-1.5 text-gray-700 hover:text-red-400 transition-colors opacity-0 group-hover/row:opacity-100"
+                      className="shrink-0 mt-2 mr-2 p-1.5 text-[#6a7f8f] hover:text-red-400 transition-colors opacity-0 group-hover/row:opacity-100"
                       title="Delete"
                     >
                       ×
@@ -676,7 +676,7 @@ function PastConversations({
                 {/* Inline delete confirmation */}
                 {isConfirmingDelete && (
                   <div className="flex items-center gap-2 px-3 pb-2">
-                    <span className="text-xs text-gray-500">Delete this conversation?</span>
+                    <span className="text-xs text-[#6a7f8f]">Delete this conversation?</span>
                     <button
                       onClick={() => handleDelete(row.id)}
                       disabled={isDeleting}
@@ -686,7 +686,7 @@ function PastConversations({
                     </button>
                     <button
                       onClick={() => setConfirmDeleteId(null)}
-                      className="text-xs text-gray-600 hover:text-gray-400"
+                      className="text-xs text-[#6a7f8f] hover:text-[#4a6580]"
                     >
                       No
                     </button>
@@ -700,9 +700,9 @@ function PastConversations({
                     {existingFeedback.length > 0 && (
                       <div className="flex flex-col gap-2 mb-2">
                         {existingFeedback.map((fb, i) => (
-                          <div key={i} className="border-l-2 border-[#00D64F] pl-3 py-0.5">
-                            <p className="text-xs font-semibold text-gray-600 uppercase tracking-widest mb-1">Your feedback</p>
-                            <p className="text-xs text-gray-400 leading-relaxed whitespace-pre-wrap">{fb}</p>
+                          <div key={i} className="border-l-2 border-[#1a6b7f] pl-3 py-0.5">
+                            <p className="text-xs font-semibold text-[#6a7f8f] uppercase tracking-widest mb-1">Your feedback</p>
+                            <p className="text-xs text-[#4a6580] leading-relaxed whitespace-pre-wrap">{fb}</p>
                           </div>
                         ))}
                       </div>
@@ -717,19 +717,19 @@ function PastConversations({
                           value={draft}
                           onChange={(e) => setDraftMap((prev) => ({ ...prev, [row.id]: e.target.value }))}
                           placeholder="What would you improve or change about this PRD?"
-                          className="w-full bg-[#0a0a0a] border border-[#2a2a2a] focus:border-[#00D64F] outline-none rounded-xl px-4 py-3 text-white placeholder-[#444] transition-colors text-xs resize-none"
+                          className="w-full bg-[#f8f6f1] border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-[#0e2a47] placeholder-[#9ca3af] transition-colors text-xs resize-none"
                         />
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => handleSaveFeedback(row.id)}
                             disabled={!draft.trim() || savingId === row.id}
-                            className="text-xs font-semibold bg-[#00D64F] text-black rounded-xl px-4 py-2 hover:bg-[#00c248] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                            className="text-xs font-semibold bg-[#1a6b7f] text-white rounded-xl px-4 py-2 hover:bg-[#155a6b] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                           >
                             {savingId === row.id ? "Saving…" : "Save feedback"}
                           </button>
                           <button
                             onClick={() => { setOpenFeedbackId(null); setDraftMap((prev) => ({ ...prev, [row.id]: "" })); }}
-                            className="text-xs text-gray-600 hover:text-gray-300 transition-colors"
+                            className="text-xs text-[#6a7f8f] hover:text-[#0e2a47] transition-colors"
                           >
                             Cancel
                           </button>
@@ -738,7 +738,7 @@ function PastConversations({
                     ) : (
                       <button
                         onClick={() => setOpenFeedbackId(row.id)}
-                        className="text-xs text-gray-600 hover:text-[#00D64F] transition-colors"
+                        className="text-xs text-[#6a7f8f] hover:text-[#1a6b7f] transition-colors"
                       >
                         + Add feedback
                       </button>
@@ -1062,7 +1062,7 @@ function ProductTeamTab({
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex gap-3 flex-wrap">
           {(Object.entries(AGENTS) as [AgentId, typeof AGENTS[AgentId]][]).map(([id, a]) => (
-            <div key={id} className="flex items-center gap-2 bg-[#111] border border-[#1e1e1e] rounded-xl px-3 py-2">
+            <div key={id} className="flex items-center gap-2 bg-white border border-[#e8e4de] rounded-xl px-3 py-2">
               <div
                 className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${a.badge}`}
                 style={a.bgColor ? { backgroundColor: a.bgColor } : undefined}
@@ -1070,23 +1070,23 @@ function ProductTeamTab({
                 {a.initial}
               </div>
               <div>
-                <p className="text-xs font-semibold text-white leading-none">{a.name}</p>
-                <p className="text-xs text-gray-600 mt-0.5">{a.role}</p>
+                <p className="text-xs font-semibold text-[#0e2a47] leading-none">{a.name}</p>
+                <p className="text-xs text-[#6a7f8f] mt-0.5">{a.role}</p>
               </div>
             </div>
           ))}
         </div>
         {memoryLoading && (
-          <p className="text-xs text-gray-600 italic">Sarah is remembering…</p>
+          <p className="text-xs text-[#6a7f8f] italic">Sarah is remembering…</p>
         )}
         {updatingMemory && (
-          <p className="text-xs text-gray-600 italic">Updating Sarah's memory…</p>
+          <p className="text-xs text-[#6a7f8f] italic">Updating Sarah's memory…</p>
         )}
       </div>
 
       {/* Input */}
       <div>
-        <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">
+        <label className="block text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-3">
           Describe the problem
         </label>
         <textarea
@@ -1095,20 +1095,20 @@ function ProductTeamTab({
           onChange={(e) => setProblem(e.target.value)}
           placeholder="e.g. Users drop off at step 3 of the onboarding flow. We don't know why."
           disabled={isRunning}
-          className="w-full bg-[#111] border border-[#2a2a2a] focus:border-[#00D64F] outline-none rounded-xl px-5 py-4 text-white placeholder-[#444] transition-colors text-sm resize-none disabled:opacity-50"
+          className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-5 py-4 text-[#0e2a47] placeholder-[#9ca3af] transition-colors text-sm resize-none disabled:opacity-50"
         />
         <div className="mt-3 flex items-center gap-3">
           <button
             onClick={runDiscussion}
             disabled={!problem.trim() || isRunning}
-            className="rounded-2xl bg-[#00D64F] text-black font-bold px-8 py-4 hover:bg-[#00c248] transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm"
+            className="rounded-2xl bg-[#1a6b7f] text-white font-bold px-8 py-4 hover:bg-[#155a6b] transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm"
           >
             {isRunning ? "Discussing…" : "Start discussion →"}
           </button>
           {teamError && !isRunning && (
             <button
               onClick={runDiscussion}
-              className="rounded-2xl border border-[#333] text-gray-400 hover:text-white hover:border-[#555] font-semibold px-6 py-4 transition-colors text-sm"
+              className="rounded-2xl border border-[#333] text-[#4a6580] hover:text-[#0e2a47] hover:border-[#555] font-semibold px-6 py-4 transition-colors text-sm"
             >
               Retry →
             </button>
@@ -1148,14 +1148,14 @@ function ProductTeamTab({
               <div className="flex items-center gap-3 flex-wrap">
                 <button
                   onClick={() => downloadConversationFile(problem, AGENTS, buildMode, sarahMemory, sarahFrame, alexContent, mayaContent, lucaContent, elenaContent, synthesis, prd)}
-                  className="rounded-2xl border border-[#2a2a2a] text-gray-300 hover:text-white hover:border-[#444] font-semibold px-6 py-3 transition-colors text-sm"
+                  className="rounded-2xl border border-[#d4cfc5] text-[#0e2a47] hover:text-[#0e2a47] hover:border-[#b8b3a9] font-semibold px-6 py-3 transition-colors text-sm"
                 >
                   Download conversation ↓
                 </button>
                 {prd && (
                   <button
                     onClick={regeneratePrd}
-                    className="rounded-2xl border border-[#2a2a2a] text-gray-300 hover:text-white hover:border-[#444] font-semibold px-6 py-3 transition-colors text-sm"
+                    className="rounded-2xl border border-[#d4cfc5] text-[#0e2a47] hover:text-[#0e2a47] hover:border-[#b8b3a9] font-semibold px-6 py-3 transition-colors text-sm"
                   >
                     Regenerate PRD →
                   </button>
@@ -1164,7 +1164,7 @@ function ProductTeamTab({
                   <button
                     onClick={handleSaveToKanban}
                     disabled={savingToKanban}
-                    className="rounded-2xl border border-[#2a2a2a] text-gray-300 hover:text-white hover:border-[#444] font-semibold px-6 py-3 transition-colors text-sm disabled:opacity-40"
+                    className="rounded-2xl border border-[#d4cfc5] text-[#0e2a47] hover:text-[#0e2a47] hover:border-[#b8b3a9] font-semibold px-6 py-3 transition-colors text-sm disabled:opacity-40"
                   >
                     {savingToKanban ? "Saving…" : "Save to Kanban →"}
                   </button>
@@ -1173,12 +1173,12 @@ function ProductTeamTab({
               {scopeAdditions && scopeAdditions !== "No scope additions." && !kanbanSaved && (
                 <div className="bg-amber-500/5 border border-amber-500/15 rounded-xl px-4 py-3">
                   <p className="text-xs font-bold text-amber-500/60 uppercase tracking-widest mb-1.5">Team additions</p>
-                  <p className="text-xs text-gray-500 leading-relaxed whitespace-pre-wrap">{scopeAdditions}</p>
+                  <p className="text-xs text-[#6a7f8f] leading-relaxed whitespace-pre-wrap">{scopeAdditions}</p>
                 </div>
               )}
               {kanbanSaved && (
                 <div className="flex flex-col gap-1">
-                  <p className="text-xs text-[#00D64F]">{activeObjectiveId ? "PRD saved to Kanban card" : "Saved to Kanban"}</p>
+                  <p className="text-xs text-[#1a6b7f]">{activeObjectiveId ? "PRD saved to Kanban card" : "Saved to Kanban"}</p>
                 </div>
               )}
             </div>
@@ -1191,9 +1191,9 @@ function ProductTeamTab({
                 <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${AGENTS.sarah.badge}`}>
                   {AGENTS.sarah.initial}
                 </div>
-                <div className="flex-1 bg-[#111] border border-[#1e1e1e] rounded-2xl p-6">
+                <div className="flex-1 bg-white border border-[#e8e4de] rounded-2xl p-6">
                   {phase === "prd" && thinking.sarah && !prd && (
-                    <div className="flex items-center gap-2 text-sm text-gray-600 italic">
+                    <div className="flex items-center gap-2 text-sm text-[#6a7f8f] italic">
                       <ThinkingDots /> Writing PRD…
                     </div>
                   )}
@@ -1301,16 +1301,16 @@ function ProductCoachTab({ buildMode }: { buildMode: boolean }) {
 
       {/* Intro */}
       {messages.length === 0 && (
-        <div className="bg-[#111] border border-[#1e1e1e] rounded-2xl p-6">
+        <div className="bg-white border border-[#e8e4de] rounded-2xl p-6">
           <div className="flex items-center gap-3 mb-3">
-            <div className="w-9 h-9 rounded-full bg-[#00D64F] flex items-center justify-center text-black font-bold text-sm">C</div>
+            <div className="w-9 h-9 rounded-full bg-[#1a6b7f] flex items-center justify-center text-white font-bold text-sm">C</div>
             <div>
-              <p className="text-sm font-bold text-white">Product Coach</p>
-              <p className="text-xs text-gray-600">Powered by Claude Opus 4</p>
+              <p className="text-sm font-bold text-[#0e2a47]">Product Coach</p>
+              <p className="text-xs text-[#6a7f8f]">Powered by Claude Opus 4</p>
             </div>
           </div>
-          <p className="text-sm text-gray-400 leading-relaxed">
-            Ask me anything about product management — strategy, prioritisation, discovery, metrics, stakeholders. I'll challenge your thinking and help you grow. Try: <em className="text-gray-300">"How should I think about prioritising our roadmap as an early MVP?"</em>
+          <p className="text-sm text-[#4a6580] leading-relaxed">
+            Ask me anything about product management — strategy, prioritisation, discovery, metrics, stakeholders. I'll challenge your thinking and help you grow. Try: <em className="text-[#0e2a47]">"How should I think about prioritising our roadmap as an early MVP?"</em>
           </p>
         </div>
       )}
@@ -1321,22 +1321,22 @@ function ProductCoachTab({ buildMode }: { buildMode: boolean }) {
           {messages.map((msg, i) => (
             msg.role === "user" ? (
               <div key={i} className="flex justify-end">
-                <div className="bg-[#00D64F]/10 border border-[#00D64F]/20 rounded-2xl rounded-tr-sm px-5 py-3.5 max-w-xl">
-                  <p className="text-sm text-white leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                <div className="bg-[#1a6b7f]/10 border border-[#1a6b7f]/20 rounded-2xl rounded-tr-sm px-5 py-3.5 max-w-xl">
+                  <p className="text-sm text-[#0e2a47] leading-relaxed whitespace-pre-wrap">{msg.content}</p>
                 </div>
               </div>
             ) : (
               <div key={i} className="flex gap-4">
-                <div className="w-9 h-9 rounded-full bg-[#00D64F] flex items-center justify-center text-black font-bold text-sm flex-shrink-0">C</div>
+                <div className="w-9 h-9 rounded-full bg-[#1a6b7f] flex items-center justify-center text-white font-bold text-sm flex-shrink-0">C</div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-2">
-                    <span className="text-sm font-bold text-white">Coach</span>
+                    <span className="text-sm font-bold text-[#0e2a47]">Coach</span>
                     {thinking && i === messages.length - 1 && !msg.content && <ThinkingDots />}
                   </div>
                   {msg.content ? (
-                    <div className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap">{msg.content}</div>
+                    <div className="text-sm text-[#0e2a47] leading-relaxed whitespace-pre-wrap">{msg.content}</div>
                   ) : (
-                    <div className="text-sm text-gray-600 italic">Thinking…</div>
+                    <div className="text-sm text-[#6a7f8f] italic">Thinking…</div>
                   )}
                 </div>
               </div>
@@ -1347,14 +1347,14 @@ function ProductCoachTab({ buildMode }: { buildMode: boolean }) {
       )}
 
       {/* Input */}
-      <div className="flex flex-col gap-2 sticky bottom-0 bg-[#0a0a0a] pt-2 pb-4">
+      <div className="flex flex-col gap-2 sticky bottom-0 bg-[#f8f6f1] pt-2 pb-4">
         {coachError && (
           <div className="flex items-center justify-between gap-4 bg-red-950/40 border border-red-800/40 rounded-xl px-4 py-3">
             <p className="text-sm text-red-400">{coachError}</p>
             <button
               onClick={retry}
               disabled={thinking}
-              className="text-sm font-semibold text-red-300 hover:text-white transition-colors flex-shrink-0 disabled:opacity-50"
+              className="text-sm font-semibold text-red-300 hover:text-[#0e2a47] transition-colors flex-shrink-0 disabled:opacity-50"
             >
               Retry →
             </button>
@@ -1368,12 +1368,12 @@ function ProductCoachTab({ buildMode }: { buildMode: boolean }) {
             onKeyDown={handleKeyDown}
             placeholder="Ask your coach… (Enter to send, Shift+Enter for newline)"
             disabled={thinking}
-            className="flex-1 bg-[#111] border border-[#2a2a2a] focus:border-[#00D64F] outline-none rounded-xl px-5 py-4 text-white placeholder-[#444] transition-colors text-sm resize-none disabled:opacity-50"
+            className="flex-1 bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-5 py-4 text-[#0e2a47] placeholder-[#9ca3af] transition-colors text-sm resize-none disabled:opacity-50"
           />
           <button
             onClick={send}
             disabled={!input.trim() || thinking}
-            className="rounded-2xl bg-[#00D64F] text-black font-bold px-6 py-4 hover:bg-[#00c248] transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm flex-shrink-0"
+            className="rounded-2xl bg-[#1a6b7f] text-white font-bold px-6 py-4 hover:bg-[#155a6b] transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm flex-shrink-0"
           >
             {thinking ? "…" : "Send →"}
           </button>
@@ -1387,10 +1387,10 @@ function ProductCoachTab({ buildMode }: { buildMode: boolean }) {
 // ── Kanban constants & helpers ─────────────────────────────────────────────────
 
 const STATUS_STYLES: Record<ObjectiveStatus, string> = {
-  backlog:       "bg-gray-500/10 text-gray-400 border border-gray-700",
+  backlog:       "bg-gray-500/10 text-[#4a6580] border border-gray-700",
   refine:        "bg-[#185fa5]/15 text-[#185fa5] border border-[#185fa5]/40",
   "in-progress": "bg-[#ba7517]/15 text-[#ba7517] border border-[#ba7517]/40",
-  done:          "bg-[#00D64F]/15 text-[#00D64F] border border-[#00D64F]/30",
+  done:          "bg-[#1a6b7f]/15 text-[#1a6b7f] border border-[#1a6b7f]/30",
 };
 
 const KANBAN_COLUMNS: Array<{
@@ -1399,10 +1399,10 @@ const KANBAN_COLUMNS: Array<{
   borderClass: string;
   textClass: string;
 }> = [
-  { status: "backlog",     label: "Backlog",     borderClass: "border-gray-700",   textClass: "text-gray-400" },
+  { status: "backlog",     label: "Backlog",     borderClass: "border-gray-700",   textClass: "text-[#4a6580]" },
   { status: "refine",      label: "Refine",      borderClass: "border-[#185fa5]",  textClass: "text-[#185fa5]" },
   { status: "in-progress", label: "In Progress", borderClass: "border-[#ba7517]",  textClass: "text-[#ba7517]" },
-  { status: "done",        label: "Done",        borderClass: "border-[#00D64F]",  textClass: "text-[#00D64F]" },
+  { status: "done",        label: "Done",        borderClass: "border-[#1a6b7f]",  textClass: "text-[#1a6b7f]" },
 ];
 
 function extractImplementationPrompt(prd: string): string {
@@ -1444,13 +1444,13 @@ function KanbanCard({
     <div
       draggable={!isDone}
       onDragStart={isDone ? undefined : () => onDragStart(obj.id, obj.status)}
-      className={`bg-[#111] border ${col.borderClass} rounded-2xl p-4 flex flex-col gap-3 ${!isDone ? "cursor-grab active:cursor-grabbing" : ""}`}
+      className={`bg-white border ${col.borderClass} rounded-2xl p-4 flex flex-col gap-3 ${!isDone ? "cursor-grab active:cursor-grabbing" : ""}`}
     >
       {/* Title */}
       <div>
-        <p className="text-sm font-bold text-white leading-snug line-clamp-2" title={obj.title}>{obj.title}</p>
+        <p className="text-sm font-bold text-[#0e2a47] leading-snug line-clamp-2" title={obj.title}>{obj.title}</p>
         {obj.description && (
-          <p className="text-xs text-gray-500 mt-1 leading-relaxed line-clamp-3 overflow-hidden">{obj.description}</p>
+          <p className="text-xs text-[#6a7f8f] mt-1 leading-relaxed line-clamp-3 overflow-hidden">{obj.description}</p>
         )}
       </div>
 
@@ -1459,7 +1459,7 @@ function KanbanCard({
         {!isDone && (obj.status === "backlog" || obj.status === "refine") && (
           <button
             onClick={() => onDiscuss(obj.id, discussProblem)}
-            className="text-xs font-semibold text-[#00D64F] hover:underline"
+            className="text-xs font-semibold text-[#1a6b7f] hover:underline"
           >
             Discuss with team →
           </button>
@@ -1467,7 +1467,7 @@ function KanbanCard({
         {obj.prd && (
           <button
             onClick={() => setPrdOpen(!prdOpen)}
-            className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+            className="text-xs text-[#6a7f8f] hover:text-[#0e2a47] transition-colors"
           >
             {prdOpen ? "Hide PRD" : "View PRD"}
           </button>
@@ -1475,14 +1475,14 @@ function KanbanCard({
         {!isDone && (
           confirmDelete ? (
             <div className="flex items-center gap-2 ml-auto">
-              <span className="text-xs text-gray-500">Delete?</span>
+              <span className="text-xs text-[#6a7f8f]">Delete?</span>
               <button onClick={() => onDelete(obj.id)} className="text-xs font-semibold text-red-400 hover:text-red-300">Yes</button>
-              <button onClick={() => setConfirmDelete(false)} className="text-xs text-gray-600 hover:text-gray-400">No</button>
+              <button onClick={() => setConfirmDelete(false)} className="text-xs text-[#6a7f8f] hover:text-[#4a6580]">No</button>
             </div>
           ) : (
             <button
               onClick={() => setConfirmDelete(true)}
-              className="text-xs text-gray-600 hover:text-red-400 transition-colors ml-auto"
+              className="text-xs text-[#6a7f8f] hover:text-red-400 transition-colors ml-auto"
               title="Delete"
             >
               🗑
@@ -1493,19 +1493,19 @@ function KanbanCard({
 
       {/* Expanded PRD */}
       {prdOpen && obj.prd && (
-        <div className="border-t border-[#1e1e1e] pt-3 flex flex-col gap-3">
-          <div className="text-xs text-gray-400 leading-relaxed max-h-64 overflow-y-auto whitespace-pre-wrap">
+        <div className="border-t border-[#e8e4de] pt-3 flex flex-col gap-3">
+          <div className="text-xs text-[#4a6580] leading-relaxed max-h-64 overflow-y-auto whitespace-pre-wrap">
             {obj.prd}
           </div>
           {implPrompt && (
-            <div className="bg-[#0a0a0a] border border-[#2a2a2a] rounded-xl p-3 flex flex-col gap-2">
+            <div className="bg-[#f8f6f1] border border-[#d4cfc5] rounded-xl p-3 flex flex-col gap-2">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">Claude Code Prompt</span>
-                <button onClick={handleCopy} className="text-xs font-semibold text-[#00D64F] hover:underline">
+                <span className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest">Claude Code Prompt</span>
+                <button onClick={handleCopy} className="text-xs font-semibold text-[#1a6b7f] hover:underline">
                   {copied ? "Copied!" : "Copy prompt"}
                 </button>
               </div>
-              <p className="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap">{implPrompt}</p>
+              <p className="text-xs text-[#0e2a47] leading-relaxed whitespace-pre-wrap">{implPrompt}</p>
             </div>
           )}
         </div>
@@ -1554,12 +1554,12 @@ function KanbanTab({ onDiscuss }: { onDiscuss: (objectiveId: string, problem: st
     await updateObjectiveStatus(id, toStatus);
   }
 
-  if (loading) return <p className="text-sm text-gray-600 py-4">Loading…</p>;
+  if (loading) return <p className="text-sm text-[#6a7f8f] py-4">Loading…</p>;
 
   if (objectives.length === 0) {
     return (
-      <div className="border border-dashed border-[#2a2a2a] rounded-2xl p-10 text-center">
-        <p className="text-sm text-gray-600">No cards yet — save objectives from the PM tab to populate the board.</p>
+      <div className="border border-dashed border-[#d4cfc5] rounded-2xl p-10 text-center">
+        <p className="text-sm text-[#6a7f8f]">No cards yet — save objectives from the PM tab to populate the board.</p>
       </div>
     );
   }
@@ -1580,15 +1580,15 @@ function KanbanTab({ onDiscuss }: { onDiscuss: (objectiveId: string, problem: st
           >
             <div className="flex items-center justify-between px-1">
               <span className={`text-xs font-bold uppercase tracking-widest ${col.textClass}`}>{col.label}</span>
-              <span className="text-xs text-gray-700">{cards.length}</span>
+              <span className="text-xs text-[#6a7f8f]">{cards.length}</span>
             </div>
             <div
               className={`flex flex-col gap-3 min-h-[80px] rounded-2xl transition-colors ${
-                isOver ? "bg-white/5 ring-1 ring-white/20" : ""
+                isOver ? "bg-[#1a6b7f]/5 ring-1 ring-[#1a6b7f]/20" : ""
               }`}
             >
               {cards.length === 0 ? (
-                <div className={`border ${col.borderClass} border-dashed rounded-2xl p-4 text-xs text-gray-700 text-center`}>
+                <div className={`border ${col.borderClass} border-dashed rounded-2xl p-4 text-xs text-[#6a7f8f] text-center`}>
                   Empty
                 </div>
               ) : (
@@ -1751,17 +1751,17 @@ function PMTab({ onSwitchToKanban, buildMode }: { onSwitchToKanban: () => void; 
 
         {/* Intro */}
         {messages.length === 0 && (
-          <div className="bg-[#111] border border-[#1e1e1e] rounded-2xl p-6">
+          <div className="bg-white border border-[#e8e4de] rounded-2xl p-6">
             <div className="flex items-center gap-3 mb-3">
-              <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0" style={{ background: "#5a4fcf" }}>
+              <div className="w-9 h-9 rounded-full flex items-center justify-center text-[#0e2a47] font-bold text-sm flex-shrink-0" style={{ background: "#5a4fcf" }}>
                 SM
               </div>
               <div>
-                <p className="text-sm font-bold text-white">Sarah · PM</p>
-                <p className="text-xs text-gray-600">1-on-1 with Philip</p>
+                <p className="text-sm font-bold text-[#0e2a47]">Sarah · PM</p>
+                <p className="text-xs text-[#6a7f8f]">1-on-1 with Philip</p>
               </div>
             </div>
-            <p className="text-sm text-gray-400 leading-relaxed">
+            <p className="text-sm text-[#4a6580] leading-relaxed">
               Hey Philip — what's on your mind? We can work through a problem, align on priorities, or agree on what to focus on next.
             </p>
           </div>
@@ -1773,25 +1773,25 @@ function PMTab({ onSwitchToKanban, buildMode }: { onSwitchToKanban: () => void; 
             {messages.map((msg, i) =>
               msg.role === "user" ? (
                 <div key={i} className="flex justify-end">
-                  <div className="bg-[#00D64F]/10 border border-[#00D64F]/20 rounded-2xl rounded-tr-sm px-5 py-3.5 max-w-xl">
-                    <p className="text-sm text-white leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                  <div className="bg-[#1a6b7f]/10 border border-[#1a6b7f]/20 rounded-2xl rounded-tr-sm px-5 py-3.5 max-w-xl">
+                    <p className="text-sm text-[#0e2a47] leading-relaxed whitespace-pre-wrap">{msg.content}</p>
                   </div>
                 </div>
               ) : (
                 <div key={i} className="flex gap-4">
-                  <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs flex-shrink-0" style={{ background: "#5a4fcf" }}>
+                  <div className="w-9 h-9 rounded-full flex items-center justify-center text-[#0e2a47] font-bold text-xs flex-shrink-0" style={{ background: "#5a4fcf" }}>
                     SM
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-2">
-                      <span className="text-sm font-bold text-white">Sarah</span>
-                      <span className="text-xs text-gray-600 bg-[#1a1a1a] px-2 py-0.5 rounded-full">PM</span>
+                      <span className="text-sm font-bold text-[#0e2a47]">Sarah</span>
+                      <span className="text-xs text-[#6a7f8f] bg-[#f0ede8] px-2 py-0.5 rounded-full">PM</span>
                       {thinking && i === messages.length - 1 && !msg.content && <ThinkingDots />}
                     </div>
                     {msg.content ? (
-                      <div className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap">{msg.content}</div>
+                      <div className="text-sm text-[#0e2a47] leading-relaxed whitespace-pre-wrap">{msg.content}</div>
                     ) : (
-                      <div className="text-sm text-gray-600 italic">Thinking…</div>
+                      <div className="text-sm text-[#6a7f8f] italic">Thinking…</div>
                     )}
                   </div>
                 </div>
@@ -1802,14 +1802,14 @@ function PMTab({ onSwitchToKanban, buildMode }: { onSwitchToKanban: () => void; 
         )}
 
         {/* Input */}
-        <div className="flex flex-col gap-2 sticky bottom-0 bg-[#0a0a0a] pt-2 pb-4">
+        <div className="flex flex-col gap-2 sticky bottom-0 bg-[#f8f6f1] pt-2 pb-4">
           {pmError && (
             <div className="flex items-center justify-between gap-4 bg-red-950/40 border border-red-800/40 rounded-xl px-4 py-3">
               <p className="text-sm text-red-400">{pmError}</p>
               <button
                 onClick={retry}
                 disabled={thinking}
-                className="text-sm font-semibold text-red-300 hover:text-white transition-colors flex-shrink-0 disabled:opacity-50"
+                className="text-sm font-semibold text-red-300 hover:text-[#0e2a47] transition-colors flex-shrink-0 disabled:opacity-50"
               >
                 Retry →
               </button>
@@ -1823,12 +1823,12 @@ function PMTab({ onSwitchToKanban, buildMode }: { onSwitchToKanban: () => void; 
               onKeyDown={handleKeyDown}
               placeholder="Message Sarah… (Enter to send, Shift+Enter for newline)"
               disabled={thinking}
-              className="flex-1 bg-[#111] border border-[#2a2a2a] focus:border-[#00D64F] outline-none rounded-xl px-5 py-4 text-white placeholder-[#444] transition-colors text-sm resize-none disabled:opacity-50"
+              className="flex-1 bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-5 py-4 text-[#0e2a47] placeholder-[#9ca3af] transition-colors text-sm resize-none disabled:opacity-50"
             />
             <button
               onClick={send}
               disabled={!input.trim() || thinking}
-              className="rounded-2xl bg-[#00D64F] text-black font-bold px-6 py-4 hover:bg-[#00c248] transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm flex-shrink-0"
+              className="rounded-2xl bg-[#1a6b7f] text-white font-bold px-6 py-4 hover:bg-[#155a6b] transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm flex-shrink-0"
             >
               {thinking ? "…" : "Send →"}
             </button>
@@ -1841,12 +1841,12 @@ function PMTab({ onSwitchToKanban, buildMode }: { onSwitchToKanban: () => void; 
 
         <div className="flex items-center justify-between gap-4">
           <div>
-            <h2 className="text-base font-bold text-white mb-1">Agreed objectives</h2>
-            <p className="text-xs text-gray-600">Objectives saved to the Kanban board as backlog cards.</p>
+            <h2 className="text-base font-bold text-[#0e2a47] mb-1">Agreed objectives</h2>
+            <p className="text-xs text-[#6a7f8f]">Objectives saved to the Kanban board as backlog cards.</p>
           </div>
           <button
             onClick={onSwitchToKanban}
-            className="text-sm text-[#00D64F] hover:opacity-75 transition-opacity whitespace-nowrap shrink-0"
+            className="text-sm text-[#1a6b7f] hover:opacity-75 transition-opacity whitespace-nowrap shrink-0"
           >
             View Kanban →
           </button>
@@ -1860,12 +1860,12 @@ function PMTab({ onSwitchToKanban, buildMode }: { onSwitchToKanban: () => void; 
             onChange={(e) => setObjInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") handleSaveObjective(); }}
             placeholder="Add an agreed objective…"
-            className="flex-1 bg-[#111] border border-[#2a2a2a] focus:border-[#00D64F] outline-none rounded-xl px-5 py-3.5 text-white placeholder-[#444] transition-colors text-sm"
+            className="flex-1 bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-5 py-3.5 text-[#0e2a47] placeholder-[#9ca3af] transition-colors text-sm"
           />
           <button
             onClick={handleSaveObjective}
             disabled={!objInput.trim() || savingObj}
-            className="rounded-2xl bg-[#00D64F] text-black font-bold px-5 py-3.5 hover:bg-[#00c248] transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm flex-shrink-0"
+            className="rounded-2xl bg-[#1a6b7f] text-white font-bold px-5 py-3.5 hover:bg-[#155a6b] transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm flex-shrink-0"
           >
             {savingObj ? "Saving…" : "Save objective"}
           </button>
@@ -1873,17 +1873,17 @@ function PMTab({ onSwitchToKanban, buildMode }: { onSwitchToKanban: () => void; 
 
         {/* List */}
         {objectives.length === 0 ? (
-          <p className="text-sm text-gray-600">No objectives saved yet.</p>
+          <p className="text-sm text-[#6a7f8f]">No objectives saved yet.</p>
         ) : (
           <div className="flex flex-col gap-2">
             {objectives.map((obj) => (
-              <div key={obj.id} className="bg-[#111] border border-[#1e1e1e] rounded-2xl px-5 py-4 flex items-start justify-between gap-4">
+              <div key={obj.id} className="bg-white border border-[#e8e4de] rounded-2xl px-5 py-4 flex items-start justify-between gap-4">
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm text-white leading-relaxed">{obj.title}</p>
+                  <p className="text-sm text-[#0e2a47] leading-relaxed">{obj.title}</p>
                   {obj.description && (
-                    <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{obj.description}</p>
+                    <p className="text-xs text-[#6a7f8f] mt-0.5 leading-relaxed">{obj.description}</p>
                   )}
-                  <p className="text-xs text-gray-600 mt-1">
+                  <p className="text-xs text-[#6a7f8f] mt-1">
                     {new Date(obj.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
                   </p>
                 </div>
@@ -1938,35 +1938,35 @@ export default function TeamPage() {
   ];
 
   return (
-    <main className="min-h-screen bg-[#0a0a0a] px-6 py-10 overflow-x-hidden">
+    <main className="min-h-screen bg-[#f8f6f1] px-6 py-10 overflow-x-hidden">
       <div className={`${activeTab === "kanban" ? "max-w-5xl" : "max-w-3xl"} mx-auto transition-all`}>
 
         <div className="mb-8 flex items-start justify-between gap-6 flex-wrap">
           <div>
             <h1 className="text-4xl font-extrabold tracking-tight mb-2">Product agents</h1>
-            <p className="text-gray-400">AI-powered product thinking for Rise.</p>
+            <p className="text-[#4a6580]">AI-powered product thinking for Rise.</p>
           </div>
           {/* Build / Research mode toggle */}
           <button
             onClick={toggleMode}
-            className="flex items-center gap-2.5 bg-[#111] border border-[#1e1e1e] rounded-2xl px-4 py-2.5 hover:border-[#2a2a2a] transition-colors shrink-0"
+            className="flex items-center gap-2.5 bg-white border border-[#e8e4de] rounded-2xl px-4 py-2.5 hover:border-[#d4cfc5] transition-colors shrink-0"
           >
-            <span className={`w-2 h-2 rounded-full ${buildMode ? "bg-[#00D64F]" : "bg-amber-400"}`} />
-            <span className="text-sm font-semibold text-white">{buildMode ? "Build mode" : "Research mode"}</span>
-            <span className="text-xs text-gray-600">— tap to switch</span>
+            <span className={`w-2 h-2 rounded-full ${buildMode ? "bg-[#1a6b7f]" : "bg-amber-400"}`} />
+            <span className="text-sm font-semibold text-[#0e2a47]">{buildMode ? "Build mode" : "Research mode"}</span>
+            <span className="text-xs text-[#6a7f8f]">— tap to switch</span>
           </button>
         </div>
 
         {/* Tab bar */}
-        <div className="flex gap-1 bg-[#111] border border-[#1e1e1e] rounded-2xl p-1 w-fit mb-10 overflow-x-auto">
+        <div className="flex gap-1 bg-white border border-[#e8e4de] rounded-2xl p-1 w-fit mb-10 overflow-x-auto">
           {tabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-colors whitespace-nowrap ${
                 activeTab === tab.id
-                  ? "bg-[#00D64F] text-black"
-                  : "text-gray-400 hover:text-white"
+                  ? "bg-[#1a6b7f] text-white"
+                  : "text-[#4a6580] hover:text-[#0e2a47]"
               }`}
             >
               {tab.label}

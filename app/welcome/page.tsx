@@ -165,15 +165,15 @@ function ActivityCard({
     <div
       className={`rounded-2xl border p-5 transition-all ${
         isHardExcluded
-          ? "border-[#1e1e1e] bg-[#0d0d0d] opacity-50"
-          : "border-[#1e1e1e] bg-[#111]"
+          ? "border-[#e8e4de] bg-[#f0ede8] opacity-50"
+          : "border-[#e8e4de] bg-white"
       }`}
     >
       <div className="mb-3">
-        <div className="font-bold text-white text-base leading-snug">{activity.name}</div>
-        <div className="text-xs text-[#00D64F] font-semibold mt-0.5">{activity.category}</div>
+        <div className="font-bold text-[#0e2a47] text-base leading-snug">{activity.name}</div>
+        <div className="text-xs text-[#1a6b7f] font-semibold mt-0.5">{activity.category}</div>
       </div>
-      <p className="text-sm text-gray-400 leading-relaxed mb-4">{activity.description}</p>
+      <p className="text-sm text-[#4a6580] leading-relaxed mb-4">{activity.description}</p>
 
       {/* Thumbs buttons — hidden while streaming or when chips are open */}
       {!chipsOpen && !disabled && !isHardExcluded && !isNoted && (
@@ -183,7 +183,7 @@ function ActivityCard({
             className={`flex items-center justify-center w-11 h-11 rounded-xl border text-lg transition-colors ${
               isThumbsUp
                 ? "border-green-500/40 text-green-400"
-                : "border-[#2a2a2a] text-gray-500 hover:border-green-500/40 hover:text-green-400"
+                : "border-[#d4cfc5] text-[#6a7f8f] hover:border-green-500/40 hover:text-green-400"
             }`}
             title="Interested"
           >
@@ -191,7 +191,7 @@ function ActivityCard({
           </button>
           <button
             onClick={onThumbsDown}
-            className="flex items-center justify-center w-11 h-11 rounded-xl border border-[#2a2a2a] text-lg text-gray-500 hover:border-red-500/40 hover:text-red-400 transition-colors"
+            className="flex items-center justify-center w-11 h-11 rounded-xl border border-[#d4cfc5] text-lg text-[#6a7f8f] hover:border-red-500/40 hover:text-red-400 transition-colors"
             title="Not for me"
           >
             👎
@@ -207,7 +207,7 @@ function ActivityCard({
               <button
                 key={chip.label}
                 onClick={() => onChipSelect(chip)}
-                className="rounded-xl border border-[#2a2a2a] px-3 py-1.5 text-xs font-medium text-gray-400 hover:border-[#444] hover:text-white transition-colors"
+                className="rounded-xl border border-[#d4cfc5] px-3 py-1.5 text-xs font-medium text-[#4a6580] hover:border-[#b8b3a9] hover:text-[#0e2a47] transition-colors"
               >
                 {chip.label}
               </button>
@@ -215,7 +215,7 @@ function ActivityCard({
           </div>
           <button
             onClick={onNoChipSubmit}
-            className="self-start text-xs text-gray-600 hover:text-gray-400 transition-colors"
+            className="self-start text-xs text-[#6a7f8f] hover:text-[#4a6580] transition-colors"
           >
             Skip →
           </button>
@@ -226,7 +226,7 @@ function ActivityCard({
       {isHardExcluded && <p className="text-xs text-orange-400">We&apos;ll skip this.</p>}
 
       {/* Soft signal or no-chip submission */}
-      {isNoted && <p className="text-xs text-gray-500">Noted.</p>}
+      {isNoted && <p className="text-xs text-[#6a7f8f]">Noted.</p>}
     </div>
   );
 }
@@ -736,17 +736,17 @@ export default function WelcomePage() {
   };
 
   const darkInput =
-    "w-full bg-[#111] border border-[#444] focus:border-[#00D64F] outline-none rounded-xl px-5 py-4 text-white text-lg placeholder-[#555] transition-colors";
+    "w-full bg-white border border-[#b8b3a9] focus:border-[#1a6b7f] outline-none rounded-xl px-5 py-4 text-[#0e2a47] text-lg placeholder-[#9ca3af] transition-colors";
   const underlineInput =
-    "w-full bg-transparent border-b-2 border-[#2a2a2a] focus:border-[#00D64F] outline-none text-3xl font-semibold text-white placeholder-[#333] py-3 transition-colors";
+    "w-full bg-transparent border-b-2 border-[#d4cfc5] focus:border-[#1a6b7f] outline-none text-3xl font-semibold text-[#0e2a47] placeholder-[#9ca3af] py-3 transition-colors";
 
   return (
-    <main className="min-h-screen bg-[#0a0a0a] flex flex-col">
+    <main className="min-h-screen bg-[#f8f6f1] flex flex-col">
 
       {/* Progress bar */}
-      <div className="w-full h-1 bg-[#1a1a1a]">
+      <div className="w-full h-1 bg-[#f0ede8]">
         <div
-          className="h-1 bg-[#00D64F] transition-all duration-500 ease-out"
+          className="h-1 bg-[#1a6b7f] transition-all duration-500 ease-out"
           style={{ width: `${(step / TOTAL_WIZARD_STEPS) * 100}%` }}
         />
       </div>
@@ -755,11 +755,11 @@ export default function WelcomePage() {
       <div className="flex items-center justify-between px-6 pt-5 pb-2">
         <button
           onClick={() => goTo(step - 1)}
-          className="text-gray-400 hover:text-white transition-colors text-sm font-medium"
+          className="text-[#4a6580] hover:text-[#0e2a47] transition-colors text-sm font-medium"
         >
           ← Back
         </button>
-        <span className="text-gray-600 text-sm">{step} / {TOTAL_WIZARD_STEPS}</span>
+        <span className="text-[#6a7f8f] text-sm">{step} / {TOTAL_WIZARD_STEPS}</span>
       </div>
 
       {/* Step content */}
@@ -767,17 +767,17 @@ export default function WelcomePage() {
         <div className="w-full max-w-xl mx-auto animate-step" key={animKey}>
 
           <div className="mb-10">
-            <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight leading-tight mb-3">
+            <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight leading-tight mb-3 text-[#0e2a47]">
               {headings[step]}
             </h1>
-            <p className="text-gray-400 text-lg">{subs[step]}</p>
+            <p className="text-[#4a6580] text-lg">{subs[step]}</p>
           </div>
 
           {/* Step 1: Destination (editable) + Dates */}
           {step === 1 && (
             <div className="flex flex-col gap-6">
               <div>
-                <label className="block text-sm font-semibold text-gray-400 uppercase tracking-widest mb-3">
+                <label className="block text-sm font-semibold text-[#4a6580] uppercase tracking-widest mb-3">
                   Destination
                 </label>
                 <PlacesAutocomplete
@@ -790,7 +790,7 @@ export default function WelcomePage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-400 uppercase tracking-widest mb-3">
+                <label className="block text-sm font-semibold text-[#4a6580] uppercase tracking-widest mb-3">
                   Departure
                 </label>
                 <input
@@ -802,7 +802,7 @@ export default function WelcomePage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-400 uppercase tracking-widest mb-3">
+                <label className="block text-sm font-semibold text-[#4a6580] uppercase tracking-widest mb-3">
                   Return
                 </label>
                 <input
@@ -832,7 +832,7 @@ export default function WelcomePage() {
               />
               <button
                 onClick={() => { setHotel(""); handleContinue(); }}
-                className="self-start text-sm text-gray-500 hover:text-gray-300 transition-colors"
+                className="self-start text-sm text-[#6a7f8f] hover:text-[#0e2a47] transition-colors"
               >
                 I haven&apos;t booked yet — skip →
               </button>
@@ -843,43 +843,43 @@ export default function WelcomePage() {
           {step === 3 && (
             <div className="flex flex-col gap-8">
               <div>
-                <label className="block text-sm font-semibold text-gray-400 uppercase tracking-widest mb-4">
+                <label className="block text-sm font-semibold text-[#4a6580] uppercase tracking-widest mb-4">
                   Who&apos;s coming?
                 </label>
 
                 {/* Adults + Children steppers side by side */}
                 <div className="flex gap-8 mb-5">
                   <div className="flex flex-col gap-2">
-                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Adults</span>
+                    <span className="text-xs font-semibold text-[#6a7f8f] uppercase tracking-widest">Adults</span>
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => setAdultCount((c) => Math.max(1, c - 1))}
-                        className="w-8 h-8 rounded-xl border border-[#2a2a2a] bg-[#111] text-gray-400 hover:text-white hover:border-[#444] transition-colors text-lg leading-none flex items-center justify-center"
+                        className="w-8 h-8 rounded-xl border border-[#d4cfc5] bg-white text-[#4a6580] hover:text-[#0e2a47] hover:border-[#b8b3a9] transition-colors text-lg leading-none flex items-center justify-center"
                       >
                         −
                       </button>
-                      <span className="w-6 text-center font-bold text-white text-sm">{adultCount}</span>
+                      <span className="w-6 text-center font-bold text-[#0e2a47] text-sm">{adultCount}</span>
                       <button
                         onClick={() => setAdultCount((c) => c + 1)}
-                        className="w-8 h-8 rounded-xl border border-[#2a2a2a] bg-[#111] text-gray-400 hover:text-white hover:border-[#444] transition-colors text-lg leading-none flex items-center justify-center"
+                        className="w-8 h-8 rounded-xl border border-[#d4cfc5] bg-white text-[#4a6580] hover:text-[#0e2a47] hover:border-[#b8b3a9] transition-colors text-lg leading-none flex items-center justify-center"
                       >
                         +
                       </button>
                     </div>
                   </div>
                   <div className="flex flex-col gap-2">
-                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Children</span>
+                    <span className="text-xs font-semibold text-[#6a7f8f] uppercase tracking-widest">Children</span>
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => { if (childrenAges.length > 0) removeChild(childrenAges.length - 1); }}
-                        className="w-8 h-8 rounded-xl border border-[#2a2a2a] bg-[#111] text-gray-400 hover:text-white hover:border-[#444] transition-colors text-lg leading-none flex items-center justify-center"
+                        className="w-8 h-8 rounded-xl border border-[#d4cfc5] bg-white text-[#4a6580] hover:text-[#0e2a47] hover:border-[#b8b3a9] transition-colors text-lg leading-none flex items-center justify-center"
                       >
                         −
                       </button>
-                      <span className="w-6 text-center font-bold text-white text-sm">{childrenAges.length}</span>
+                      <span className="w-6 text-center font-bold text-[#0e2a47] text-sm">{childrenAges.length}</span>
                       <button
                         onClick={addChild}
-                        className="w-8 h-8 rounded-xl border border-[#2a2a2a] bg-[#111] text-gray-400 hover:text-white hover:border-[#444] transition-colors text-lg leading-none flex items-center justify-center"
+                        className="w-8 h-8 rounded-xl border border-[#d4cfc5] bg-white text-[#4a6580] hover:text-[#0e2a47] hover:border-[#b8b3a9] transition-colors text-lg leading-none flex items-center justify-center"
                       >
                         +
                       </button>
@@ -892,7 +892,7 @@ export default function WelcomePage() {
                   <div className="flex flex-col gap-3">
                     {childrenAges.map((age, idx) => (
                       <div key={idx} className="flex items-center gap-3 flex-wrap">
-                        <span className="text-xs font-semibold text-gray-500 w-14 shrink-0">Child {idx + 1}</span>
+                        <span className="text-xs font-semibold text-[#6a7f8f] w-14 shrink-0">Child {idx + 1}</span>
                         <div className="flex gap-1.5 flex-wrap">
                           {CHILD_AGE_RANGES.map((range) => (
                             <button
@@ -900,8 +900,8 @@ export default function WelcomePage() {
                               onClick={() => updateChildAge(idx, range)}
                               className={`px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all ${
                                 age === range
-                                  ? "border-[#00D64F] bg-[#00D64F]/10 text-white"
-                                  : "border-[#1e1e1e] bg-[#111] text-gray-400 hover:border-[#333] hover:text-white"
+                                  ? "border-[#1a6b7f] bg-[#1a6b7f]/10 text-[#0e2a47]"
+                                  : "border-[#e8e4de] bg-white text-[#4a6580] hover:border-[#b8b3a9] hover:text-[#0e2a47]"
                               }`}
                             >
                               {range}
@@ -923,7 +923,7 @@ export default function WelcomePage() {
                 if (validIds.length <= 1) return null;
                 return (
                   <div>
-                    <label className="block text-sm font-semibold text-gray-400 uppercase tracking-widest mb-4">
+                    <label className="block text-sm font-semibold text-[#4a6580] uppercase tracking-widest mb-4">
                       Trip type
                     </label>
                     <div className="flex flex-wrap gap-3">
@@ -935,8 +935,8 @@ export default function WelcomePage() {
                             onClick={() => setTravelCompany(travelCompany === id ? "" : id)}
                             className={`flex items-center gap-2 px-4 py-3 rounded-2xl border text-sm font-semibold transition-all ${
                               travelCompany === id
-                                ? "border-[#00D64F] bg-[#00D64F]/10 text-white"
-                                : "border-[#1e1e1e] bg-[#111] text-gray-400 hover:border-[#333] hover:text-white"
+                                ? "border-[#1a6b7f] bg-[#1a6b7f]/10 text-[#0e2a47]"
+                                : "border-[#e8e4de] bg-white text-[#4a6580] hover:border-[#b8b3a9] hover:text-[#0e2a47]"
                             }`}
                           >
                             <span>{opt.emoji}</span>
@@ -950,10 +950,10 @@ export default function WelcomePage() {
               })()}
 
               <div>
-                <label className="block text-sm font-semibold text-gray-400 uppercase tracking-widest mb-1">
+                <label className="block text-sm font-semibold text-[#4a6580] uppercase tracking-widest mb-1">
                   What&apos;s your travel style?
                 </label>
-                <p className="text-gray-600 text-sm mb-4">
+                <p className="text-[#6a7f8f] text-sm mb-4">
                   Pick up to {MAX_STYLE_SELECTIONS}.
                 </p>
                 <div className="flex flex-wrap gap-2">
@@ -967,10 +967,10 @@ export default function WelcomePage() {
                         disabled={maxed}
                         className={`px-4 py-2 rounded-xl border text-sm font-semibold transition-all ${
                           selected
-                            ? "border-[#00D64F] bg-[#00D64F]/10 text-white"
+                            ? "border-[#1a6b7f] bg-[#1a6b7f]/10 text-[#0e2a47]"
                             : maxed
-                            ? "border-[#1e1e1e] bg-[#111] text-gray-600 cursor-not-allowed"
-                            : "border-[#1e1e1e] bg-[#111] text-gray-400 hover:border-[#333] hover:text-white"
+                            ? "border-[#e8e4de] bg-white text-[#6a7f8f] cursor-not-allowed"
+                            : "border-[#e8e4de] bg-white text-[#4a6580] hover:border-[#b8b3a9] hover:text-[#0e2a47]"
                         }`}
                       >
                         {style}
@@ -981,7 +981,7 @@ export default function WelcomePage() {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-400 uppercase tracking-widest mb-4">
+                <label className="block text-sm font-semibold text-[#4a6580] uppercase tracking-widest mb-4">
                   What&apos;s your budget?
                 </label>
                 <div className="flex flex-col gap-2">
@@ -991,14 +991,14 @@ export default function WelcomePage() {
                       onClick={() => setBudgetTier(budgetTier === opt.id ? "" : opt.id)}
                       className={`flex items-center justify-between px-5 py-4 rounded-2xl border text-left transition-all ${
                         budgetTier === opt.id
-                          ? "border-[#00D64F] bg-[#00D64F]/10"
-                          : "border-[#1e1e1e] bg-[#111] hover:border-[#333]"
+                          ? "border-[#1a6b7f] bg-[#1a6b7f]/10"
+                          : "border-[#e8e4de] bg-white hover:border-[#b8b3a9]"
                       }`}
                     >
-                      <span className={`text-sm font-bold ${budgetTier === opt.id ? "text-white" : "text-gray-400"}`}>
+                      <span className={`text-sm font-bold ${budgetTier === opt.id ? "text-[#0e2a47]" : "text-[#4a6580]"}`}>
                         {opt.label}
                       </span>
-                      <span className="text-xs text-gray-600">{opt.description}</span>
+                      <span className="text-xs text-[#6a7f8f]">{opt.description}</span>
                     </button>
                   ))}
                 </div>
@@ -1011,9 +1011,9 @@ export default function WelcomePage() {
             <div className="flex flex-col gap-4">
               {/* Initial loading state — before any cards arrive */}
               {previewLoading && parsedActivities.length === 0 && (
-                <div className="rounded-2xl border border-[#1e1e1e] bg-[#111] p-6 min-h-[140px] flex items-center">
-                  <div className="flex items-center gap-3 text-gray-400">
-                    <div className="w-4 h-4 rounded-full border-2 border-[#00D64F] border-t-transparent animate-spin flex-shrink-0" />
+                <div className="rounded-2xl border border-[#e8e4de] bg-white p-6 min-h-[140px] flex items-center">
+                  <div className="flex items-center gap-3 text-[#4a6580]">
+                    <div className="w-4 h-4 rounded-full border-2 border-[#1a6b7f] border-t-transparent animate-spin flex-shrink-0" />
                     <span>{previewLoadingLabel(destination, travelCompany)}</span>
                   </div>
                 </div>
@@ -1037,8 +1037,8 @@ export default function WelcomePage() {
 
               {/* Inline loading indicator while more cards are incoming */}
               {previewLoading && parsedActivities.length > 0 && (
-                <div className="flex items-center gap-3 px-2 py-3 text-gray-500 text-sm">
-                  <div className="w-3.5 h-3.5 rounded-full border-2 border-gray-600 border-t-transparent animate-spin flex-shrink-0" />
+                <div className="flex items-center gap-3 px-2 py-3 text-[#6a7f8f] text-sm">
+                  <div className="w-3.5 h-3.5 rounded-full border-2 border-[#6a7f8f] border-t-transparent animate-spin flex-shrink-0" />
                   <span>Finding more ideas...</span>
                 </div>
               )}
@@ -1050,8 +1050,8 @@ export default function WelcomePage() {
             <div className="flex flex-col gap-6">
               {/* Hard exclusions edit affordance */}
               {hardExcludedActivities.length > 0 && (
-                <div className="rounded-2xl border border-[#1e1e1e] bg-[#111] px-5 py-4">
-                  <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">
+                <div className="rounded-2xl border border-[#e8e4de] bg-white px-5 py-4">
+                  <p className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-3">
                     Skipped activities
                   </p>
                   <div className="flex flex-wrap gap-2 mb-2">
@@ -1059,22 +1059,22 @@ export default function WelcomePage() {
                       <button
                         key={entry.activityId}
                         onClick={() => handleRemoveExclusion(entry.activityId)}
-                        className="flex items-center gap-2 rounded-xl border border-[#2a2a2a] px-3 py-1.5 text-sm text-gray-400 hover:border-red-500/30 hover:text-red-400 transition-colors"
+                        className="flex items-center gap-2 rounded-xl border border-[#d4cfc5] px-3 py-1.5 text-sm text-[#4a6580] hover:border-red-500/30 hover:text-red-400 transition-colors"
                       >
                         {entry.activityName}
-                        <span className="text-gray-600 text-xs">×</span>
+                        <span className="text-[#6a7f8f] text-xs">×</span>
                       </button>
                     ))}
                   </div>
-                  <p className="text-xs text-gray-600">Tap to restore an activity.</p>
+                  <p className="text-xs text-[#6a7f8f]">Tap to restore an activity.</p>
                 </div>
               )}
 
-              <p className="text-gray-500 text-sm -mt-2">
+              <p className="text-[#6a7f8f] text-sm -mt-2">
                 Your activity plan, transport advice, and trip summary are ready. Create your account to save everything.
               </p>
               <div>
-                <label className="block text-sm font-semibold text-gray-400 uppercase tracking-widest mb-3">
+                <label className="block text-sm font-semibold text-[#4a6580] uppercase tracking-widest mb-3">
                   Your name
                 </label>
                 <input
@@ -1087,7 +1087,7 @@ export default function WelcomePage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-400 uppercase tracking-widest mb-3">
+                <label className="block text-sm font-semibold text-[#4a6580] uppercase tracking-widest mb-3">
                   Email
                 </label>
                 <input
@@ -1105,7 +1105,7 @@ export default function WelcomePage() {
           <button
             onClick={handleContinue}
             disabled={!canContinue[step] || saving}
-            className="mt-10 w-full rounded-2xl bg-[#00D64F] text-black font-bold text-lg py-5 hover:bg-[#00c248] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            className="mt-10 w-full rounded-2xl bg-[#1a6b7f] text-white font-bold text-lg py-5 hover:bg-[#155a6b] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           >
             {saving
               ? "Saving your trip…"
