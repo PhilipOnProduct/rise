@@ -1,12 +1,12 @@
 @import "tailwindcss";
 
 :root {
-  --background: #0a0a0a;
-  --foreground: #ffffff;
-  --accent: #00D64F;
-  --card: #111111;
-  --border: #222222;
-  --muted: #555555;
+  --background: #f8f6f1;
+  --foreground: #0e2a47;
+  --accent: #1a6b7f;
+  --card: #ffffff;
+  --border: #d4cfc5;
+  --muted: #6a7f8f;
   --font-dm-sans: "DM Sans", sans-serif;
 }
 
@@ -36,9 +36,8 @@ body {
   animation: fadeSlideUp 0.35s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* Make the calendar icon visible on dark backgrounds */
+/* Calendar icon styling for light backgrounds */
 input[type="date"]::-webkit-calendar-picker-indicator {
-  filter: invert(1);
   opacity: 0.6;
   cursor: pointer;
 }

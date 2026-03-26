@@ -38,7 +38,7 @@ export default function FeedbackButton() {
       <button
         onClick={() => setOpen((v) => !v)}
         aria-label="Give feedback"
-        className="fixed bottom-6 right-6 z-50 flex items-center gap-2 bg-[#00D64F] text-black text-sm font-bold rounded-2xl px-4 py-2.5 shadow-lg hover:bg-[#00c248] transition-colors"
+        className="fixed bottom-6 right-6 z-50 flex items-center gap-2 bg-[#1a6b7f] text-white text-sm font-bold rounded-2xl px-4 py-2.5 shadow-lg hover:bg-[#155a6b] transition-colors"
       >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
           <path d="M2 2h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H5l-3 2V3a1 1 0 0 1 1-1z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
@@ -51,21 +51,21 @@ export default function FeedbackButton() {
         <div
           role="dialog"
           aria-label="Send feedback"
-          className="fixed bottom-20 right-6 z-50 w-80 bg-[#111] border border-[#2a2a2a] rounded-2xl shadow-2xl p-5 flex flex-col gap-4"
+          className="fixed bottom-20 right-6 z-50 w-80 bg-white border border-[#d4cfc5] rounded-2xl shadow-2xl p-5 flex flex-col gap-4"
           onKeyDown={handleKeyDown}
         >
           {status === "done" ? (
             <div className="text-center py-6">
               <div className="text-2xl mb-2">✓</div>
-              <p className="text-white font-semibold">Thanks for the feedback!</p>
+              <p className="text-[#0e2a47] font-semibold">Thanks for the feedback!</p>
             </div>
           ) : (
             <>
               <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold text-white">Send feedback</p>
+                <p className="text-sm font-semibold text-[#0e2a47]">Send feedback</p>
                 <button
                   onClick={() => setOpen(false)}
-                  className="text-gray-500 hover:text-white transition-colors text-lg leading-none"
+                  className="text-[#6a7f8f] hover:text-[#0e2a47] transition-colors text-lg leading-none"
                   aria-label="Close"
                 >
                   ×
@@ -77,12 +77,12 @@ export default function FeedbackButton() {
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 placeholder="What's on your mind?"
-                className="w-full bg-[#0a0a0a] border border-[#2a2a2a] focus:border-[#00D64F] outline-none rounded-xl px-4 py-3 text-sm text-white placeholder-[#444] resize-none transition-colors"
+                className="w-full bg-[#f8f6f1] border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-sm text-[#0e2a47] placeholder-[#9ca3af] resize-none transition-colors"
               />
               <button
                 onClick={handleSend}
                 disabled={!text.trim() || status === "sending"}
-                className="w-full bg-[#00D64F] text-black font-bold rounded-2xl py-2.5 text-sm hover:bg-[#00c248] transition-colors disabled:opacity-40"
+                className="w-full bg-[#1a6b7f] text-white font-bold rounded-2xl py-2.5 text-sm hover:bg-[#155a6b] transition-colors disabled:opacity-40"
               >
                 {status === "sending" ? "Sending…" : "Send feedback"}
               </button>
