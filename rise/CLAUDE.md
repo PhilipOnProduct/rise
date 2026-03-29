@@ -53,6 +53,7 @@ Rise is an AI-powered trip planning app. It helps travellers plan trips day-by-d
 - **AI Logs** (`/admin`) — Table of all Claude API calls with prompt, input, output, latency, token counts, and per-log rating/notes for evaluation. Team discussion titles strip markdown asterisks from display.
 - **User feedback** (`/feedback-admin`) — All `user_feedback` entries ordered by most recent, with page URL, feedback text, and date.
 - **Evals** (`/admin/evals`) — Three-level evaluation framework for AI output quality. Four tabs: (1) Test cases — lists pre-seeded family prompt scenarios with criteria tags; (2) Run evals — select a test case via `CustomSelect` dropdown, run against `/api/itinerary/generate`, view output, rate 1-5 with notes, "Ask Claude to judge →" for LLM-as-judge scoring with per-criterion pass/fail breakdown; (3) Results — sortable table of all eval results (test case, model, human score, LLM score, date); (4) Model comparison — select test case + Model A/B, run both in parallel, side-by-side output with auto-judging and win/loss summary. All dropdowns use `CustomSelect` (div-based, not native select) to avoid browser event issues. Data stored in `eval_test_cases` and `eval_results` Supabase tables. Judge route at `/api/evals/judge` calls Claude with structured scoring prompt.
+- **Usage** (`/admin/usage`) — API usage monitoring and limits dashboard. Two provider cards (Anthropic, Google) each showing: progress bar (spent/limit), warning level indicator (green/amber/red), current month spend, estimated month-end projection. Editable limit fields: monthly limit USD, warning threshold %, hard limit toggle — saves via `PATCH /api/usage/limits`. Recent usage log table (last 50 entries): date, provider, api_type, feature, tokens/requests, cost — sortable by date or cost.
 
 ### Product team (`/team`) — four tabs
 - **Build / Research mode toggle** — Persistent toggle in the page header (all tabs). Default: Build mode. Stored in `localStorage("rise_team_mode")`. Teal dot = Build mode, amber dot = Research mode. The active mode is injected as an `IMPORTANT:` instruction into every agent system prompt: Sarah (framing, synthesis, PRD), Alex, Maya, Luca, Elena, PM Sarah, and the product coach. Build mode instructs agents to ship complete features without research gates or phased rollouts; Research mode applies standard discovery practices.
@@ -70,6 +71,8 @@ Rise is an AI-powered trip planning app. It helps travellers plan trips day-by-d
 ### Infrastructure
 - **Password protection** — Edge middleware (`middleware.ts`) redirects unauthenticated users to `/api/auth`. GET shows the form; POST sets an `httpOnly` cookie.
 - **AI logging** (`lib/ai-logger.ts`) — Wraps every Claude call; logs to Supabase `ai_logs` table.
+- **API usage logging** (`lib/log-api-usage.ts`, `lib/api-costs.ts`) — Every API route calls `logApiUsage()` after a successful external API call. Calculates estimated cost from pricing constants (Sonnet $3/$15 per 1M tokens, Opus $15/$75, Haiku $0.80/$4, Google Places $0.017/req, Geocoding $0.005/req). Inserts to `api_usage` table. `checkApiLimit(provider)` queries current month spend vs `api_limits` table, returns `{ allowed, warningLevel, percentUsed, spentUsd, limitUsd }`. Hard limit enforcement: every Anthropic route calls `checkApiLimit("anthropic")` before the API call and returns 429 if exceeded and `hard_limit_enabled` is true. Wired into: itinerary/generate, itinerary/edit, activities-stream, recommendations, transport, evals/judge, activity-chips, team/chat.
+- **API limit banner** (`ApiLimitBanner.tsx`) — Client component in `layout.tsx` above Nav. Fetches `/api/usage/status` on mount. Amber banner at ≥80% spend ("You've used X% of your budget"), red banner when exceeded ("API limit reached. AI features are paused."). Links to `/admin/usage`. Dismissible per session via `sessionStorage`.
 - **Shared Supabase client** (`lib/supabase.ts`) — Single client instance used everywhere.
 - **Rise context API** (`/api/rise-context`) — Server-side GET route that reads and returns `CLAUDE.md` as JSON using Node `fs`. Used by the PM tab to inject the full product context into the system prompt.
 - **Traveler composition** (`lib/composition.ts`) — `buildCompositionSegment(travelerCount, childrenAges)` builds a plain-language context segment injected into every AI prompt. Translates age ranges to behavioural constraints: Under 2 → pram access required, nap windows mid-morning/afternoon, no loud environments; 2–4 → 45-min activity max, outdoor space; 5–8 → 90-min tolerance, interactive; 9–12 → near-adult stamina. Constraints are deduplicated across siblings. Used in activities-stream, itinerary/generate, itinerary/edit, recommendations, and transport routes.
@@ -84,7 +87,7 @@ Rise is an AI-powered trip planning app. It helps travellers plan trips day-by-d
 rise/
 ├── app/
 │   ├── page.tsx                  # Homepage — 100vh, hero in upper 70%, landmark skyline in bottom 30%
-│   ├── layout.tsx                # Root layout — DM Sans font, Nav, FeedbackButton
+│   ├── layout.tsx                # Root layout — DM Sans font, ApiLimitBanner, Nav, FeedbackButton
 │   ├── globals.css               # Light theme CSS variables, fadeSlideUp animation, date picker fix
 │   ├── welcome/page.tsx          # 6-step onboarding wizard (step 0 = landing, steps 1–5 = wizard)
 │   ├── dashboard/page.tsx        # Trip summary dashboard
@@ -95,7 +98,8 @@ rise/
 │   ├── feedback-admin/page.tsx   # Admin view of all user_feedback entries
 │   ├── admin/
 │   │   ├── page.tsx              # AI log viewer
-│   │   └── evals/page.tsx        # Eval framework — test cases, run evals, results, model comparison
+│   │   ├── evals/page.tsx        # Eval framework — test cases, run evals, results, model comparison
+│   │   └── usage/page.tsx        # API usage monitoring, limits, cost tracking
 │   ├── team/page.tsx             # Product agents — Kanban / Product team / PM / Coach tabs
 │   ├── guides/
 │   │   ├── page.tsx              # City search
@@ -127,16 +131,22 @@ rise/
 │   │   │   └── chat/route.ts     # POST: non-streaming Claude call for product agents
 │   │   ├── evals/
 │   │   │   └── judge/route.ts    # POST: LLM-as-judge scoring against criteria
+│   │   ├── usage/
+│   │   │   ├── status/route.ts   # GET: current month usage + warning levels for both providers
+│   │   │   └── limits/route.ts   # PATCH: update api_limits for a provider
 │   │   └── admin/logs/
 │   │       ├── route.ts          # GET: all AI logs
 │   │       └── [id]/route.ts     # PATCH: update rating/notes
 │   └── components/
-│       ├── Nav.tsx               # Sticky top nav with dropdowns + mobile hamburger (Admin: AI Logs, Evals, Product, PM, Feedback)
+│       ├── Nav.tsx               # Sticky top nav with dropdowns + mobile hamburger (Admin: AI Logs, Evals, Usage, Product, PM, Feedback)
+│       ├── ApiLimitBanner.tsx    # Warning/error banner when API spend approaches or exceeds limits
 │       ├── FeedbackButton.tsx    # Floating feedback button (hidden on /welcome and /team*)
 │       └── PlacesAutocomplete.tsx  # Google Places (New API) autocomplete input
 ├── lib/
 │   ├── supabase.ts               # Shared Supabase client — always import from here
 │   ├── ai-logger.ts              # Claude call wrapper with Supabase logging
+│   ├── api-costs.ts              # Pricing constants + calculateAnthropicCost/calculateGoogleCost
+│   ├── log-api-usage.ts          # logApiUsage() + checkApiLimit() — usage tracking and limit enforcement
 │   ├── composition.ts            # buildCompositionSegment() — traveler count + children age constraints for AI prompts
 │   └── guides.ts                 # Shared types (Guide, Tip, Level) and helpers (getLevel, LEVEL_BADGE)
 ├── scripts/
@@ -165,6 +175,8 @@ rise/
 | `activity_feedback` | Activity preview interaction log — event, activity name/category, chip label/type, chips_source (fallback/dynamic), first_chip_label |
 | `eval_test_cases` | Eval test scenarios — name, feature, inputs (jsonb), criteria (text[]). Pre-seeded with 7 family prompt scenarios |
 | `eval_results` | Eval run results — test_case_id (FK), model, prompt_used, ai_output, human_score (1-5), human_notes, llm_score (1-5), llm_reasoning |
+| `api_usage` | API call cost tracking — provider (`anthropic`/`google`), api_type, feature, input_tokens, output_tokens, request_count, estimated_cost_usd |
+| `api_limits` | Per-provider monthly limits — provider (unique), monthly_limit_usd, warning_threshold_pct (default 80), hard_limit_enabled (default true) |
 
 **Required SQL to add composition columns to `travelers` table:**
 ```sql
@@ -241,6 +253,34 @@ create table eval_results (
 );
 ```
 
+**Required SQL for `api_usage` and `api_limits` tables:**
+```sql
+create table api_usage (
+  id uuid primary key default gen_random_uuid(),
+  provider text not null,
+  api_type text not null,
+  feature text,
+  input_tokens integer,
+  output_tokens integer,
+  request_count integer default 1,
+  estimated_cost_usd numeric(10,6),
+  created_at timestamptz default now()
+);
+
+create table api_limits (
+  id uuid primary key default gen_random_uuid(),
+  provider text not null unique,
+  monthly_limit_usd numeric(10,2) not null,
+  warning_threshold_pct integer default 80,
+  hard_limit_enabled boolean default true,
+  updated_at timestamptz default now()
+);
+
+insert into api_limits (provider, monthly_limit_usd, warning_threshold_pct, hard_limit_enabled)
+values ('anthropic', 20.00, 80, true), ('google', 10.00, 80, true)
+on conflict (provider) do nothing;
+```
+
 **Required SQL for `team_conversations` type constraint** (add `pm` if constraint exists):
 ```sql
 alter table team_conversations
@@ -272,7 +312,7 @@ alter table team_conversations
 - Default model: `claude-sonnet-4-6`
 - Use streaming (`client.messages.stream()`) for any response displayed progressively (recommendations, transport advice, onboarding activity preview). Use `stream.finalMessage()` to get the complete response afterwards.
 - Use non-streaming (`client.messages.create()`) when the response must be parsed as structured JSON (e.g. itinerary generation). Always wrap `JSON.parse()` in try/catch and return a meaningful error.
-- Always wrap Claude calls with `logAiInteraction` from `lib/ai-logger.ts` so every interaction is logged to `/admin`.
+- Always wrap Claude calls with `logAiInteraction` from `lib/ai-logger.ts` so every interaction is logged to `/admin`. Also call `logApiUsage()` from `lib/log-api-usage.ts` after each successful call for cost tracking. Call `checkApiLimit("anthropic")` at the start of each route and return 429 if exceeded.
 - When Claude returns JSON, strip markdown code fences before parsing: `.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim()`
 - Set `max_tokens` generously for structured JSON responses — truncated JSON causes parse failures. Use 8000+ for multi-day itineraries.
 - JSON parse fallback: if primary parse fails, try extracting between `indexOf("{")` and `lastIndexOf("}")` before giving up.
