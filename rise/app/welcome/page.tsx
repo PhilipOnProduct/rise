@@ -140,7 +140,7 @@ type ActivityCardProps = {
   onThumbsUp: () => void;
   onThumbsDown: () => void;
   onChipSelect: (chip: Chip) => void;
-  onNoChipSubmit: () => void;
+  onUndo: () => void;
 };
 
 function ActivityCard({
@@ -152,7 +152,7 @@ function ActivityCard({
   onThumbsUp,
   onThumbsDown,
   onChipSelect,
-  onNoChipSubmit,
+  onUndo,
 }: ActivityCardProps) {
   const isHardExcluded =
     feedback?.feedbackType === "chip_selected" && feedback.chip?.type === "hard_exclusion";
@@ -182,8 +182,8 @@ function ActivityCard({
             onClick={onThumbsUp}
             className={`flex items-center justify-center w-11 h-11 rounded-xl border text-lg transition-colors ${
               isThumbsUp
-                ? "border-green-500/40 text-green-400"
-                : "border-[#d4cfc5] text-[#6a7f8f] hover:border-green-500/40 hover:text-green-400"
+                ? "border-[#1a6b7f] bg-[#1a6b7f] text-white shadow-sm"
+                : "border-[#d4cfc5] text-[#6a7f8f] hover:border-[#1a6b7f]/40 hover:text-[#1a6b7f]"
             }`}
             title="Interested"
           >
@@ -213,12 +213,15 @@ function ActivityCard({
               </button>
             ))}
           </div>
-          <button
-            onClick={onNoChipSubmit}
-            className="self-start text-xs text-[#6a7f8f] hover:text-[#4a6580] transition-colors"
-          >
-            Skip →
-          </button>
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-[#6a7f8f]">Pick one to help us plan better.</p>
+            <button
+              onClick={onUndo}
+              className="text-xs text-[#6a7f8f] hover:text-[#4a6580] transition-colors"
+            >
+              ← Undo
+            </button>
+          </div>
         </div>
       )}
 
@@ -518,29 +521,6 @@ export default function WelcomePage() {
     });
   }
 
-  function handleNoChipSubmit(activity: ParsedActivity) {
-    const chipsEntry = activityChips[activity.id];
-    submittedActivitiesRef.current.add(activity.id);
-    setActivityFeedback((prev) => ({
-      ...prev,
-      [activity.id]: {
-        activityId: activity.id,
-        activityName: activity.name,
-        activityCategory: activity.category,
-        feedbackType: "thumbs_down_no_chip",
-      },
-    }));
-    setOpenChipId(null);
-    logActivityEvent({
-      event: "thumbs_down_no_chip",
-      activityId: activity.id,
-      activityName: activity.name,
-      activityCategory: activity.category,
-      chipsSource: chipsEntry?.source ?? "fallback",
-      firstChipLabel: chipsEntry?.chips[0]?.label ?? "",
-    });
-  }
-
   function handleRemoveExclusion(activityId: string) {
     const entry = activityFeedback[activityId];
     if (!entry) return;
@@ -709,7 +689,7 @@ export default function WelcomePage() {
     1: destination.trim().length > 0 && departureDate.length > 0 && returnDate.length > 0,
     2: true,
     3: travelCompany.length > 0,
-    4: true,
+    4: !previewLoading && Object.keys(activityFeedback).length > 0,
     5: name.trim().length > 0 && email.trim().length > 0,
   };
 
@@ -1012,9 +992,12 @@ export default function WelcomePage() {
               {/* Initial loading state — before any cards arrive */}
               {previewLoading && parsedActivities.length === 0 && (
                 <div className="rounded-2xl border border-[#e8e4de] bg-white p-6 min-h-[140px] flex items-center">
-                  <div className="flex items-center gap-3 text-[#4a6580]">
-                    <div className="w-4 h-4 rounded-full border-2 border-[#1a6b7f] border-t-transparent animate-spin flex-shrink-0" />
-                    <span>{previewLoadingLabel(destination, travelCompany)}</span>
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-3 text-[#4a6580]">
+                      <div className="w-4 h-4 rounded-full border-2 border-[#1a6b7f] border-t-transparent animate-spin flex-shrink-0" />
+                      <span>{previewLoadingLabel(destination, travelCompany)}</span>
+                    </div>
+                    <p className="text-xs text-[#6a7f8f] ml-7">Activities will appear as we find them — rate each one as it arrives.</p>
                   </div>
                 </div>
               )}
@@ -1027,11 +1010,11 @@ export default function WelcomePage() {
                   chipsEntry={activityChips[activity.id]}
                   feedback={activityFeedback[activity.id]}
                   chipsOpen={openChipId === activity.id}
-                  disabled={previewLoading}
+                  disabled={false}
                   onThumbsUp={() => handleThumbsUp(activity)}
                   onThumbsDown={() => handleThumbsDown(activity)}
                   onChipSelect={(chip) => handleChipSelect(activity, chip)}
-                  onNoChipSubmit={() => handleNoChipSubmit(activity)}
+                  onUndo={() => setOpenChipId(null)}
                 />
               ))}
 
@@ -1039,8 +1022,15 @@ export default function WelcomePage() {
               {previewLoading && parsedActivities.length > 0 && (
                 <div className="flex items-center gap-3 px-2 py-3 text-[#6a7f8f] text-sm">
                   <div className="w-3.5 h-3.5 rounded-full border-2 border-[#6a7f8f] border-t-transparent animate-spin flex-shrink-0" />
-                  <span>Finding more ideas...</span>
+                  <span>Found {parsedActivities.length} of ~6 activities...</span>
                 </div>
+              )}
+
+              {/* Prompt to rate — shown after loading until user rates something */}
+              {!previewLoading && parsedActivities.length > 0 && Object.keys(activityFeedback).length === 0 && (
+                <p className="px-2 py-3 text-[#1a6b7f] text-sm font-medium">
+                  Rate each activity to shape your itinerary.
+                </p>
               )}
             </div>
           )}
@@ -1116,7 +1106,11 @@ export default function WelcomePage() {
               : step === TOTAL_WIZARD_STEPS
               ? "Let's go →"
               : step === 4
-              ? "Looks good — continue →"
+              ? previewLoading
+                ? "Loading activities…"
+                : Object.keys(activityFeedback).length === 0
+                ? "Rate at least one activity to continue"
+                : `Continue with ${Object.keys(activityFeedback).length} rated →`
               : "Continue →"}
           </button>
 
