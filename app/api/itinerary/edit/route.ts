@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
 import { logAiInteraction } from "@/lib/ai-logger";
+import { logApiUsage, checkApiLimit } from "@/lib/log-api-usage";
 import { buildCompositionSegment } from "@/lib/composition";
 
 const client = new Anthropic();
@@ -30,6 +31,12 @@ export async function POST(req: NextRequest) {
     travelerCount,
     childrenAges,
   } = await req.json();
+
+  // Hard limit check
+  const limit = await checkApiLimit("anthropic");
+  if (!limit.allowed) {
+    return NextResponse.json({ error: "API limit exceeded", provider: "anthropic", spentUsd: limit.spentUsd, limitUsd: limit.limitUsd }, { status: 429 });
+  }
 
   // Build neighbor context from adjacent time blocks
   const blockOrder: TimeBlock[] = ["morning", "afternoon", "evening"];
@@ -197,6 +204,11 @@ export async function POST(req: NextRequest) {
       latency_ms: Date.now() - startTime,
       input_tokens: response.usage.input_tokens,
       output_tokens: response.usage.output_tokens,
+    });
+
+    await logApiUsage({
+      provider: "anthropic", apiType: "itinerary-edit", feature: "itinerary",
+      model: MODEL, inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens,
     });
 
     return NextResponse.json({

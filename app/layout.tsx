@@ -3,6 +3,7 @@ import { DM_Sans } from "next/font/google";
 import "./globals.css";
 import Nav from "@/app/components/Nav";
 import FeedbackButton from "@/app/components/FeedbackButton";
+import ApiLimitBanner from "@/app/components/ApiLimitBanner";
 
 const dmSans = DM_Sans({
   subsets: ["latin"],
@@ -21,6 +22,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={dmSans.variable}>
       <body className="antialiased bg-[#0a0a0a] text-white">
+        <ApiLimitBanner />
         <Nav />
         {children}
         <FeedbackButton />

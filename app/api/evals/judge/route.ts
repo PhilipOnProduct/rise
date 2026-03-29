@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
 import { logAiInteraction } from "@/lib/ai-logger";
+import { logApiUsage, checkApiLimit } from "@/lib/log-api-usage";
 
 const client = new Anthropic();
 const MODEL = "claude-sonnet-4-6";
@@ -10,6 +11,12 @@ export async function POST(req: NextRequest) {
 
   if (!output || !criteria?.length) {
     return NextResponse.json({ error: "Missing output or criteria" }, { status: 400 });
+  }
+
+  // Hard limit check
+  const limit = await checkApiLimit("anthropic");
+  if (!limit.allowed) {
+    return NextResponse.json({ error: "API limit exceeded", provider: "anthropic", spentUsd: limit.spentUsd, limitUsd: limit.limitUsd }, { status: 429 });
   }
 
   const prompt = `You are evaluating an AI-generated travel itinerary for quality and appropriateness.
@@ -72,6 +79,11 @@ Return ONLY valid JSON — no markdown, no code fences:
       latency_ms: Date.now() - startTime,
       input_tokens: response.usage.input_tokens,
       output_tokens: response.usage.output_tokens,
+    });
+
+    await logApiUsage({
+      provider: "anthropic", apiType: "eval-judge", feature: "evals",
+      model: MODEL, inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens,
     });
 
     return NextResponse.json(result);
