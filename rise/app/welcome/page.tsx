@@ -13,18 +13,26 @@ const COMPANY_OPTIONS: Record<string, { label: string; emoji: string }> = {
   family: { label: "Family", emoji: "👨‍👩‍👧" },
 };
 
-const STYLE_OPTIONS = [
-  "Adventure",
-  "Food-led",
+const STYLE_OPTIONS_BASE = [
   "Cultural",
-  "Nightlife",
+  "Food-led",
   "Relaxed",
+  "Adventure",
   "Off the beaten track",
-  "Art & Design",
-  "Wellness",
   "History",
-  "Photography",
 ];
+
+const STYLE_OPTIONS_BY_COMPANY: Record<string, string[]> = {
+  solo:    ["Budget-savvy", "Slow travel", "Wellness", "Photography", "Nightlife", "Art & Design"],
+  partner: ["Romantic", "Wellness", "Nightlife", "Art & Design", "Photography"],
+  friends: ["Nightlife", "Active", "Festivals", "Art & Design", "Photography"],
+  family:  ["Kid-friendly", "Beach", "Educational", "Wellness", "Photography"],
+};
+
+function getStyleOptions(company: string): string[] {
+  const extra = STYLE_OPTIONS_BY_COMPANY[company] ?? ["Nightlife", "Wellness", "Art & Design", "Photography"];
+  return [...STYLE_OPTIONS_BASE, ...extra];
+}
 
 const BUDGET_OPTIONS = [
   { id: "budget", label: "Savvy", description: "Great value, local finds" },
@@ -298,6 +306,13 @@ export default function WelcomePage() {
       setTravelCompany((prev) => validIds.includes(prev) ? prev : "");
     }
   }, [adultCount, childrenAges.length]);
+
+  // Clear style selections that are no longer available when company changes
+  useEffect(() => {
+    if (!travelCompany) return;
+    const available = getStyleOptions(travelCompany);
+    setTravelerTypes((prev) => prev.filter((t) => available.includes(t)));
+  }, [travelCompany]);
 
   // Fire streaming preview when entering step 4 — parse cards incrementally
   useEffect(() => {
@@ -937,7 +952,7 @@ export default function WelcomePage() {
                   Pick up to {MAX_STYLE_SELECTIONS}.
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  {STYLE_OPTIONS.map((style) => {
+                  {getStyleOptions(travelCompany).map((style) => {
                     const selected = travelerTypes.includes(style);
                     const maxed = travelerTypes.length >= MAX_STYLE_SELECTIONS && !selected;
                     return (
