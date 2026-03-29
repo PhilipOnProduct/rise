@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
 import { logAiInteraction } from "@/lib/ai-logger";
+import { logApiUsage, checkApiLimit } from "@/lib/log-api-usage";
 import { buildCompositionSegment } from "@/lib/composition";
 
 const client = new Anthropic();
@@ -90,6 +91,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
   }
 
+  // Hard limit check
+  const limit = await checkApiLimit("anthropic");
+  if (!limit.allowed) {
+    return NextResponse.json({ error: "API limit exceeded", provider: "anthropic", spentUsd: limit.spentUsd, limitUsd: limit.limitUsd }, { status: 429 });
+  }
+
   const nights = Math.round(
     (new Date(returnDate).getTime() - new Date(departureDate).getTime()) / 86_400_000
   );
@@ -175,6 +182,11 @@ Rules:
       latency_ms: Date.now() - startTime,
       input_tokens: response.usage.input_tokens,
       output_tokens: response.usage.output_tokens,
+    });
+
+    await logApiUsage({
+      provider: "anthropic", apiType: "itinerary-generate", feature: "itinerary",
+      model: MODEL, inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens,
     });
 
     return NextResponse.json({ days: days_data });

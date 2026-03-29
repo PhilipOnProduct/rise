@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { logAiInteraction } from "@/lib/ai-logger";
+import { logApiUsage, checkApiLimit } from "@/lib/log-api-usage";
 import { buildCompositionSegment } from "@/lib/composition";
 
 const client = new Anthropic();
@@ -28,6 +29,12 @@ export async function POST(req: NextRequest) {
     travelerCount,
     childrenAges,
   } = await req.json();
+
+  // Hard limit check
+  const limit = await checkApiLimit("anthropic");
+  if (!limit.allowed) {
+    return NextResponse.json({ error: "API limit exceeded", provider: "anthropic", spentUsd: limit.spentUsd, limitUsd: limit.limitUsd }, { status: 429 });
+  }
 
   const nights =
     departureDate && returnDate
@@ -121,6 +128,10 @@ export async function POST(req: NextRequest) {
           latency_ms: Date.now() - startTime,
           input_tokens: final.usage.input_tokens,
           output_tokens: final.usage.output_tokens,
+        });
+        await logApiUsage({
+          provider: "anthropic", apiType: "activity-stream", feature: "onboarding",
+          model: MODEL, inputTokens: final.usage.input_tokens, outputTokens: final.usage.output_tokens,
         });
       } catch (err) {
         console.error("[activities-stream] Logging failed:", err);
