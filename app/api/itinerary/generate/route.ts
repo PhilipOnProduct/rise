@@ -56,6 +56,18 @@ function buildFeedbackSegment(feedback: ActivityFeedbackEntry[]): string {
     );
   }
 
+  // Case 4: thumbs-up — user expressed interest
+  const liked = feedback
+    .filter((f) => f.feedbackType === "thumbs_up")
+    .map((f) => f.activityName);
+
+  if (liked.length) {
+    parts.push(
+      `The user expressed interest in these activities — prioritise similar experiences:\n` +
+        liked.map((n) => `- ${n}`).join("\n")
+    );
+  }
+
   return parts.length ? `\n\n${parts.join("\n\n")}` : "";
 }
 
@@ -105,6 +117,7 @@ export async function POST(req: NextRequest) {
   const styleStr = travelerTypes?.length ? `Travel style: ${travelerTypes.join(", ")}.` : "";
   const companyStr = travelCompany ? `Travelling: ${travelCompany}.` : "";
   const feedbackSegment = buildFeedbackSegment(activityFeedback ?? []);
+  console.log("[itinerary-generate] Feedback segment:", feedbackSegment || "(none)");
   const composition = buildCompositionSegment(travelerCount, childrenAges);
   const compositionStr = composition ? `\nTraveller composition: ${composition}` : "";
 
