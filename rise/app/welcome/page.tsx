@@ -174,6 +174,8 @@ function ActivityCard({
       className={`rounded-2xl border p-5 transition-all ${
         isHardExcluded
           ? "border-[#e8e4de] bg-[#f0ede8] opacity-50"
+          : isNoted
+          ? "border-[#e8e4de] border-l-[#d4a94a] border-l-[3px] bg-white"
           : "border-[#e8e4de] bg-white"
       }`}
     >
@@ -237,7 +239,7 @@ function ActivityCard({
       {isHardExcluded && <p className="text-xs text-orange-400">We&apos;ll skip this.</p>}
 
       {/* Soft signal or no-chip submission */}
-      {isNoted && <p className="text-xs text-[#6a7f8f]">Noted.</p>}
+      {isNoted && <p className="text-xs text-[#6a7f8f]">👎 Noted — we&apos;ll adjust.</p>}
     </div>
   );
 }
@@ -718,7 +720,7 @@ export default function WelcomePage() {
     1: "When are you going?",
     2: "Where are you staying?",
     3: "Tell us about yourself.",
-    4: `What to do in ${destination}.`,
+    4: `Activities for your ${destination} trip.`,
     5: "Save your trip plan.",
   };
 
@@ -726,8 +728,8 @@ export default function WelcomePage() {
     1: `Great choice. Now let's lock in the dates for ${destination}.`,
     2: "Your hotel helps us give better local advice — skip if you haven\u2019t booked yet.",
     3: "A few quick questions so we can personalise your experience.",
-    4: "Rate what excites you — and what doesn\u2019t. It shapes your itinerary.",
-    5: "Your personalised plan is ready. Create an account to save it.",
+    4: "Rate what excites you \u2014 and what doesn\u2019t. It shapes your itinerary.",
+    5: "Your activity plan, transport advice, and trip summary are ready. Create your account to save everything.",
   };
 
   const darkInput =
@@ -1017,6 +1019,13 @@ export default function WelcomePage() {
                 </div>
               )}
 
+              {/* Rating progress counter */}
+              {!previewLoading && parsedActivities.length > 0 && Object.keys(activityFeedback).length > 0 && (
+                <p className="text-xs text-[#6a7f8f] text-right">
+                  {Object.keys(activityFeedback).length} of {parsedActivities.length} rated
+                </p>
+              )}
+
               {/* Progressive card reveal — cards appear as they complete */}
               {parsedActivities.map((activity) => (
                 <ActivityCard
@@ -1125,6 +1134,8 @@ export default function WelcomePage() {
                 ? "Loading activities…"
                 : Object.keys(activityFeedback).length === 0
                 ? "Rate at least one activity to continue"
+                : Object.keys(activityFeedback).length < Math.ceil(parsedActivities.length / 2)
+                ? `Continue with ${Object.keys(activityFeedback).length} rated — more = better results →`
                 : `Continue with ${Object.keys(activityFeedback).length} rated →`
               : "Continue →"}
           </button>

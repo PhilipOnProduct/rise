@@ -16,7 +16,7 @@ Format each as:
 [One-sentence description]
 *When: [timing or day suggestion]*
 
-Be specific to the destination — avoid generic suggestions that any visitor might do. Keep each entry concise.
+Be specific to the destination — avoid generic suggestions that any visitor might do. Keep each entry concise. Never reference the traveller's profile, preferences, or travel style in descriptions — write as if recommending to anyone visiting the destination.
 
 Ensure variety: each activity must be from a different category. Spread suggestions across food & dining, cultural/historic, outdoor/adventure, nightlife/entertainment, relaxation/wellness, and shopping/local markets. Do not repeat a category.`;
 
