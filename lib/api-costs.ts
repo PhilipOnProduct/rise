@@ -12,8 +12,10 @@ const ANTHROPIC_PRICING: Record<string, { input: number; output: number }> = {
 
 // Google API pricing per request
 const GOOGLE_PRICING: Record<string, number> = {
-  "places-search": 0.017,
-  "geocoding":     0.005,
+  "places-search":      0.017,
+  "places-text-search": 0.032,
+  "routes-compute":     0.005,
+  "geocoding":          0.005,
 };
 
 export function calculateAnthropicCost(

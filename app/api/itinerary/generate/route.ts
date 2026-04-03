@@ -92,6 +92,7 @@ export async function POST(req: NextRequest) {
     destination,
     departureDate,
     returnDate,
+    hotel,
     travelCompany,
     travelerTypes,
     activityFeedback,
@@ -116,6 +117,7 @@ export async function POST(req: NextRequest) {
   const days = Math.max(1, nights);
   const styleStr = travelerTypes?.length ? `Travel style: ${travelerTypes.join(", ")}.` : "";
   const companyStr = travelCompany ? `Travelling: ${travelCompany}.` : "";
+  const hotelStr = hotel ? `Staying at: ${hotel}.` : "";
   const feedbackSegment = buildFeedbackSegment(activityFeedback ?? []);
   console.log("[itinerary-generate] Feedback segment:", feedbackSegment || "(none)");
   const composition = buildCompositionSegment(travelerCount, childrenAges);
@@ -123,6 +125,7 @@ export async function POST(req: NextRequest) {
 
   const prompt = `You are a trip planning AI. Generate a structured day-by-day itinerary for a ${days}-day trip to ${destination}.
 ${companyStr}
+${hotelStr}
 ${styleStr}${compositionStr}${feedbackSegment}
 
 Return ONLY a valid JSON array — no markdown, no explanation, no code fences. The array must have exactly ${days} elements, one per day.
@@ -149,7 +152,7 @@ Rules:
 - Cover morning, afternoon, and evening for each day (one item per slot minimum, max two)
 - Mix types: include at least one restaurant per day
 - Day 1 morning: arrival/orientation activity
-- Final day evening: something easy near accommodation
+- Final day evening: something easy near ${hotel ? hotel : "the accommodation"}
 - Be specific to ${destination} — no generic suggestions
 - Keep descriptions under 20 words
 - id must be unique across all days (e.g. "day1-morning-1")
@@ -186,6 +189,7 @@ Rules:
         destination,
         departureDate,
         returnDate,
+        hotel: hotel ?? null,
         travelCompany,
         travelerTypes,
         travelerCount: travelerCount ?? null,

@@ -54,6 +54,25 @@ type RawDay = {
   items: RawItem[];
 };
 
+type TravelConnector = {
+  id: string;
+  day_number: number;
+  sequence_index: number;
+  from_activity_id: string;
+  to_activity_id: string;
+  walk_seconds: number | null;
+  walk_meters: number | null;
+  walk_adjusted_seconds: number | null;
+  transit_seconds: number | null;
+  transit_fare: string | null;
+  drive_seconds: number | null;
+  drive_meters: number | null;
+  gap_seconds: number;
+  gap_flagged: boolean;
+  flag_reason: string | null;
+  error: string | null;
+};
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /** Map from the /api/itinerary/generate response shape to our shared ItineraryDay type. */
@@ -292,6 +311,90 @@ function TripShapeBar({ days, loading, activeDayNumber, onDayClick, barRef }: Tr
   );
 }
 
+// ── TravelConnectorRow ───────────────────────────────────────────────────────
+
+function formatDuration(seconds: number): string {
+  const min = Math.round(seconds / 60);
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+function formatDistance(meters: number): string {
+  if (meters < 1000) return `${meters}m`;
+  return `${(meters / 1000).toFixed(1)} km`;
+}
+
+function TravelConnectorRow({ connector }: { connector: TravelConnector }) {
+  // Error state — no data at all
+  if (connector.error && connector.walk_seconds == null && connector.transit_seconds == null && connector.drive_seconds == null) {
+    return (
+      <div className="mx-1 my-1 px-3 py-1.5 rounded-lg bg-red-50 border border-red-200 text-red-500 text-xs flex items-center gap-1.5">
+        <span aria-hidden>⚠</span>
+        <span>Travel data unavailable</span>
+      </div>
+    );
+  }
+
+  const walkSec = connector.walk_adjusted_seconds ?? connector.walk_seconds;
+  const segments: string[] = [];
+
+  // Filter out zero-duration modes — 0 means no viable route, not instant travel
+  if (walkSec != null && walkSec > 0) {
+    segments.push(`🚶 ${formatDuration(walkSec)}`);
+  }
+  if (connector.transit_seconds != null && connector.transit_seconds > 0) {
+    let s = `🚇 ${formatDuration(connector.transit_seconds)}`;
+    if (connector.transit_fare) s += ` ${connector.transit_fare}`;
+    segments.push(s);
+  }
+  if (connector.drive_seconds != null && connector.drive_seconds > 0) {
+    if (connector.drive_meters != null && connector.drive_meters > 0) {
+      segments.push(`🚕 ~${formatDistance(connector.drive_meters)}`);
+    } else {
+      segments.push(`🚕 ${formatDuration(connector.drive_seconds)}`);
+    }
+  }
+
+  if (segments.length === 0) return null;
+
+  // Flagged state
+  if (connector.gap_flagged) {
+    return (
+      <div className="mx-1 my-1.5 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-xs">
+        <div className="flex items-center gap-1.5 mb-0.5">
+          <span aria-hidden>⚠</span>
+          <span className="font-semibold">Tight connection</span>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap text-amber-600">
+          {segments.map((s, i) => (
+            <span key={i}>
+              {i > 0 && <span className="text-amber-300 mr-2">·</span>}
+              {s}
+            </span>
+          ))}
+        </div>
+        {connector.flag_reason && (
+          <p className="text-[10px] text-amber-500 mt-0.5">{connector.flag_reason}</p>
+        )}
+      </div>
+    );
+  }
+
+  // Normal state
+  return (
+    <div className="mx-1 my-1.5 text-xs text-[#4a6580] flex items-center gap-2 flex-wrap px-2 py-1 border-l-2 border-[#e8e4de]">
+      {segments.map((s, i) => (
+        <span key={i}>
+          {i > 0 && <span className="text-[#d4cfc5] mr-2">·</span>}
+          {s}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 // ── ActivityCard ──────────────────────────────────────────────────────────────
 
 type ActivityCardProps = {
@@ -410,6 +513,7 @@ function ActivityCard({ activity, onRemove, onSwap, swapping, swapError, swapSug
 function DaySection({
   day,
   scrollMarginTop,
+  connectors,
   onRemoveActivity,
   onSwapActivity,
   swappingId,
@@ -426,6 +530,7 @@ function DaySection({
 }: {
   day: ItineraryDay;
   scrollMarginTop: number;
+  connectors: TravelConnector[];
   onRemoveActivity: (dayNumber: number, activityId: string) => void;
   onSwapActivity: (dayNumber: number, activityId: string) => void;
   swappingId: string | null;
@@ -442,6 +547,10 @@ function DaySection({
 }) {
   const sorted = sortActivities(day.activities);
   const grouped = groupByBlock(sorted);
+
+  // Build a lookup: find connector where to_activity_id matches a given activity
+  const connectorBefore = (activityId: string) =>
+    connectors.find((c) => c.to_activity_id === activityId);
 
   return (
     <section
@@ -470,15 +579,27 @@ function DaySection({
 
       {/* Time-block grouped layout */}
       <div className="flex flex-col gap-5">
-        {TIME_BLOCKS.map((block) => {
+        {TIME_BLOCKS.map((block, blockIdx) => {
           const activities = grouped[block];
           const { emoji, label } = TIME_BLOCK_LABEL[block];
           const isAddingThisBlock = addingBlock === block && addingSuggestion;
           const suggestionForBlock = blockSuggestion?.block === block ? blockSuggestion : null;
           const hasContent = activities.length > 0 || suggestionForBlock || isAddingThisBlock;
 
+          // Cross-block connector: from last activity of previous block to first of this block
+          const prevBlock = blockIdx > 0 ? TIME_BLOCKS[blockIdx - 1] : null;
+          const prevBlockActivities = prevBlock ? grouped[prevBlock] : [];
+          const firstHere = activities.length > 0 ? activities[0] : null;
+          const crossBlockConn =
+            prevBlockActivities.length > 0 && firstHere
+              ? connectorBefore(firstHere.id)
+              : undefined;
+
           return (
             <div key={block}>
+              {/* Cross-block connector (between previous block and this one) */}
+              {crossBlockConn && <TravelConnectorRow connector={crossBlockConn} />}
+
               {/* Block subheading */}
               <div className="flex items-center gap-2 mb-2.5">
                 <span className="text-sm" aria-hidden>{emoji}</span>
@@ -488,21 +609,26 @@ function DaySection({
 
               {hasContent ? (
                 <div className="flex flex-col gap-3">
-                  {activities.map((activity) => {
+                  {activities.map((activity, idx) => {
                     const isSwapping = swappingId === activity.id;
                     const suggestion = swapSuggestion?.activityId === activity.id ? swapSuggestion : null;
+                    // Within-block connector (between sequential activities in same block)
+                    const withinConn = idx > 0 ? connectorBefore(activity.id) : undefined;
+
                     return (
-                      <ActivityCard
-                        key={activity.id}
-                        activity={activity}
-                        onRemove={() => onRemoveActivity(day.day_number, activity.id)}
-                        onSwap={() => onSwapActivity(day.day_number, activity.id)}
-                        swapping={isSwapping}
-                        swapError={swapErrorId === activity.id}
-                        swapSuggestion={suggestion ? { title: suggestion.item.title, description: suggestion.item.description, type: suggestion.item.type, conflict: suggestion.conflict } : null}
-                        onAcceptSwap={onAcceptSwap}
-                        onRejectSwap={onRejectSwap}
-                      />
+                      <div key={activity.id}>
+                        {withinConn && <TravelConnectorRow connector={withinConn} />}
+                        <ActivityCard
+                          activity={activity}
+                          onRemove={() => onRemoveActivity(day.day_number, activity.id)}
+                          onSwap={() => onSwapActivity(day.day_number, activity.id)}
+                          swapping={isSwapping}
+                          swapError={swapErrorId === activity.id}
+                          swapSuggestion={suggestion ? { title: suggestion.item.title, description: suggestion.item.description, type: suggestion.item.type, conflict: suggestion.conflict } : null}
+                          onAcceptSwap={onAcceptSwap}
+                          onRejectSwap={onRejectSwap}
+                        />
+                      </div>
                     );
                   })}
 
@@ -597,6 +723,11 @@ export default function ItineraryViewPage() {
   } | null>(null);
   const addRejectedRef = useRef<string[]>([]);
 
+  // ── Travel connector state ─────────────────────────────────────────────
+  const [connectors, setConnectors] = useState<TravelConnector[]>([]);
+  const [computingTravel, setComputingTravel] = useState(false);
+  const [travelError, setTravelError] = useState<string | null>(null);
+
   // ── Active day tracking (IntersectionObserver) ──────────────────────────
   const [activeDayNumber, setActiveDayNumber] = useState<number | null>(null);
 
@@ -682,9 +813,12 @@ export default function ItineraryViewPage() {
           destination: t.destination,
           departureDate: t.departureDate,
           returnDate: t.returnDate,
+          hotel: t.hotel ?? null,
           travelCompany: t.travelCompany ?? "",
           travelerTypes: t.travelerTypes ?? [],
           activityFeedback,
+          travelerCount: t.travelerCount ?? null,
+          childrenAges: t.childrenAges ?? null,
         }),
       });
 
@@ -714,6 +848,21 @@ export default function ItineraryViewPage() {
 
     void load();
   }, [router]);
+
+  // ── Load stored travel connectors ──────────────────────────────────────
+
+  useEffect(() => {
+    if (loading || days.length === 0) return;
+    const t = travelerRef.current;
+    if (!t?.id) return;
+
+    fetch(`/api/itinerary/travel?traveler_id=${encodeURIComponent(t.id)}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json) => {
+        if (json?.connectors?.length) setConnectors(json.connectors as TravelConnector[]);
+      })
+      .catch(() => {}); // non-fatal
+  }, [loading, days.length]);
 
   // ── Active day IntersectionObserver ──────────────────────────────────────
 
@@ -758,6 +907,56 @@ export default function ItineraryViewPage() {
     const barHeight = shapeBarRef.current?.getBoundingClientRect().height ?? 72;
     const offset = el.getBoundingClientRect().top + window.scrollY - NAV_HEIGHT_PX - barHeight - 16;
     window.scrollTo({ top: offset, behavior: "smooth" });
+  }
+
+  // ── Travel connector compute ────────────────────────────────────────────
+
+  async function handleComputeTravel() {
+    const t = travelerRef.current;
+    if (!t?.id) return;
+
+    setComputingTravel(true);
+    setTravelError(null);
+
+    try {
+      const res = await fetch("/api/itinerary/travel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ traveler_id: t.id }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string };
+        setTravelError(err.error ?? "Failed to compute travel times");
+        return;
+      }
+
+      const data = await res.json() as { connectors: TravelConnector[] };
+      setConnectors(data.connectors ?? []);
+    } catch {
+      setTravelError("Failed to compute travel times");
+    } finally {
+      setComputingTravel(false);
+    }
+  }
+
+  function refreshConnectorsAfterEdit(dayNumber: number, activityId: string) {
+    const t = travelerRef.current;
+    if (!t?.id || connectors.length === 0) return;
+
+    fetch("/api/itinerary/travel", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        traveler_id: t.id,
+        refresh: { day_number: dayNumber, swapped_activity_id: activityId },
+      }),
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.connectors) setConnectors(data.connectors as TravelConnector[]);
+      })
+      .catch(() => {}); // non-fatal
   }
 
   // ── Scroll margin for day sections (nav + shape bar) ────────────────────
@@ -927,6 +1126,7 @@ export default function ItineraryViewPage() {
     });
     setSwapSuggestion(null);
     setSwappingId(null);
+    refreshConnectorsAfterEdit(dayNumber, item.id);
   }
 
   function rejectSwap() {
@@ -1014,6 +1214,7 @@ export default function ItineraryViewPage() {
     setBlockSuggestion(null);
     setAddingBlock(null);
     setAddingDayNumber(null);
+    refreshConnectorsAfterEdit(dayNumber, item.id);
   }
 
   function rejectAdd() {
@@ -1030,6 +1231,7 @@ export default function ItineraryViewPage() {
     setShowRegenConfirm(false);
     setRegenerating(true);
     setLoading(true);
+    setConnectors([]);
 
     const t = travelerRef.current;
     if (!t) return;
@@ -1045,9 +1247,12 @@ export default function ItineraryViewPage() {
           destination: t.destination,
           departureDate: t.departureDate,
           returnDate: t.returnDate,
+          hotel: t.hotel ?? null,
           travelCompany: t.travelCompany ?? "",
           travelerTypes: t.travelerTypes ?? [],
           activityFeedback,
+          travelerCount: t.travelerCount ?? null,
+          childrenAges: t.childrenAges ?? null,
         }),
       });
 
@@ -1180,6 +1385,38 @@ export default function ItineraryViewPage() {
                 )}
               </div>
             </div>
+
+            {/* Calculate travel times / connector summary */}
+            <div className="mt-3 flex items-center gap-3 flex-wrap">
+              {connectors.length === 0 ? (
+                <button
+                  onClick={handleComputeTravel}
+                  disabled={computingTravel}
+                  className="text-xs font-semibold text-[#1a6b7f] hover:text-[#155a6b] transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {computingTravel ? (
+                    <>
+                      <span className="w-3 h-3 rounded-full border-2 border-[#1a6b7f] border-t-transparent animate-spin" />
+                      Calculating travel times...
+                    </>
+                  ) : (
+                    <>🗺 Calculate travel times</>
+                  )}
+                </button>
+              ) : (
+                <span className="text-xs text-[#6a7f8f]">
+                  Travel times calculated
+                  {connectors.some((c) => c.gap_flagged) && (
+                    <span className="text-amber-600 ml-1">
+                      · {connectors.filter((c) => c.gap_flagged).length} tight connection{connectors.filter((c) => c.gap_flagged).length !== 1 ? "s" : ""}
+                    </span>
+                  )}
+                </span>
+              )}
+              {travelError && (
+                <span className="text-xs text-red-500">{travelError}</span>
+              )}
+            </div>
           </div>
         )}
 
@@ -1191,6 +1428,7 @@ export default function ItineraryViewPage() {
                 key={day.day_number}
                 day={day}
                 scrollMarginTop={scrollMarginTop}
+                connectors={connectors.filter((c) => c.day_number === day.day_number)}
                 onRemoveActivity={handleRemoveActivity}
                 onSwapActivity={handleSwapActivity}
                 swappingId={swappingId}
