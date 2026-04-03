@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type {
   Activity,
@@ -18,6 +18,8 @@ const TIME_BLOCK_ORDER: Record<TimeBlock, number> = {
   evening: 2,
 };
 
+const TIME_BLOCKS: TimeBlock[] = ["morning", "afternoon", "evening"];
+
 const TIME_BLOCK_LABEL: Record<TimeBlock, { emoji: string; label: string }> = {
   morning: { emoji: "🌅", label: "Morning" },
   afternoon: { emoji: "☀️", label: "Afternoon" },
@@ -33,6 +35,8 @@ const CATEGORY_ICON: Record<ActivityCategory, string> = {
 
 // Nav is h-14 = 56px sticky at top-0
 const NAV_HEIGHT_PX = 56;
+
+const UNDO_TIMEOUT_MS = 5000;
 
 // ── Type for raw generate API response ────────────────────────────────────────
 
@@ -82,16 +86,152 @@ function dayAnchorId(dayNumber: number): string {
   return `day-${dayNumber}`;
 }
 
+/** Group sorted activities by time block. */
+function groupByBlock(activities: Activity[]): Record<TimeBlock, Activity[]> {
+  const groups: Record<TimeBlock, Activity[]> = { morning: [], afternoon: [], evening: [] };
+  for (const a of activities) {
+    groups[a.time].push(a);
+  }
+  return groups;
+}
+
+/** Format a date range like "15–22 Apr 2026". */
+function formatDateRange(departure: string, ret: string): string {
+  const d = new Date(departure);
+  const r = new Date(ret);
+  const sameMonth = d.getMonth() === r.getMonth() && d.getFullYear() === r.getFullYear();
+  if (sameMonth) {
+    return `${d.getDate()}–${r.getDate()} ${d.toLocaleDateString("en-GB", { month: "short", year: "numeric" })}`;
+  }
+  return `${d.toLocaleDateString("en-GB", { day: "numeric", month: "short" })} – ${r.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`;
+}
+
+// ── UndoToast ─────────────────────────────────────────────────────────────────
+
+type UndoEntry = {
+  dayNumber: number;
+  activity: Activity;
+  timer: ReturnType<typeof setTimeout>;
+};
+
+function UndoToast({ activityName, onUndo, onDismiss }: { activityName: string; onUndo: () => void; onDismiss: () => void }) {
+  const [progress, setProgress] = useState(100);
+
+  useEffect(() => {
+    const start = Date.now();
+    const interval = setInterval(() => {
+      const elapsed = Date.now() - start;
+      const pct = Math.max(0, 100 - (elapsed / UNDO_TIMEOUT_MS) * 100);
+      setProgress(pct);
+      if (pct <= 0) clearInterval(interval);
+    }, 50);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-[#0e2a47] text-white rounded-2xl shadow-lg px-5 py-3 flex items-center gap-3 min-w-[280px] max-w-[400px] animate-[fadeSlideUp_0.2s_ease-out]">
+      <span className="text-sm flex-1 truncate">Removed &ldquo;{activityName}&rdquo;</span>
+      <button
+        onClick={onUndo}
+        className="text-sm font-bold text-[#5ec4d4] hover:text-white transition-colors flex-shrink-0"
+      >
+        Undo
+      </button>
+      <button
+        onClick={onDismiss}
+        className="text-white/50 hover:text-white transition-colors text-xs flex-shrink-0"
+        aria-label="Dismiss"
+      >
+        ×
+      </button>
+      {/* Progress bar */}
+      <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-b-2xl overflow-hidden">
+        <div
+          className="h-full bg-[#5ec4d4] transition-none"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ── SuggestButton ─────────────────────────────────────────────────────────────
+
+function SuggestButton({ onClick, loading, label }: { onClick: () => void; loading: boolean; label: string }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={loading}
+      className="text-xs font-semibold text-[#1a6b7f] hover:text-[#155a6b] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+    >
+      {loading ? (
+        <>
+          <span className="w-3 h-3 rounded-full border-2 border-[#1a6b7f] border-t-transparent animate-spin" />
+          <span>Finding a suggestion...</span>
+        </>
+      ) : (
+        <span>{label}</span>
+      )}
+    </button>
+  );
+}
+
+// ── AddSuggestionCard (shown when the API returns a suggestion for an empty slot) ──
+
+function AddSuggestionCard({
+  suggestion,
+  conflict,
+  onAccept,
+  onReject,
+}: {
+  suggestion: { title: string; description: string; type: string };
+  conflict: string | null;
+  onAccept: () => void;
+  onReject: () => void;
+}) {
+  return (
+    <div className="bg-white border border-[#1a6b7f]/30 rounded-2xl px-5 py-4 flex flex-col">
+      <div className="flex items-start gap-3 flex-1">
+        <span className="text-xl flex-shrink-0 mt-0.5" aria-hidden>
+          {CATEGORY_ICON[(suggestion.type as ActivityCategory) || "activity"]}
+        </span>
+        <div className="flex-1 min-w-0">
+          <h3 className="font-semibold text-[#1a6b7f] text-sm leading-snug">{suggestion.title}</h3>
+          <p className="text-sm text-[#4a6580] mt-1 leading-relaxed">{suggestion.description}</p>
+          {conflict && (
+            <p className="text-xs text-amber-500/80 mt-2">{conflict}</p>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-3 mt-3">
+        <button
+          onClick={onAccept}
+          className="text-xs font-semibold text-[#1a6b7f] hover:text-[#155a6b] transition-colors"
+        >
+          Looks good ✓
+        </button>
+        <button
+          onClick={onReject}
+          className="text-xs font-semibold text-[#6a7f8f] hover:text-[#0e2a47] transition-colors"
+        >
+          Not quite, try again →
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── TripShapeBar ──────────────────────────────────────────────────────────────
 
 type TripShapeBarProps = {
   days: ItineraryDay[];
   loading: boolean;
+  activeDayNumber: number | null;
   onDayClick: (dayNumber: number) => void;
   barRef: React.RefObject<HTMLDivElement | null>;
 };
 
-function TripShapeBar({ days, loading, onDayClick, barRef }: TripShapeBarProps) {
+function TripShapeBar({ days, loading, activeDayNumber, onDayClick, barRef }: TripShapeBarProps) {
   const maxActivities = Math.max(1, ...days.map((d) => d.activities.length));
 
   return (
@@ -112,25 +252,34 @@ function TripShapeBar({ days, loading, onDayClick, barRef }: TripShapeBarProps) 
             {days.map((day) => {
               const fill = day.activities.length / maxActivities;
               const fillPct = Math.round(fill * 100);
+              const isActive = activeDayNumber === day.day_number;
 
               return (
                 <button
                   key={day.day_number}
                   onClick={() => onDayClick(day.day_number)}
-                  className="flex flex-col items-center gap-1.5 px-3 py-2 rounded-xl hover:bg-[#f0ede8] transition-colors group flex-shrink-0 min-w-[56px]"
+                  className={`flex flex-col items-center gap-1.5 px-3 py-2 rounded-xl transition-colors group flex-shrink-0 min-w-[56px] ${
+                    isActive
+                      ? "bg-[#1a6b7f]/10"
+                      : "hover:bg-[#f0ede8]"
+                  }`}
                   title={`${day.label} — ${day.activities.length} activities`}
                 >
-                  <span className="text-xs font-semibold text-[#4a6580] group-hover:text-[#0e2a47] transition-colors whitespace-nowrap">
+                  <span className={`text-xs font-semibold transition-colors whitespace-nowrap ${
+                    isActive ? "text-[#1a6b7f]" : "text-[#4a6580] group-hover:text-[#0e2a47]"
+                  }`}>
                     {day.label}
                   </span>
                   {/* Density fill bar */}
                   <div className="w-full h-1.5 rounded-full bg-[#e8e4de] overflow-hidden">
                     <div
-                      className="h-full rounded-full bg-[#1a6b7f] transition-all"
+                      className={`h-full rounded-full transition-all ${isActive ? "bg-[#1a6b7f]" : "bg-[#1a6b7f]/60"}`}
                       style={{ width: `${fillPct}%` }}
                     />
                   </div>
-                  <span className="text-[10px] text-[#6a7f8f] group-hover:text-[#6a7f8f] transition-colors whitespace-nowrap">
+                  <span className={`text-[10px] transition-colors whitespace-nowrap ${
+                    isActive ? "text-[#1a6b7f] font-medium" : "text-[#6a7f8f]"
+                  }`}>
                     {day.activities.length} {day.activities.length === 1 ? "activity" : "activities"}
                   </span>
                 </button>
@@ -150,20 +299,20 @@ type ActivityCardProps = {
   onRemove?: () => void;
   onSwap?: () => void;
   swapping?: boolean;
+  swapError?: boolean;
   swapSuggestion?: { title: string; description: string; type: string; conflict: string | null } | null;
   onAcceptSwap?: () => void;
   onRejectSwap?: () => void;
 };
 
-function ActivityCard({ activity, onRemove, onSwap, swapping, swapSuggestion, onAcceptSwap, onRejectSwap }: ActivityCardProps) {
-  const { emoji: timeEmoji, label: timeLabel } = TIME_BLOCK_LABEL[activity.time];
+function ActivityCard({ activity, onRemove, onSwap, swapping, swapError, swapSuggestion, onAcceptSwap, onRejectSwap }: ActivityCardProps) {
   const categoryIcon = CATEGORY_ICON[activity.category];
 
   return (
     <div className="group relative bg-white border border-[#e8e4de] rounded-2xl px-5 py-4">
-      {/* Hover controls — hidden during swap */}
+      {/* Action controls — hover on desktop, always visible on touch */}
       {!swapping && !swapSuggestion && (onRemove || onSwap) && (
-        <div className="absolute top-3 right-3 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="absolute top-3 right-3 flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
           {onSwap && (
             <button
               onClick={onSwap}
@@ -192,6 +341,15 @@ function ActivityCard({ activity, onRemove, onSwap, swapping, swapSuggestion, on
             <div className="w-3.5 h-3.5 rounded-full border-2 border-gray-500 border-t-transparent animate-spin" />
             <span>Finding an alternative...</span>
           </div>
+        </div>
+      )}
+
+      {/* Swap error overlay */}
+      {swapError && !swapping && !swapSuggestion && (
+        <div className="absolute inset-x-0 -bottom-8 flex justify-center z-10">
+          <span className="text-xs text-red-500 bg-red-50 rounded-lg px-3 py-1 border border-red-200">
+            Couldn&apos;t find an alternative. Try again?
+          </span>
         </div>
       )}
 
@@ -237,10 +395,6 @@ function ActivityCard({ activity, onRemove, onSwap, swapping, swapSuggestion, on
             <p className="text-sm text-[#4a6580] mt-1 leading-relaxed">{activity.description}</p>
           )}
           <div className="flex items-center gap-3 mt-2.5">
-            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[#6a7f8f] bg-[#f0ede8] rounded-lg px-2 py-0.5">
-              <span aria-hidden>{timeEmoji}</span>
-              {timeLabel}
-            </span>
             <span className="text-[11px] font-medium text-[#6a7f8f] capitalize">
               {activity.category}
             </span>
@@ -259,20 +413,35 @@ function DaySection({
   onRemoveActivity,
   onSwapActivity,
   swappingId,
+  swapErrorId,
   swapSuggestion,
   onAcceptSwap,
   onRejectSwap,
+  onSuggestForBlock,
+  addingSuggestion,
+  addingBlock,
+  blockSuggestion,
+  onAcceptAdd,
+  onRejectAdd,
 }: {
   day: ItineraryDay;
   scrollMarginTop: number;
   onRemoveActivity: (dayNumber: number, activityId: string) => void;
   onSwapActivity: (dayNumber: number, activityId: string) => void;
   swappingId: string | null;
+  swapErrorId: string | null;
   swapSuggestion: { activityId: string; item: RawItem; conflict: string | null } | null;
   onAcceptSwap: () => void;
   onRejectSwap: () => void;
+  onSuggestForBlock: (dayNumber: number, block: TimeBlock) => void;
+  addingSuggestion: boolean;
+  addingBlock: TimeBlock | null;
+  blockSuggestion: { block: TimeBlock; item: RawItem; conflict: string | null } | null;
+  onAcceptAdd: () => void;
+  onRejectAdd: () => void;
 }) {
   const sorted = sortActivities(day.activities);
+  const grouped = groupByBlock(sorted);
 
   return (
     <section
@@ -299,28 +468,81 @@ function DaySection({
         </span>
       </div>
 
-      {sorted.length === 0 ? (
-        <p className="text-sm text-[#6a7f8f] italic">Nothing planned for this day yet.</p>
-      ) : (
-        <div className="flex flex-col gap-3">
-          {sorted.map((activity) => {
-            const isSwapping = swappingId === activity.id;
-            const suggestion = swapSuggestion?.activityId === activity.id ? swapSuggestion : null;
-            return (
-              <ActivityCard
-                key={activity.id}
-                activity={activity}
-                onRemove={() => onRemoveActivity(day.day_number, activity.id)}
-                onSwap={() => onSwapActivity(day.day_number, activity.id)}
-                swapping={isSwapping}
-                swapSuggestion={suggestion ? { title: suggestion.item.title, description: suggestion.item.description, type: suggestion.item.type, conflict: suggestion.conflict } : null}
-                onAcceptSwap={onAcceptSwap}
-                onRejectSwap={onRejectSwap}
-              />
-            );
-          })}
-        </div>
-      )}
+      {/* Time-block grouped layout */}
+      <div className="flex flex-col gap-5">
+        {TIME_BLOCKS.map((block) => {
+          const activities = grouped[block];
+          const { emoji, label } = TIME_BLOCK_LABEL[block];
+          const isAddingThisBlock = addingBlock === block && addingSuggestion;
+          const suggestionForBlock = blockSuggestion?.block === block ? blockSuggestion : null;
+          const hasContent = activities.length > 0 || suggestionForBlock || isAddingThisBlock;
+
+          return (
+            <div key={block}>
+              {/* Block subheading */}
+              <div className="flex items-center gap-2 mb-2.5">
+                <span className="text-sm" aria-hidden>{emoji}</span>
+                <span className="text-xs font-semibold text-[#4a6580] uppercase tracking-wider">{label}</span>
+                <div className="flex-1 h-px bg-[#e8e4de] ml-1" />
+              </div>
+
+              {hasContent ? (
+                <div className="flex flex-col gap-3">
+                  {activities.map((activity) => {
+                    const isSwapping = swappingId === activity.id;
+                    const suggestion = swapSuggestion?.activityId === activity.id ? swapSuggestion : null;
+                    return (
+                      <ActivityCard
+                        key={activity.id}
+                        activity={activity}
+                        onRemove={() => onRemoveActivity(day.day_number, activity.id)}
+                        onSwap={() => onSwapActivity(day.day_number, activity.id)}
+                        swapping={isSwapping}
+                        swapError={swapErrorId === activity.id}
+                        swapSuggestion={suggestion ? { title: suggestion.item.title, description: suggestion.item.description, type: suggestion.item.type, conflict: suggestion.conflict } : null}
+                        onAcceptSwap={onAcceptSwap}
+                        onRejectSwap={onRejectSwap}
+                      />
+                    );
+                  })}
+
+                  {/* Add suggestion card for this block */}
+                  {suggestionForBlock && (
+                    <AddSuggestionCard
+                      suggestion={{ title: suggestionForBlock.item.title, description: suggestionForBlock.item.description, type: suggestionForBlock.item.type }}
+                      conflict={suggestionForBlock.conflict}
+                      onAccept={onAcceptAdd}
+                      onReject={onRejectAdd}
+                    />
+                  )}
+
+                  {/* Suggest button below existing activities */}
+                  {!suggestionForBlock && (
+                    <div className="pl-1">
+                      <SuggestButton
+                        onClick={() => onSuggestForBlock(day.day_number, block)}
+                        loading={isAddingThisBlock}
+                        label="+ Suggest something"
+                      />
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  <p className="text-sm text-[#6a7f8f] italic pl-1">Nothing planned yet.</p>
+                  <div className="pl-1">
+                    <SuggestButton
+                      onClick={() => onSuggestForBlock(day.day_number, block)}
+                      loading={isAddingThisBlock}
+                      label="+ Suggest something"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </section>
   );
 }
@@ -347,7 +569,11 @@ export default function ItineraryViewPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [destination, setDestination] = useState("");
+  const [departureDate, setDepartureDate] = useState("");
+  const [returnDate, setReturnDate] = useState("");
+  const [hotel, setHotel] = useState("");
   const [swappingId, setSwappingId] = useState<string | null>(null);
+  const [swapErrorId, setSwapErrorId] = useState<string | null>(null);
   const [swapSuggestion, setSwapSuggestion] = useState<{
     activityId: string;
     dayNumber: number;
@@ -355,6 +581,28 @@ export default function ItineraryViewPage() {
     conflict: string | null;
   } | null>(null);
   const rejectedTitlesRef = useRef<string[]>([]);
+
+  // ── Undo state ──────────────────────────────────────────────────────────
+  const [undoEntry, setUndoEntry] = useState<UndoEntry | null>(null);
+
+  // ── Add suggestion state ────────────────────────────────────────────────
+  const [addingSuggestion, setAddingSuggestion] = useState(false);
+  const [addingDayNumber, setAddingDayNumber] = useState<number | null>(null);
+  const [addingBlock, setAddingBlock] = useState<TimeBlock | null>(null);
+  const [blockSuggestion, setBlockSuggestion] = useState<{
+    dayNumber: number;
+    block: TimeBlock;
+    item: RawItem;
+    conflict: string | null;
+  } | null>(null);
+  const addRejectedRef = useRef<string[]>([]);
+
+  // ── Active day tracking (IntersectionObserver) ──────────────────────────
+  const [activeDayNumber, setActiveDayNumber] = useState<number | null>(null);
+
+  // ── Regenerate state ────────────────────────────────────────────────────
+  const [regenerating, setRegenerating] = useState(false);
+  const [showRegenConfirm, setShowRegenConfirm] = useState(false);
 
   const shapeBarRef = useRef<HTMLDivElement | null>(null);
   const travelerRef = useRef<StoredTraveler | null>(null);
@@ -377,6 +625,9 @@ export default function ItineraryViewPage() {
     }
 
     setDestination(traveler.destination ?? "");
+    setDepartureDate(traveler.departureDate ?? "");
+    setReturnDate(traveler.returnDate ?? "");
+    setHotel(traveler.hotel ?? "");
     travelerRef.current = traveler;
 
     async function load() {
@@ -409,7 +660,7 @@ export default function ItineraryViewPage() {
               setLoading(false);
               return;
             }
-          } catch {}
+          } catch { /* ignore invalid cache */ }
         }
 
         // 3. Generate fresh
@@ -464,6 +715,41 @@ export default function ItineraryViewPage() {
     void load();
   }, [router]);
 
+  // ── Active day IntersectionObserver ──────────────────────────────────────
+
+  useEffect(() => {
+    if (loading || days.length === 0) return;
+
+    const elements = days.map((d) => document.getElementById(dayAnchorId(d.day_number))).filter(Boolean) as HTMLElement[];
+    if (elements.length === 0) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        // Find the topmost visible day section
+        let topEntry: IntersectionObserverEntry | null = null;
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            if (!topEntry || entry.boundingClientRect.top < topEntry.boundingClientRect.top) {
+              topEntry = entry;
+            }
+          }
+        }
+        if (topEntry) {
+          const id = topEntry.target.id; // "day-N"
+          const num = parseInt(id.replace("day-", ""), 10);
+          if (!isNaN(num)) setActiveDayNumber(num);
+        }
+      },
+      {
+        rootMargin: `-${NAV_HEIGHT_PX + 80}px 0px -60% 0px`,
+        threshold: 0,
+      }
+    );
+
+    for (const el of elements) observer.observe(el);
+    return () => observer.disconnect();
+  }, [loading, days]);
+
   // ── Scroll to day ────────────────────────────────────────────────────────
 
   function scrollToDay(dayNumber: number) {
@@ -488,19 +774,74 @@ export default function ItineraryViewPage() {
     return () => observer.disconnect();
   }, []);
 
-  // ── Remove / swap handlers ──────────────────────────────────────────────
+  // ── Persist days helper ─────────────────────────────────────────────────
+
+  const persistDays = useCallback((updated: ItineraryDay[]) => {
+    localStorage.setItem("rise_itinerary", JSON.stringify(updated));
+    const t = travelerRef.current;
+    if (t?.id) {
+      void saveToSupabase(t.id, t.destination ?? "", updated);
+    }
+  }, []);
+
+  // ── Remove with undo ────────────────────────────────────────────────────
 
   function handleRemoveActivity(dayNumber: number, activityId: string) {
+    // Find the activity before removing
+    const day = days.find((d) => d.day_number === dayNumber);
+    const activity = day?.activities.find((a) => a.id === activityId);
+    if (!activity) return;
+
+    // Clear any existing undo
+    if (undoEntry) {
+      clearTimeout(undoEntry.timer);
+    }
+
+    // Remove from state
     setDays((prev) => {
       const updated = prev.map((d) =>
         d.day_number === dayNumber
           ? { ...d, activities: d.activities.filter((a) => a.id !== activityId) }
           : d
       );
-      localStorage.setItem("rise_itinerary", JSON.stringify(updated));
+      persistDays(updated);
       return updated;
     });
+
+    // Set undo entry with auto-dismiss timer
+    const timer = setTimeout(() => {
+      setUndoEntry(null);
+    }, UNDO_TIMEOUT_MS);
+
+    setUndoEntry({ dayNumber, activity, timer });
   }
+
+  function handleUndo() {
+    if (!undoEntry) return;
+    clearTimeout(undoEntry.timer);
+    const { dayNumber, activity } = undoEntry;
+
+    setDays((prev) => {
+      const updated = prev.map((d) => {
+        if (d.day_number !== dayNumber) return d;
+        // Re-insert at original sequence position
+        const activities = [...d.activities, activity];
+        return { ...d, activities: sortActivities(activities) };
+      });
+      persistDays(updated);
+      return updated;
+    });
+
+    setUndoEntry(null);
+  }
+
+  function dismissUndo() {
+    if (!undoEntry) return;
+    clearTimeout(undoEntry.timer);
+    setUndoEntry(null);
+  }
+
+  // ── Swap handlers ──────────────────────────────────────────────────────
 
   async function handleSwapActivity(dayNumber: number, activityId: string) {
     const day = days.find((d) => d.day_number === dayNumber);
@@ -510,6 +851,7 @@ export default function ItineraryViewPage() {
     const t = travelerRef.current;
     setSwappingId(activityId);
     setSwapSuggestion(null);
+    setSwapErrorId(null);
 
     try {
       const dayItems = day.activities
@@ -538,6 +880,9 @@ export default function ItineraryViewPage() {
 
       if (!res.ok) {
         setSwappingId(null);
+        setSwapErrorId(activityId);
+        // Auto-clear error after 3 seconds
+        setTimeout(() => setSwapErrorId((prev) => prev === activityId ? null : prev), 3000);
         return;
       }
 
@@ -549,6 +894,8 @@ export default function ItineraryViewPage() {
       setSwapSuggestion({ activityId, dayNumber, item: data.item, conflict: data.conflict });
     } catch {
       setSwappingId(null);
+      setSwapErrorId(activityId);
+      setTimeout(() => setSwapErrorId((prev) => prev === activityId ? null : prev), 3000);
     }
   }
 
@@ -575,7 +922,7 @@ export default function ItineraryViewPage() {
           ),
         };
       });
-      localStorage.setItem("rise_itinerary", JSON.stringify(updated));
+      persistDays(updated);
       return updated;
     });
     setSwapSuggestion(null);
@@ -589,6 +936,149 @@ export default function ItineraryViewPage() {
     setSwapSuggestion(null);
     setSwappingId(null);
     handleSwapActivity(dayNumber, activityId);
+  }
+
+  // ── Add suggestion handlers ────────────────────────────────────────────
+
+  async function handleSuggestForBlock(dayNumber: number, block: TimeBlock) {
+    const day = days.find((d) => d.day_number === dayNumber);
+    if (!day) return;
+
+    const t = travelerRef.current;
+    setAddingSuggestion(true);
+    setAddingDayNumber(dayNumber);
+    setAddingBlock(block);
+    setBlockSuggestion(null);
+
+    try {
+      const dayItems = day.activities.map((a) => ({
+        title: a.name,
+        description: a.description,
+        time_block: a.time,
+      }));
+
+      const res = await fetch("/api/itinerary/edit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "add",
+          destination,
+          dayNumber,
+          date: day.date,
+          block,
+          dayItems,
+          rejectedTitles: addRejectedRef.current,
+          travelCompany: t?.travelCompany ?? null,
+          travelerTypes: t?.travelerTypes ?? [],
+          budgetTier: t?.budgetTier ?? null,
+          travelerCount: t?.travelerCount ?? null,
+          childrenAges: t?.childrenAges ?? null,
+        }),
+      });
+
+      if (!res.ok) {
+        setAddingSuggestion(false);
+        setAddingBlock(null);
+        return;
+      }
+
+      const data = await res.json() as { item: RawItem; conflict: string | null };
+      setBlockSuggestion({ dayNumber, block, item: data.item, conflict: data.conflict });
+      setAddingSuggestion(false);
+    } catch {
+      setAddingSuggestion(false);
+      setAddingBlock(null);
+    }
+  }
+
+  function acceptAdd() {
+    if (!blockSuggestion) return;
+    const { dayNumber, item, block } = blockSuggestion;
+    addRejectedRef.current = [];
+    setDays((prev) => {
+      const updated = prev.map((d) => {
+        if (d.day_number !== dayNumber) return d;
+        const newActivity: Activity = {
+          id: item.id,
+          name: item.title,
+          description: item.description,
+          time: block,
+          sequence: d.activities.filter((a) => a.time === block).length,
+          category: item.type as ActivityCategory,
+        };
+        return { ...d, activities: [...d.activities, newActivity] };
+      });
+      persistDays(updated);
+      return updated;
+    });
+    setBlockSuggestion(null);
+    setAddingBlock(null);
+    setAddingDayNumber(null);
+  }
+
+  function rejectAdd() {
+    if (!blockSuggestion) return;
+    addRejectedRef.current.push(blockSuggestion.item.title);
+    const { dayNumber, block } = blockSuggestion;
+    setBlockSuggestion(null);
+    handleSuggestForBlock(dayNumber, block);
+  }
+
+  // ── Regenerate handler ──────────────────────────────────────────────────
+
+  async function handleRegenerate() {
+    setShowRegenConfirm(false);
+    setRegenerating(true);
+    setLoading(true);
+
+    const t = travelerRef.current;
+    if (!t) return;
+
+    const feedbackRaw = localStorage.getItem("rise_activity_feedback");
+    const activityFeedback = feedbackRaw ? (JSON.parse(feedbackRaw) as unknown[]) : [];
+
+    try {
+      const res = await fetch("/api/itinerary/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          destination: t.destination,
+          departureDate: t.departureDate,
+          returnDate: t.returnDate,
+          travelCompany: t.travelCompany ?? "",
+          travelerTypes: t.travelerTypes ?? [],
+          activityFeedback,
+        }),
+      });
+
+      if (!res.ok) {
+        setError("Couldn't regenerate your itinerary. Please try again.");
+        setLoading(false);
+        setRegenerating(false);
+        return;
+      }
+
+      const data = await res.json() as { days?: RawDay[] };
+      if (!data.days?.length) {
+        setError("Couldn't regenerate your itinerary. Please try again.");
+        setLoading(false);
+        setRegenerating(false);
+        return;
+      }
+
+      localStorage.setItem("rise_itinerary", JSON.stringify(data.days));
+      const mapped = mapRawDays(data.days);
+      setDays(mapped);
+
+      if (t.id) {
+        void saveToSupabase(t.id, t.destination ?? "", mapped);
+      }
+    } catch {
+      setError("Couldn't regenerate your itinerary. Please try again.");
+    }
+
+    setLoading(false);
+    setRegenerating(false);
   }
 
   // ── Error state ──────────────────────────────────────────────────────────
@@ -620,6 +1110,7 @@ export default function ItineraryViewPage() {
       <TripShapeBar
         days={days}
         loading={loading}
+        activeDayNumber={activeDayNumber}
         onDayClick={scrollToDay}
         barRef={shapeBarRef}
       />
@@ -629,11 +1120,66 @@ export default function ItineraryViewPage() {
         {/* Header — only shown once data is ready to avoid layout shift */}
         {!loading && days.length > 0 && (
           <div className="pt-10 pb-2">
-            <h1 className="text-3xl font-extrabold tracking-tight text-[#0e2a47]">{destination}</h1>
-            <p className="text-[#6a7f8f] text-sm mt-1">
-              {days.length} {days.length === 1 ? "day" : "days"} ·{" "}
-              {days.reduce((sum, d) => sum + d.activities.length, 0)} activities
-            </p>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h1 className="text-3xl font-extrabold tracking-tight text-[#0e2a47]">{destination}</h1>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[#6a7f8f] text-sm mt-1">
+                  {departureDate && returnDate && (
+                    <span>{formatDateRange(departureDate, returnDate)}</span>
+                  )}
+                  {departureDate && returnDate && <span>·</span>}
+                  <span>
+                    {days.length} {days.length === 1 ? "day" : "days"} ·{" "}
+                    {days.reduce((sum, d) => sum + d.activities.length, 0)} activities
+                  </span>
+                </div>
+                {hotel && (
+                  <p className="text-[#6a7f8f] text-sm mt-0.5">
+                    Staying at {hotel}
+                  </p>
+                )}
+              </div>
+
+              {/* Regenerate button */}
+              <div className="relative flex-shrink-0">
+                {showRegenConfirm ? (
+                  <div className="bg-white border border-[#e8e4de] rounded-xl shadow-sm p-3 text-sm">
+                    <p className="text-[#0e2a47] font-medium mb-2">Regenerate entire itinerary?</p>
+                    <p className="text-[#6a7f8f] text-xs mb-3">This replaces all your current plans.</p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleRegenerate}
+                        className="px-3 py-1.5 rounded-lg bg-[#1a6b7f] text-white text-xs font-semibold hover:bg-[#155a6b] transition-colors"
+                      >
+                        Yes, regenerate
+                      </button>
+                      <button
+                        onClick={() => setShowRegenConfirm(false)}
+                        className="px-3 py-1.5 rounded-lg text-[#6a7f8f] text-xs font-semibold hover:text-[#0e2a47] transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setShowRegenConfirm(true)}
+                    disabled={regenerating}
+                    className="text-xs font-semibold text-[#6a7f8f] hover:text-[#1a6b7f] transition-colors disabled:opacity-50 flex items-center gap-1.5 mt-2"
+                    title="Regenerate itinerary"
+                  >
+                    {regenerating ? (
+                      <>
+                        <span className="w-3 h-3 rounded-full border-2 border-[#1a6b7f] border-t-transparent animate-spin" />
+                        Regenerating...
+                      </>
+                    ) : (
+                      <>↻ Regenerate</>
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         )}
 
@@ -648,14 +1194,30 @@ export default function ItineraryViewPage() {
                 onRemoveActivity={handleRemoveActivity}
                 onSwapActivity={handleSwapActivity}
                 swappingId={swappingId}
+                swapErrorId={swapErrorId}
                 swapSuggestion={swapSuggestion?.dayNumber === day.day_number ? swapSuggestion : null}
                 onAcceptSwap={acceptSwap}
                 onRejectSwap={rejectSwap}
+                onSuggestForBlock={handleSuggestForBlock}
+                addingSuggestion={addingSuggestion && addingDayNumber === day.day_number}
+                addingBlock={addingDayNumber === day.day_number ? addingBlock : null}
+                blockSuggestion={blockSuggestion?.dayNumber === day.day_number ? blockSuggestion : null}
+                onAcceptAdd={acceptAdd}
+                onRejectAdd={rejectAdd}
               />
             ))}
           </div>
         )}
       </main>
+
+      {/* Undo toast */}
+      {undoEntry && (
+        <UndoToast
+          activityName={undoEntry.activity.name}
+          onUndo={handleUndo}
+          onDismiss={dismissUndo}
+        />
+      )}
     </div>
   );
 }

@@ -94,22 +94,29 @@ export async function POST(req: NextRequest) {
     month: "long",
   });
 
+  const locationConstraint =
+    `\n\nCRITICAL: The activity MUST be physically located in or immediately around ${destination}. ` +
+    `Never suggest a place, venue, or attraction that is in a different city or country, even if it appears in the day context. ` +
+    `If the item being replaced is from another city, ignore it — suggest something local to ${destination}.`;
+
   let prompt: string;
   if (mode === "swap") {
     prompt =
       `You are a travel planner helping a ${profile} in ${destination}.\n` +
       `Day ${dayNumber} — ${dateFormatted}, ${block} slot.\n` +
       `The user wants to replace: "${replacingItem.title}" — ${replacingItem.description}${dayContext}\n\n` +
-      `Suggest one specific ${block} activity that fits this traveller, this destination, and the day's flow. ` +
+      `Suggest one specific ${block} activity in ${destination} that fits this traveller and the day's flow. ` +
       `It should be a confident, specific recommendation — not a generic tourist activity unless it's genuinely the best fit. ` +
       `It should feel like a natural alternative or upgrade to what it's replacing.` +
+      locationConstraint +
       avoidClause;
   } else {
     prompt =
       `You are a travel planner helping a ${profile} in ${destination}.\n` +
       `Day ${dayNumber} — ${dateFormatted}, ${block} has a free slot.${dayContext}\n\n` +
-      `Suggest one specific ${block} activity that fits this traveller, this destination, and the day's flow. ` +
+      `Suggest one specific ${block} activity in ${destination} that fits this traveller and the day's flow. ` +
       `It should complement what's already planned and feel like it belongs in the itinerary.` +
+      locationConstraint +
       avoidClause;
   }
 
@@ -149,7 +156,7 @@ export async function POST(req: NextRequest) {
               conflict: {
                 type: "string",
                 description:
-                  "Brief note about any sequencing or timing issue on this day after this change — e.g. two heavy meals back to back, no restaurant planned, activities too far apart. Empty string if none.",
+                  "Brief note about any issue on this day after this change — e.g. two heavy meals back to back, no restaurant planned, activities too far apart, or an activity that is not in the destination city. Empty string if none.",
               },
             },
             required: ["title", "description", "type", "rationale", "conflict"],
