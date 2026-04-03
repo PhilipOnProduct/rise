@@ -22,6 +22,7 @@ export async function POST(req: NextRequest) {
     activityCategory,
     chipLabel,
     chipType,
+    chipsSource,
     firstChipLabel,
   } = body;
 
@@ -36,6 +37,7 @@ export async function POST(req: NextRequest) {
     activity_category: activityCategory ?? null,
     chip_label: chipLabel ?? null,
     chip_type: chipType ?? null,
+    chips_source: chipsSource ?? null,
     first_chip_label: firstChipLabel ?? null,
   });
 

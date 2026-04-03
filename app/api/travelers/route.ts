@@ -18,6 +18,7 @@ export async function POST(req: NextRequest) {
     activities,
     travelCompany,
     styleTags,
+    budgetTier,
     travelerCount,
     childrenAges,
   } = await req.json();
@@ -38,6 +39,7 @@ export async function POST(req: NextRequest) {
       activities: activities ?? [],
       travel_company: travelCompany || null,
       style_tags: styleTags || null,
+      budget_tier: budgetTier || null,
       traveler_count: travelerCount ?? null,
       children_ages: childrenAges?.length > 0 ? childrenAges : null,
     })
@@ -53,7 +55,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const { id, name, email, travelCompany, styleTags, travelerCount, childrenAges } =
+  const { id, name, email, travelCompany, styleTags, budgetTier, travelerCount, childrenAges } =
     await req.json();
 
   if (!id) {
@@ -65,6 +67,7 @@ export async function PATCH(req: NextRequest) {
   if (email !== undefined) updates.email = email.toLowerCase().trim();
   if (travelCompany !== undefined) updates.travel_company = travelCompany;
   if (styleTags !== undefined) updates.style_tags = styleTags;
+  if (budgetTier !== undefined) updates.budget_tier = budgetTier;
   if (travelerCount !== undefined) updates.traveler_count = travelerCount ?? null;
   if (childrenAges !== undefined)
     updates.children_ages = childrenAges?.length > 0 ? childrenAges : null;
