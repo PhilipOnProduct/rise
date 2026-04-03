@@ -37,6 +37,7 @@ type Log = {
 const FEATURE_COLORS: Record<string, string> = {
   recommendations: "bg-orange-500/20 text-orange-400",
   transport: "bg-blue-500/20 text-blue-400",
+  "travel-connectors": "bg-emerald-500/20 text-emerald-400",
 };
 
 function formatDate(iso: string) {
