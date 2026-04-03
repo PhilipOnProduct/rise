@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 
+function dbErr(err: unknown): string {
+  if (!err || typeof err !== "object") return String(err);
+  const e = err as Record<string, unknown>;
+  return [e.message, e.code, e.details, e.hint].filter(Boolean).join(" | ") || JSON.stringify(err);
+}
+
 export async function POST(req: NextRequest) {
   const {
     name,
@@ -41,7 +47,8 @@ export async function POST(req: NextRequest) {
     .single();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("[travelers] POST:", dbErr(error));
+    return NextResponse.json({ error: dbErr(error) }, { status: 500 });
   }
 
   return NextResponse.json(data, { status: 201 });
@@ -73,7 +80,8 @@ export async function PATCH(req: NextRequest) {
     .single();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("[travelers] PATCH:", dbErr(error));
+    return NextResponse.json({ error: dbErr(error) }, { status: 500 });
   }
 
   return NextResponse.json(data, { status: 200 });
