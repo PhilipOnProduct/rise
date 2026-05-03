@@ -191,6 +191,53 @@ test("welcome step 3 supports teen ages and gates Continue on age picks", async 
   ).toBeVisible();
 });
 
+/**
+ * PHI-28 / RISE-104 — rating button hit area + Skip affordance.
+ */
+test("welcome step 4 supports Skip as a distinct rating signal", async ({ page }) => {
+  await page.goto("/welcome");
+
+  // Walk to step 4
+  await page.getByPlaceholder("e.g. Tokyo, Japan").fill("Lisbon");
+  await page.getByPlaceholder("e.g. Tokyo, Japan").press("Enter");
+  await page.locator('input[type="date"]').first().fill("2026-06-15");
+  await page.locator('input[type="date"]').nth(1).fill("2026-06-22");
+  await page.getByRole("button", { name: /Continue/i }).click();
+  await page.getByRole("button", { name: /haven't booked yet/i }).click();
+  await page.getByRole("button", { name: /Couple/i }).click();
+  await page.getByRole("button", { name: "Cultural", exact: true }).click();
+  await page.getByRole("button", { name: "Comfortable" }).click();
+  await page.getByRole("button", { name: /Continue/i }).click();
+
+  // Wait for first card
+  await expect(page.getByText("Pastéis de Belém Tasting", { exact: false })).toBeVisible({
+    timeout: 10_000,
+  });
+
+  // Skip affordance must be visible on each card
+  const skipButtons = page.getByRole("button", { name: /Skip/i });
+  await expect(skipButtons.first()).toBeVisible();
+
+  // Verify thumbs buttons are at least 44px (PHI-28 hit-area requirement).
+  // w-12 h-12 = 48px which exceeds the 44px floor.
+  const interestedBtn = page.locator('button[title="Interested"]').first();
+  const box = await interestedBtn.boundingBox();
+  expect(box?.width).toBeGreaterThanOrEqual(44);
+  expect(box?.height).toBeGreaterThanOrEqual(44);
+
+  // Click Skip on the first card
+  await skipButtons.first().click();
+
+  // The skipped state should show its own muted note
+  await expect(page.getByText(/Skipped — no preference recorded/i)).toBeVisible();
+
+  // The counter should reflect the skipped card as a rated entry
+  await expect(page.getByText(/1 of \d+ rated/i)).toBeVisible();
+
+  // Continue button is enabled — Skip counts as a rating
+  await expect(page.getByRole("button", { name: /Continue with 1 rated/i })).toBeEnabled();
+});
+
 test("welcome step 5 renders with description shown exactly once", async ({ page }) => {
   await page.goto("/welcome");
 
