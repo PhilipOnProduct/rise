@@ -1084,9 +1084,6 @@ export default function WelcomePage() {
                 </div>
               )}
 
-              <p className="text-[#6a7f8f] text-sm -mt-2">
-                Your activity plan, transport advice, and trip summary are ready. Create your account to save everything.
-              </p>
               <div>
                 <label className="block text-sm font-semibold text-[#4a6580] uppercase tracking-widest mb-3">
                   Your name
