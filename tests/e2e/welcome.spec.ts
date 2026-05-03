@@ -128,9 +128,10 @@ test("welcome step 3 shows persistent trip-type label across compositions", asyn
   await childrenCol.getByRole("button", { name: "+" }).click();
   await childrenCol.getByRole("button", { name: "+" }).click();
 
-  // Both children default to "Under 2" — the label should reflect that.
+  // PHI-27: children no longer default to "Under 2". The label should
+  // prompt the user to pick ages for each child.
   await expect(label).toHaveText(
-    "Planning a family trip with 2 children (Under 2, Under 2)"
+    "Planning a family trip with 2 children — pick an age range for each"
   );
 
   // Change child 1 to 5–8, child 2 to 9–12
@@ -142,6 +143,52 @@ test("welcome step 3 shows persistent trip-type label across compositions", asyn
   await expect(label).toHaveText(
     "Planning a family trip with 2 children (5–8, 9–12)"
   );
+});
+
+/**
+ * PHI-27 / RISE-103 — 13–17 age bucket + Continue gating + Teen-friendly chip.
+ */
+test("welcome step 3 supports teen ages and gates Continue on age picks", async ({
+  page,
+}) => {
+  await page.goto("/welcome");
+
+  // Walk to step 3
+  await page.getByPlaceholder("e.g. Tokyo, Japan").fill("Lisbon");
+  await page.getByPlaceholder("e.g. Tokyo, Japan").press("Enter");
+  await page.locator('input[type="date"]').first().fill("2026-06-15");
+  await page.locator('input[type="date"]').nth(1).fill("2026-06-22");
+  await page.getByRole("button", { name: /Continue/i }).click();
+  await page.getByRole("button", { name: /haven't booked yet/i }).click();
+
+  // Add a child
+  const childrenCol = page.locator("span").filter({ hasText: /^Children$/ }).locator("..");
+  await childrenCol.getByRole("button", { name: "+" }).click();
+
+  // Continue button should be disabled — no age picked yet
+  const continueBtn = page.getByRole("button", { name: /^Continue/i });
+  await expect(continueBtn).toBeDisabled();
+
+  // The 13–17 bucket should exist as a fifth option
+  const child1Row = page.locator('text="Child 1"').locator("..");
+  await expect(child1Row.getByRole("button", { name: "13–17" })).toBeVisible();
+
+  // Pick 13–17 → Continue still gated by trip type? family is auto-set
+  // (childrenAges.length > 0) so travelCompany should already be "family".
+  await child1Row.getByRole("button", { name: "13–17" }).click();
+
+  // Label reflects teen age
+  await expect(page.getByTestId("trip-type-label")).toHaveText(
+    "Planning a family trip with 1 child (13–17)"
+  );
+
+  // Continue is enabled now
+  await expect(continueBtn).toBeEnabled();
+
+  // Teen-friendly chip should be in the travel-style options for family
+  await expect(
+    page.getByRole("button", { name: "Teen-friendly", exact: true })
+  ).toBeVisible();
 });
 
 test("welcome step 5 renders with description shown exactly once", async ({ page }) => {
