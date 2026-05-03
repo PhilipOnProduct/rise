@@ -78,7 +78,14 @@ export type ActivityFeedbackEntry = {
   activityId: string;
   activityName: string;
   activityCategory: string;
-  feedbackType: "thumbs_up" | "chip_selected" | "thumbs_down_no_chip";
+  // PHI-28: "skipped" is distinct from "no feedback at all". It tells the
+  // model the user *consciously* declined to commit either way — useful
+  // signal for downstream personalization.
+  feedbackType:
+    | "thumbs_up"
+    | "chip_selected"
+    | "thumbs_down_no_chip"
+    | "skipped";
   chip?: Chip;
 };
 
@@ -196,6 +203,7 @@ type ActivityCardProps = {
   onThumbsDown: () => void;
   onChipSelect: (chip: Chip) => void;
   onUndo: () => void;
+  onSkip: () => void;
 };
 
 function ActivityCard({
@@ -208,6 +216,7 @@ function ActivityCard({
   onThumbsDown,
   onChipSelect,
   onUndo,
+  onSkip,
 }: ActivityCardProps) {
   const isHardExcluded =
     feedback?.feedbackType === "chip_selected" && feedback.chip?.type === "hard_exclusion";
@@ -215,6 +224,7 @@ function ActivityCard({
     feedback?.feedbackType === "chip_selected" && feedback.chip?.type === "soft_signal" ||
     feedback?.feedbackType === "thumbs_down_no_chip";
   const isThumbsUp = feedback?.feedbackType === "thumbs_up";
+  const isSkipped = feedback?.feedbackType === "skipped";
 
   return (
     <div
@@ -232,27 +242,41 @@ function ActivityCard({
       </div>
       <p className="text-sm text-[#4a6580] leading-relaxed mb-4">{activity.description}</p>
 
-      {/* Thumbs buttons — hidden while streaming or when chips are open */}
-      {!chipsOpen && !disabled && !isHardExcluded && !isNoted && (
-        <div className="flex items-center gap-3">
-          <button
-            onClick={onThumbsUp}
-            className={`flex items-center justify-center w-11 h-11 rounded-xl border text-lg transition-colors ${
-              isThumbsUp
-                ? "border-[#1a6b7f] bg-[#1a6b7f] text-white shadow-sm"
-                : "border-[#d4cfc5] text-[#6a7f8f] hover:border-[#1a6b7f]/40 hover:text-[#1a6b7f]"
-            }`}
-            title="Interested"
-          >
-            👍
-          </button>
-          <button
-            onClick={onThumbsDown}
-            className="flex items-center justify-center w-11 h-11 rounded-xl border border-[#d4cfc5] text-lg text-[#6a7f8f] hover:border-red-500/40 hover:text-red-400 transition-colors"
-            title="Not for me"
-          >
-            👎
-          </button>
+      {/* Thumbs buttons — hidden while streaming or when chips are open.
+          PHI-28: 48×48 (w-12 h-12) to clear WCAG / Apple HIG 44px minimum
+          comfortably on mobile. Skip is a tertiary text affordance below. */}
+      {!chipsOpen && !disabled && !isHardExcluded && !isNoted && !isSkipped && (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={onThumbsUp}
+              className={`flex items-center justify-center w-12 h-12 rounded-xl border text-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1a6b7f] focus-visible:ring-offset-2 ${
+                isThumbsUp
+                  ? "border-[#1a6b7f] bg-[#1a6b7f] text-white shadow-sm"
+                  : "border-[#d4cfc5] text-[#6a7f8f] hover:border-[#1a6b7f]/40 hover:text-[#1a6b7f]"
+              }`}
+              title="Interested"
+              aria-label={`Interested in ${activity.name}`}
+            >
+              👍
+            </button>
+            <button
+              onClick={onThumbsDown}
+              className="flex items-center justify-center w-12 h-12 rounded-xl border border-[#d4cfc5] text-lg text-[#6a7f8f] hover:border-red-500/40 hover:text-red-400 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2"
+              title="Not for me"
+              aria-label={`Not for me: ${activity.name}`}
+            >
+              👎
+            </button>
+            <button
+              onClick={onSkip}
+              className="ml-auto text-xs text-[#6a7f8f] hover:text-[#4a6580] underline-offset-4 hover:underline transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1a6b7f] focus-visible:ring-offset-2 rounded px-2 py-1"
+              title="Skip — not sure"
+              aria-label={`Skip ${activity.name} — not sure`}
+            >
+              Not sure — skip
+            </button>
+          </div>
         </div>
       )}
 
@@ -287,6 +311,12 @@ function ActivityCard({
 
       {/* Soft signal or no-chip submission */}
       {isNoted && <p className="text-xs text-[#6a7f8f]">👎 Noted — we&apos;ll adjust.</p>}
+
+      {/* PHI-28: skipped — distinct visual from thumbs-down so users see
+          their conscious "not sure" was registered */}
+      {isSkipped && (
+        <p className="text-xs text-[#6a7f8f]">Skipped — no preference recorded.</p>
+      )}
     </div>
   );
 }
@@ -585,6 +615,28 @@ export default function WelcomePage() {
       chipType: chip.type,
       chipsSource: chipsEntry?.source ?? "fallback",
       firstChipLabel: chipsEntry?.chips[0]?.label ?? "",
+    });
+  }
+
+  // PHI-28: skipping is a *distinct* signal from "no rating yet" — the user
+  // saw the card and consciously chose not to commit. Track separately so
+  // the model can use it (or not) downstream without confusing it with the
+  // unrated cards.
+  function handleSkip(activity: ParsedActivity) {
+    setActivityFeedback((prev) => ({
+      ...prev,
+      [activity.id]: {
+        activityId: activity.id,
+        activityName: activity.name,
+        activityCategory: activity.category,
+        feedbackType: "skipped",
+      },
+    }));
+    logActivityEvent({
+      event: "skipped",
+      activityId: activity.id,
+      activityName: activity.name,
+      activityCategory: activity.category,
     });
   }
 
@@ -1105,6 +1157,7 @@ export default function WelcomePage() {
                   onThumbsDown={() => handleThumbsDown(activity)}
                   onChipSelect={(chip) => handleChipSelect(activity, chip)}
                   onUndo={() => setOpenChipId(null)}
+                  onSkip={() => handleSkip(activity)}
                 />
               ))}
 
