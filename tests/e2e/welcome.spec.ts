@@ -80,6 +80,70 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
+/**
+ * PHI-26 / RISE-102 — persistent trip-type confirmation label.
+ *
+ * Walks to step 3 and verifies the label updates correctly across the
+ * four key composition cases: ambiguous 2-adult, couple-picked, solo
+ * (chip section hidden), and family (chip section hidden).
+ */
+test("welcome step 3 shows persistent trip-type label across compositions", async ({
+  page,
+}) => {
+  await page.goto("/welcome");
+
+  // Walk to step 3
+  await page.getByPlaceholder("e.g. Tokyo, Japan").fill("Lisbon");
+  await page.getByPlaceholder("e.g. Tokyo, Japan").press("Enter");
+  await page.locator('input[type="date"]').first().fill("2026-06-15");
+  await page.locator('input[type="date"]').nth(1).fill("2026-06-22");
+  await page.getByRole("button", { name: /Continue/i }).click();
+  await page.getByRole("button", { name: /haven't booked yet/i }).click();
+
+  const label = page.getByTestId("trip-type-label");
+
+  // Default: 2 adults, 0 children, no chip picked → neutral prompt
+  await expect(label).toHaveText("Planning a trip for two");
+
+  // Pick Couple chip → couple's trip
+  await page.getByRole("button", { name: /Couple/i }).click();
+  await expect(label).toHaveText("Planning a couple's trip");
+
+  // Pick Friend group → trip for two friends
+  await page.getByRole("button", { name: /Friend group/i }).click();
+  await expect(label).toHaveText("Planning a trip for two friends");
+
+  // Decrement adults to 1 → Solo. The Trip Type chip section disappears.
+  // The "Adults" label sits in the same column as the +/- stepper buttons,
+  // so target by the column structure rather than by global button names.
+  const adultsCol = page.locator("span").filter({ hasText: /^Adults$/ }).locator("..");
+  await adultsCol.getByRole("button", { name: "−" }).click();
+  await expect(label).toHaveText("Planning a solo trip");
+  // Chip section should be gone (no Couple chip visible to the user)
+  await expect(page.getByRole("button", { name: /Couple/i })).toHaveCount(0);
+
+  // Bump back to 2 adults, then add 2 children
+  await adultsCol.getByRole("button", { name: "+" }).click();
+  const childrenCol = page.locator("span").filter({ hasText: /^Children$/ }).locator("..");
+  await childrenCol.getByRole("button", { name: "+" }).click();
+  await childrenCol.getByRole("button", { name: "+" }).click();
+
+  // Both children default to "Under 2" — the label should reflect that.
+  await expect(label).toHaveText(
+    "Planning a family trip with 2 children (Under 2, Under 2)"
+  );
+
+  // Change child 1 to 5–8, child 2 to 9–12
+  const child1Row = page.locator('text="Child 1"').locator("..");
+  await child1Row.getByRole("button", { name: "5–8" }).click();
+  const child2Row = page.locator('text="Child 2"').locator("..");
+  await child2Row.getByRole("button", { name: "9–12" }).click();
+
+  await expect(label).toHaveText(
+    "Planning a family trip with 2 children (5–8, 9–12)"
+  );
+});
+
 test("welcome step 5 renders with description shown exactly once", async ({ page }) => {
   await page.goto("/welcome");
 

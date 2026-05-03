@@ -90,6 +90,45 @@ function addDays(dateStr: string, days: number) {
   return d.toISOString().split("T")[0];
 }
 
+/**
+ * Persistent trip-type confirmation label (PHI-26 / RISE-102).
+ *
+ * Two of five personas in the May 2026 onboarding review (solo and family
+ * travellers) got NO confirmation that the system understood who's
+ * traveling because the Trip Type chip section was hidden in their cases.
+ * This function derives a human label from the same inputs so the user
+ * always sees their composition reflected back.
+ *
+ * Pure derived state — no new fields, no side effects.
+ */
+function tripTypeLabel(
+  adultCount: number,
+  childrenAges: string[],
+  travelCompany: string,
+): string {
+  // Family — any children present
+  if (childrenAges.length > 0) {
+    const kidWord = childrenAges.length === 1 ? "child" : "children";
+    // Truncate the age list at 2 entries for legibility
+    const ageDisplay =
+      childrenAges.length <= 2
+        ? childrenAges.join(", ")
+        : `${childrenAges[0]}, ${childrenAges[1]} +${childrenAges.length - 2} more`;
+    return `Planning a family trip with ${childrenAges.length} ${kidWord} (${ageDisplay})`;
+  }
+  // Solo
+  if (adultCount === 1) return "Planning a solo trip";
+  // 2 adults — depends on chip choice (chip stays visible to resolve the ambiguity)
+  if (adultCount === 2) {
+    if (travelCompany === "partner") return "Planning a couple's trip";
+    if (travelCompany === "friends") return "Planning a trip for two friends";
+    return "Planning a trip for two"; // neutral prompt while user picks
+  }
+  // 3+ adults
+  if (travelCompany === "family") return `Planning a family trip with ${adultCount} adults`;
+  return `Planning a trip for ${adultCount} friends`;
+}
+
 function previewLoadingLabel(destination: string, travelCompany: string): string {
   const companyLabel: Record<string, string> = {
     solo: "solo",
@@ -910,6 +949,17 @@ export default function WelcomePage() {
                   </div>
                 )}
               </div>
+
+              {/* Persistent trip-type confirmation (PHI-26).
+                  Always visible — closes the silent-confirmation gap for solo
+                  and family travellers, where the chip section is hidden. */}
+              <p
+                aria-live="polite"
+                className="text-[#0e2a47] text-base font-medium -mt-2"
+                data-testid="trip-type-label"
+              >
+                {tripTypeLabel(adultCount, childrenAges, travelCompany)}
+              </p>
 
               {/* Trip type — hidden when auto-set (children > 0 or only one option) */}
               {childrenAges.length === 0 && (() => {
