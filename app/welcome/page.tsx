@@ -26,7 +26,10 @@ const STYLE_OPTIONS_BY_COMPANY: Record<string, string[]> = {
   solo:    ["Budget-savvy", "Slow travel", "Wellness", "Photography", "Nightlife", "Art & Design"],
   partner: ["Romantic", "Wellness", "Nightlife", "Art & Design", "Photography"],
   friends: ["Nightlife", "Active", "Festivals", "Art & Design", "Photography"],
-  family:  ["Kid-friendly", "Beach", "Educational", "Wellness", "Photography"],
+  // Per Elena's input on PHI-27: split family chips so users can signal
+  // whether they're travelling with kids, teens, or both. The model uses
+  // these to bias activity selection (toddler-friendly vs. near-adult).
+  family:  ["Kid-friendly", "Teen-friendly", "Beach", "Educational", "Wellness", "Photography"],
 };
 
 function getStyleOptions(company: string): string[] {
@@ -42,7 +45,8 @@ const BUDGET_OPTIONS = [
 
 const MAX_STYLE_SELECTIONS = 3;
 
-const CHILD_AGE_RANGES = ["Under 2", "2–4", "5–8", "9–12"] as const;
+// PHI-27: added "13–17" so teen families aren't silently excluded.
+const CHILD_AGE_RANGES = ["Under 2", "2–4", "5–8", "9–12", "13–17"] as const;
 
 type Chip = {
   label: string;
@@ -109,6 +113,10 @@ function tripTypeLabel(
   // Family — any children present
   if (childrenAges.length > 0) {
     const kidWord = childrenAges.length === 1 ? "child" : "children";
+    // PHI-27: if any age is unset, prompt the user before showing detail.
+    if (childrenAges.some((a) => a.length === 0)) {
+      return `Planning a family trip with ${childrenAges.length} ${kidWord} — pick an age range for each`;
+    }
     // Truncate the age list at 2 entries for legibility
     const ageDisplay =
       childrenAges.length <= 2
@@ -486,7 +494,10 @@ export default function WelcomePage() {
   }
 
   function addChild() {
-    setChildrenAges((prev) => [...prev, CHILD_AGE_RANGES[0]]);
+    // PHI-27: empty default so users must consciously pick an age range.
+    // Pre-selecting "Under 2" was a trap — inattentive parents got
+    // toddler-itineraries by default.
+    setChildrenAges((prev) => [...prev, ""]);
   }
 
   function updateChildAge(idx: number, age: string) {
@@ -741,10 +752,15 @@ export default function WelcomePage() {
 
   // ── Wizard steps 1–5 ───────────────────────────────────────────────────────
 
+  // PHI-27: every child must have an age range picked before Continue is
+  // enabled. Pre-selecting "Under 2" was a personalisation trap; making the
+  // pick conscious is the right tradeoff.
+  const allChildrenHaveAges = childrenAges.every((a) => a.length > 0);
+
   const canContinue: Record<number, boolean> = {
     1: destination.trim().length > 0 && departureDate.length > 0 && returnDate.length > 0,
     2: true,
-    3: travelCompany.length > 0,
+    3: travelCompany.length > 0 && allChildrenHaveAges,
     4: !previewLoading && Object.keys(activityFeedback).length > 0,
     5: name.trim().length > 0 && email.trim().length > 0,
   };

@@ -12,6 +12,16 @@ const AGE_CONSTRAINTS: Record<string, string[]> = {
   "2–4": ["45-minute activity maximum", "outdoor space preferable"],
   "5–8": ["90-minute activity tolerance", "interactive experiences preferred"],
   "9–12": ["near-adult stamina"],
+  // PHI-27: teens are near-adult travellers — include experiences the
+  // family can do *together* that you wouldn't serve to younger kids
+  // (food markets, urban exploration, photo spots, age-appropriate
+  // adventure, vineyard/cooking class, kayaking). Avoid kid-club /
+  // playground framing.
+  "13–17": [
+    "near-adult stamina",
+    "include near-adult experiences (food markets, urban exploration, photo spots, age-appropriate adventure)",
+    "avoid playground or kid-club framing",
+  ],
 };
 
 export function buildCompositionSegment(
