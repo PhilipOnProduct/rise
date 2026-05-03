@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test:e2e": "playwright test",
+    "test:e2e:update": "playwright test --update-snapshots",
     "eval:recommendations": "tsx --env-file=.env.local scripts/eval-recommendations.ts",
     "eval:family": "tsx scripts/eval-family-prompts.ts",
     "eval:location": "tsx --env-file=.env.local scripts/eval-itinerary-location.ts"
@@ -19,6 +21,7 @@
     "react-dom": "19.2.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@tailwindcss/postcss": "^4",
     "@types/google.maps": "^3.58.1",
     "@types/node": "^20",

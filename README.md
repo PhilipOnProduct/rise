@@ -20,6 +20,25 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Tests
+
+End-to-end and visual regression tests use [Playwright](https://playwright.dev). The test floor is small on purpose — one onboarding spec — and grows as features ship.
+
+```bash
+# Run all tests (boots `next dev` automatically)
+npm run test:e2e
+
+# Update visual snapshots after an intentional UI change
+npm run test:e2e:update
+
+# Run a single spec
+npx playwright test tests/e2e/welcome.spec.ts
+```
+
+Specs live under `tests/e2e/`. Visual snapshot baselines are committed alongside the spec under `tests/e2e/welcome.spec.ts-snapshots/`. Snapshots are pinned to Chromium at 1280×800 to keep them deterministic across machines.
+
+If a snapshot fails on a non-Linux dev machine due to font / OS rendering differences, regenerate locally with `npm run test:e2e:update` and commit the updated baseline.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
