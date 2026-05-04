@@ -31,3 +31,4 @@ Each migration is a standalone idempotent-where-possible SQL script. To apply:
 | File | Ticket | Notes |
 |---|---|---|
 | 0001_add_legs_to_travelers.sql | PHI-33 / RISE-303 | Adds `legs` JSONB. Backfill from existing destination/dates/hotel. Legacy columns kept; dropped in a follow-up migration once readers are gone. |
+| 0002_anonymous_sessions.sql | PHI-31 / RISE-202 | Creates `anonymous_sessions` table for pre-signup itinerary drafts. 14-day TTL. Includes the `claim_anonymous_session(...)` Postgres function for atomic claim-on-signup, the `gc_anonymous_sessions()` daily cleanup function, and the `tg_anonymous_sessions_updated_at` trigger. |
