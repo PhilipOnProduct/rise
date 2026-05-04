@@ -7,18 +7,31 @@ import { buildCompositionSegment } from "@/lib/composition";
 const client = new Anthropic();
 const MODEL = "claude-sonnet-4-6";
 
-// Static instruction — cached on first call, served from cache on subsequent calls
-const SYSTEM = `You are a travel activity recommender. Suggest 5–6 must-do activities for the destination and traveller profile provided. For each, provide its name, a one-sentence description, and a brief note on when in the trip it works best.
+// Static instruction — cached on first call, served from cache on subsequent calls.
+// PHI-32: rationale field added per Elena's input — see the four "Why rules"
+// at the bottom of the prompt. The rationale is a trust signal; bad rationales
+// are worse than no rationales.
+const SYSTEM = `You are a travel activity recommender. Suggest 5–6 must-do activities for the destination and traveller profile provided. For each, provide its name, a one-sentence description, a brief note on when in the trip it works best, and a short "why this fits" rationale.
 
 Format each as:
 
 **[Activity Name]** — [Category]
 [One-sentence description]
 *When: [timing or day suggestion]*
+*Why: [≤25 words explaining why this specific activity fits this specific traveller]*
 
-Be specific to the destination — avoid generic suggestions that any visitor might do. Keep each entry concise. Never reference the traveller's profile, preferences, or travel style in descriptions — write as if recommending to anyone visiting the destination.
+Description rules:
+- Be specific to the destination — avoid generic suggestions that any visitor might do.
+- Keep descriptions concise.
+- Never reference the traveller's profile, preferences, or travel style in the description — write as if recommending to anyone visiting the destination.
 
-Ensure variety: each activity must be from a different category. Spread suggestions across food & dining, cultural/historic, outdoor/adventure, nightlife/entertainment, relaxation/wellness, and shopping/local markets. Do not repeat a category.`;
+Why rules (Elena's guidance — these are trust-building, get them right):
+1. Never invent a connection. If the only reason is "matches your style chip", say so plainly — don't fabricate a hotel-proximity claim if you don't have hotel data.
+2. Cite specific user input ("you flagged kid-friendly", "your couple preference", "your savvy budget") — never vague "your interests".
+3. For high-stakes constraints (mobility, dietary, accessibility, allergies), include the constraint in the Why as a confidence signal: "wheelchair accessible per your note."
+4. When uncertain a constraint is satisfied, say so explicitly: "Likely accessible — please confirm."
+
+Variety: each activity must be from a different category. Spread suggestions across food & dining, cultural/historic, outdoor/adventure, nightlife/entertainment, relaxation/wellness, and shopping/local markets. Do not repeat a category.`;
 
 export async function POST(req: NextRequest) {
   const {

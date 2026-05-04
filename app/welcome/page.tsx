@@ -72,6 +72,9 @@ type ParsedActivity = {
   category: string;
   description: string;
   when: string;
+  // PHI-32: optional because older streams may not include it; the UI
+  // hides the "Why this" affordance when missing.
+  rationale?: string;
 };
 
 export type ActivityFeedbackEntry = {
@@ -157,8 +160,10 @@ function previewLoadingLabel(destination: string, travelCompany: string): string
 }
 
 function parseActivities(text: string): ParsedActivity[] {
-  // Matches: **Name** — Category\nDescription\n*When: timing*
-  const regex = /\*\*([^*\n]+)\*\*\s*[—–\-]\s*([^\n]+)\n([^\n*][^\n]*)\n\*When:\s*([^*\n]+)\*/g;
+  // Matches: **Name** — Category\nDescription\n*When: timing*\n[*Why: rationale*]
+  // PHI-32: Why line is optional — old streams without rationale still parse.
+  const regex =
+    /\*\*([^*\n]+)\*\*\s*[—–\-]\s*([^\n]+)\n([^\n*][^\n]*)\n\*When:\s*([^*\n]+)\*(?:\s*\n\*Why:\s*([^*\n]+)\*)?/g;
   const results: ParsedActivity[] = [];
   let match;
   let idx = 0;
@@ -169,6 +174,7 @@ function parseActivities(text: string): ParsedActivity[] {
       category: match[2].trim(),
       description: match[3].trim(),
       when: match[4].trim(),
+      rationale: match[5]?.trim() || undefined,
     });
   }
   return results;
@@ -204,6 +210,7 @@ type ActivityCardProps = {
   onChipSelect: (chip: Chip) => void;
   onUndo: () => void;
   onSkip: () => void;
+  onRationaleExpand: () => void;
 };
 
 function ActivityCard({
@@ -217,7 +224,10 @@ function ActivityCard({
   onChipSelect,
   onUndo,
   onSkip,
+  onRationaleExpand,
 }: ActivityCardProps) {
+  // PHI-32: rationale is collapsed by default to avoid visual noise.
+  const [rationaleOpen, setRationaleOpen] = useState(false);
   const isHardExcluded =
     feedback?.feedbackType === "chip_selected" && feedback.chip?.type === "hard_exclusion";
   const isNoted =
@@ -241,6 +251,37 @@ function ActivityCard({
         <div className="text-xs text-[#1a6b7f] font-semibold mt-0.5">{activity.category}</div>
       </div>
       <p className="text-sm text-[#4a6580] leading-relaxed mb-4">{activity.description}</p>
+
+      {/* PHI-32: "Why this" rationale — collapsed by default. Trust signal
+          without visual noise. Hidden if the model didn't return one. */}
+      {activity.rationale && (
+        <div className="mb-4">
+          <button
+            type="button"
+            onClick={() => {
+              const next = !rationaleOpen;
+              setRationaleOpen(next);
+              if (next) onRationaleExpand();
+            }}
+            aria-expanded={rationaleOpen}
+            aria-controls={`rationale-${activity.id}`}
+            className="text-xs text-[#1a6b7f] hover:text-[#0e2a47] underline-offset-4 hover:underline transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1a6b7f] focus-visible:ring-offset-2 rounded"
+            data-testid={`why-this-${activity.id}`}
+          >
+            {rationaleOpen ? "Hide why ↑" : "Why this →"}
+          </button>
+          {rationaleOpen && (
+            <div
+              id={`rationale-${activity.id}`}
+              role="region"
+              aria-live="polite"
+              className="mt-2 px-3 py-2.5 rounded-xl bg-[#f0ede8] text-xs text-[#4a6580] leading-relaxed"
+            >
+              {activity.rationale}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Thumbs buttons — hidden while streaming or when chips are open.
           PHI-28: 48×48 (w-12 h-12) to clear WCAG / Apple HIG 44px minimum
@@ -460,9 +501,11 @@ export default function WelcomePage() {
           console.error("[preview]", e);
         }
       }
-      // Final parse — emit all remaining cards
+      // Final parse — emit all remaining cards. PHI-32: always re-emit so
+      // any rationales that arrived after a card was first emitted get
+      // applied to the rendered cards.
       const final = parseActivities(accumulated);
-      if (final.length > emittedCount) {
+      if (final.length > 0) {
         setParsedActivities(final);
       }
       setPreviewLoading(false);
@@ -1222,6 +1265,14 @@ export default function WelcomePage() {
                   onChipSelect={(chip) => handleChipSelect(activity, chip)}
                   onUndo={() => setOpenChipId(null)}
                   onSkip={() => handleSkip(activity)}
+                  onRationaleExpand={() =>
+                    logActivityEvent({
+                      event: "rationale_expanded",
+                      activityId: activity.id,
+                      activityName: activity.name,
+                      activityCategory: activity.category,
+                    })
+                  }
                 />
               ))}
 

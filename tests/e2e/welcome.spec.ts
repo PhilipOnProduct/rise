@@ -22,14 +22,17 @@ const MOCK_ACTIVITIES_STREAM = [
   "**Pastéis de Belém Tasting** — Food & Dining",
   "Original home of the pastel de nata, served since 1837.",
   "*When: morning, ~45 min*",
+  "*Why: Picked because you flagged Food-led — this is Lisbon's most-cited pastry origin.*",
   "",
   "**Jerónimos Monastery** — Cultural/Historic",
   "UNESCO-listed Manueline monastery next door to Pastéis de Belém.",
   "*When: morning, ~90 min*",
+  "*Why: Matches your Cultural style and sits 5 min walk from the pastry stop.*",
   "",
   "**Praia de Carcavelos** — Outdoor/Adventure",
   "The widest, flattest beach in the Lisbon region.",
   "*When: afternoon, ~3 hours*",
+  "*Why: Wide, gentle beach — fits a Comfortable budget couple's break day.*",
   "",
 ].join("\n");
 
@@ -293,6 +296,55 @@ test("welcome step 4 supports Skip as a distinct rating signal", async ({ page }
 
   // Continue button is enabled — Skip counts as a rating
   await expect(page.getByRole("button", { name: /Continue with 1 rated/i })).toBeEnabled();
+});
+
+/**
+ * PHI-32 / RISE-203 — per-activity "Why this" rationale.
+ *
+ * The model output now includes a *Why: ...* line per activity. The card
+ * has a collapsed "Why this →" affordance that expands to show the rationale.
+ */
+test("welcome step 4 cards show expandable Why this rationale", async ({ page }) => {
+  await page.goto("/welcome");
+
+  // Walk to step 4
+  await page.getByPlaceholder("e.g. Tokyo, Japan").fill("Lisbon");
+  await page.getByTestId("use-destination-anyway").click();
+  await page.getByRole("button", { name: /Start planning/i }).click();
+  await page.locator('input[type="date"]').first().fill("2026-06-15");
+  await page.locator('input[type="date"]').nth(1).fill("2026-06-22");
+  await page.getByRole("button", { name: /Continue/i }).click();
+  await page.getByRole("button", { name: /haven't booked yet/i }).click();
+  await page.getByRole("button", { name: /Couple/i }).click();
+  await page.getByRole("button", { name: "Cultural", exact: true }).click();
+  await page.getByRole("button", { name: "Comfortable" }).click();
+  await page.getByRole("button", { name: /Continue/i }).click();
+
+  await expect(page.getByText("Pastéis de Belém Tasting", { exact: false })).toBeVisible({
+    timeout: 10_000,
+  });
+
+  // The first card has a "Why this" affordance
+  const whyThis = page.getByTestId("why-this-act-0");
+  await expect(whyThis).toBeVisible();
+  await expect(whyThis).toHaveText("Why this →");
+
+  // The rationale is NOT visible yet (collapsed by default)
+  await expect(page.getByText(/Picked because you flagged Food-led/i)).toHaveCount(0);
+
+  // Expand
+  await whyThis.click();
+  await expect(page.getByText(/Picked because you flagged Food-led/i)).toBeVisible();
+  await expect(whyThis).toHaveText("Hide why ↑");
+
+  // The rationale region has aria-live polite for screen readers
+  const rationaleRegion = page.locator("#rationale-act-0");
+  await expect(rationaleRegion).toHaveAttribute("aria-live", "polite");
+  await expect(rationaleRegion).toHaveAttribute("role", "region");
+
+  // Collapse
+  await whyThis.click();
+  await expect(page.getByText(/Picked because you flagged Food-led/i)).toHaveCount(0);
 });
 
 test("welcome step 5 renders with description shown exactly once", async ({ page }) => {
