@@ -81,6 +81,51 @@ test.beforeEach(async ({ page }) => {
 });
 
 /**
+ * PHI-30 / RISE-201 — destination disambiguation.
+ *
+ * Verifies the silent-override fix: typing without selecting from the
+ * autocomplete dropdown does NOT advance the user. They must either pick
+ * a suggestion or explicitly click "Use anyway".
+ */
+test("welcome step 0 gates Start planning on verified destination", async ({
+  page,
+}) => {
+  await page.goto("/welcome");
+
+  const input = page.getByPlaceholder("e.g. Tokyo, Japan");
+  const startBtn = page.getByRole("button", { name: /Start planning/i });
+  const useAnyway = page.getByTestId("use-destination-anyway");
+
+  // Initial state: empty → button disabled
+  await expect(startBtn).toBeDisabled();
+
+  // Type a destination (no autocomplete in the test env)
+  await input.fill("Lisbon, Portugal");
+
+  // PHI-30: still disabled — no place verified
+  await expect(startBtn).toBeDisabled();
+
+  // The escape-hatch link appears
+  await expect(useAnyway).toBeVisible();
+  // The JSX uses smart quotes (&ldquo; / &rdquo;) for typography
+  await expect(useAnyway).toContainText("Lisbon, Portugal");
+  await expect(useAnyway).toContainText("anyway");
+
+  // Pressing Enter does NOT advance (still on step 0)
+  await input.press("Enter");
+  await expect(startBtn).toBeVisible();
+
+  // Click the escape — verified, button enabled
+  await useAnyway.click();
+  await expect(startBtn).toBeEnabled();
+
+  // Editing the input again invalidates verification
+  await input.fill("Madrid");
+  await expect(startBtn).toBeDisabled();
+  await expect(useAnyway).toBeVisible();
+});
+
+/**
  * PHI-26 / RISE-102 — persistent trip-type confirmation label.
  *
  * Walks to step 3 and verifies the label updates correctly across the
@@ -94,7 +139,11 @@ test("welcome step 3 shows persistent trip-type label across compositions", asyn
 
   // Walk to step 3
   await page.getByPlaceholder("e.g. Tokyo, Japan").fill("Lisbon");
-  await page.getByPlaceholder("e.g. Tokyo, Japan").press("Enter");
+  // PHI-30: Enter only advances when destination is verified. In the test
+  // environment we have no Google Maps API key, so the autocomplete
+  // dropdown won't appear — use the "Use anyway" escape hatch.
+  await page.getByTestId("use-destination-anyway").click();
+  await page.getByRole("button", { name: /Start planning/i }).click();
   await page.locator('input[type="date"]').first().fill("2026-06-15");
   await page.locator('input[type="date"]').nth(1).fill("2026-06-22");
   await page.getByRole("button", { name: /Continue/i }).click();
@@ -155,7 +204,11 @@ test("welcome step 3 supports teen ages and gates Continue on age picks", async 
 
   // Walk to step 3
   await page.getByPlaceholder("e.g. Tokyo, Japan").fill("Lisbon");
-  await page.getByPlaceholder("e.g. Tokyo, Japan").press("Enter");
+  // PHI-30: Enter only advances when destination is verified. In the test
+  // environment we have no Google Maps API key, so the autocomplete
+  // dropdown won't appear — use the "Use anyway" escape hatch.
+  await page.getByTestId("use-destination-anyway").click();
+  await page.getByRole("button", { name: /Start planning/i }).click();
   await page.locator('input[type="date"]').first().fill("2026-06-15");
   await page.locator('input[type="date"]').nth(1).fill("2026-06-22");
   await page.getByRole("button", { name: /Continue/i }).click();
@@ -199,7 +252,11 @@ test("welcome step 4 supports Skip as a distinct rating signal", async ({ page }
 
   // Walk to step 4
   await page.getByPlaceholder("e.g. Tokyo, Japan").fill("Lisbon");
-  await page.getByPlaceholder("e.g. Tokyo, Japan").press("Enter");
+  // PHI-30: Enter only advances when destination is verified. In the test
+  // environment we have no Google Maps API key, so the autocomplete
+  // dropdown won't appear — use the "Use anyway" escape hatch.
+  await page.getByTestId("use-destination-anyway").click();
+  await page.getByRole("button", { name: /Start planning/i }).click();
   await page.locator('input[type="date"]').first().fill("2026-06-15");
   await page.locator('input[type="date"]').nth(1).fill("2026-06-22");
   await page.getByRole("button", { name: /Continue/i }).click();
@@ -244,7 +301,9 @@ test("welcome step 5 renders with description shown exactly once", async ({ page
   // ── Step 0: Landing — type destination, press Enter ────────────────────
   const destinationInput = page.getByPlaceholder("e.g. Tokyo, Japan");
   await destinationInput.fill("Lisbon");
-  await destinationInput.press("Enter");
+  // PHI-30: explicit verification escape (no Google Maps in test env).
+  await page.getByTestId("use-destination-anyway").click();
+  await page.getByRole("button", { name: /Start planning/i }).click();
 
   // ── Step 1: Dates ─────────────────────────────────────────────────────
   // The destination input is editable here too; we leave it as-is.
