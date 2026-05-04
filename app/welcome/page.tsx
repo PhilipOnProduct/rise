@@ -331,6 +331,13 @@ export default function WelcomePage() {
   // Trip data
   const [destination, setDestination] = useState("");
   const [destinationBias, setDestinationBias] = useState<{ lat: number; lng: number } | null>(null);
+  // PHI-30: destinationVerified is true only when the user explicitly
+  // selected a place from the autocomplete dropdown OR clicked the
+  // "Use anyway" escape. Free-form typed text is *unverified* — Continue
+  // is gated until the user resolves it. Closes the trust gap from the
+  // May 2026 onboarding review where typing "Lisbon, Portugal" silently
+  // resolved to a different place.
+  const [destinationVerified, setDestinationVerified] = useState(false);
   const [departureDate, setDepartureDate] = useState("");
   const [returnDate, setReturnDate] = useState("");
   const [hotel, setHotel] = useState("");
@@ -505,6 +512,9 @@ export default function WelcomePage() {
 
   function handleDestinationSelect(place: string) {
     setDestination(place);
+    // PHI-30: confirmed selection from the autocomplete dropdown — the
+    // user explicitly saw and accepted this place.
+    setDestinationVerified(true);
     if (typeof window === "undefined" || !window.google?.maps) return;
     const geocoder = new google.maps.Geocoder();
     geocoder.geocode({ address: place }, (results, status) => {
@@ -513,6 +523,23 @@ export default function WelcomePage() {
         setDestinationBias({ lat: loc.lat(), lng: loc.lng() });
       }
     });
+  }
+
+  // PHI-30: typing into the destination input always invalidates the
+  // verified state — the user is editing, so any prior selection is stale.
+  function handleDestinationChange(text: string) {
+    setDestination(text);
+    setDestinationVerified(false);
+  }
+
+  // PHI-30: user explicitly chose to proceed with their typed text without
+  // selecting from the dropdown (e.g. a region or unusual spelling). We
+  // mark verified=true so they can continue, and the downstream payload
+  // could carry an "unverified" flag if we wanted to tell the model to
+  // be cautious. For Sprint 2 minimum, we just unblock Continue.
+  function useDestinationAsTyped() {
+    if (!destination.trim()) return;
+    setDestinationVerified(true);
   }
 
   function toggleStyle(style: string) {
@@ -779,19 +806,39 @@ export default function WelcomePage() {
           </p>
           <PlacesAutocomplete
             value={destination}
-            onChange={setDestination}
+            onChange={handleDestinationChange}
             onSelect={(place) => handleDestinationSelect(place)}
             placeholder="e.g. Tokyo, Japan"
             types={["(cities)"]}
             autoFocus
             theme="light"
-            onEnter={() => { if (destination.trim()) goTo(1); }}
+            onEnter={() => {
+              // PHI-30: Enter only advances when the user has explicitly
+              // verified the destination. Otherwise nothing — the dropdown
+              // and "Use anyway" link below give them a clear path.
+              if (destination.trim() && destinationVerified) goTo(1);
+            }}
             className="w-full bg-white border-b-2 border-[#d4cfc5] focus:border-[#1a6b7f] outline-none text-3xl font-medium py-3 transition-colors placeholder-[#b8b0a4]"
             style={{ color: "#0e2a47" }}
           />
+
+          {/* PHI-30: escape hatch — explicit "Use anyway" affordance for
+              free-form input that doesn't match an autocomplete suggestion
+              (regions, unusual spellings, fictional places, etc.) */}
+          {destination.trim().length >= 2 && !destinationVerified && (
+            <button
+              type="button"
+              onClick={useDestinationAsTyped}
+              className="mt-3 text-sm text-[#1a6b7f] hover:text-[#0e2a47] underline-offset-4 hover:underline transition-colors"
+              data-testid="use-destination-anyway"
+            >
+              Use &ldquo;{destination.trim()}&rdquo; anyway →
+            </button>
+          )}
+
           <button
             onClick={() => goTo(1)}
-            disabled={!destination.trim()}
+            disabled={!destination.trim() || !destinationVerified}
             className="mt-10 w-full text-white font-semibold text-lg py-5 hover:opacity-90 transition-opacity disabled:opacity-30 disabled:cursor-not-allowed"
             style={{ backgroundColor: "#1a6b7f", borderRadius: 50 }}
           >
@@ -810,7 +857,13 @@ export default function WelcomePage() {
   const allChildrenHaveAges = childrenAges.every((a) => a.length > 0);
 
   const canContinue: Record<number, boolean> = {
-    1: destination.trim().length > 0 && departureDate.length > 0 && returnDate.length > 0,
+    // PHI-30: step 1 also requires destinationVerified — the user might
+    // have re-opened the autocomplete here and started editing.
+    1:
+      destination.trim().length > 0 &&
+      destinationVerified &&
+      departureDate.length > 0 &&
+      returnDate.length > 0,
     2: true,
     3: travelCompany.length > 0 && allChildrenHaveAges,
     4: !previewLoading && Object.keys(activityFeedback).length > 0,
@@ -886,12 +939,23 @@ export default function WelcomePage() {
                 </label>
                 <PlacesAutocomplete
                   value={destination}
-                  onChange={setDestination}
+                  onChange={handleDestinationChange}
                   onSelect={handleDestinationSelect}
                   placeholder="e.g. Tokyo, Japan"
                   types={["(cities)"]}
                   className={darkInput}
                 />
+                {/* PHI-30: same escape hatch on step 1 if the user re-edits
+                    the destination here without re-selecting. */}
+                {destination.trim().length >= 2 && !destinationVerified && (
+                  <button
+                    type="button"
+                    onClick={useDestinationAsTyped}
+                    className="mt-2 text-sm text-[#1a6b7f] hover:text-[#0e2a47] underline-offset-4 hover:underline transition-colors"
+                  >
+                    Use &ldquo;{destination.trim()}&rdquo; anyway →
+                  </button>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-semibold text-[#4a6580] uppercase tracking-widest mb-3">
