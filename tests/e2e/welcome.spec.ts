@@ -299,6 +299,67 @@ test("welcome step 4 supports Skip as a distinct rating signal", async ({ page }
 });
 
 /**
+ * PHI-35 / RISE-302 — constraint expression.
+ */
+test("welcome step 3 captures constraints (chips + free text) and forwards them", async ({
+  page,
+}) => {
+  // Capture the activities-stream POST body to assert constraints are sent
+  let capturedBody: any = null;
+  await page.route("**/api/activities-stream", async (route) => {
+    try {
+      const post = route.request().postData();
+      capturedBody = post ? JSON.parse(post) : null;
+    } catch {}
+    await route.fulfill({
+      status: 200,
+      contentType: "text/plain; charset=utf-8",
+      body: MOCK_ACTIVITIES_STREAM,
+    });
+  });
+
+  await page.goto("/welcome");
+
+  // Walk to step 3
+  await page.getByPlaceholder("e.g. Tokyo, Japan").fill("Lisbon");
+  await page.getByTestId("use-destination-anyway").click();
+  await page.getByRole("button", { name: /Start planning/i }).click();
+  await page.locator('input[type="date"]').first().fill("2026-06-15");
+  await page.locator('input[type="date"]').nth(1).fill("2026-06-22");
+  await page.getByRole("button", { name: /Continue/i }).click();
+  await page.getByRole("button", { name: /haven't booked yet/i }).click();
+  await page.getByRole("button", { name: /Couple/i }).click();
+  await page.getByRole("button", { name: "Cultural", exact: true }).click();
+  await page.getByRole("button", { name: "Comfortable" }).click();
+
+  // The constraint section is present and optional
+  const textarea = page.getByTestId("constraint-textarea");
+  await expect(textarea).toBeVisible();
+
+  // Pick two chips and add free text
+  await page.getByRole("button", { name: "Severe allergy", exact: true }).click();
+  await page.getByRole("button", { name: "No long walks", exact: true }).click();
+  await textarea.fill("knee surgery last year, taking it easy");
+
+  // The chips reflect aria-pressed
+  await expect(
+    page.getByRole("button", { name: "Severe allergy", exact: true })
+  ).toHaveAttribute("aria-pressed", "true");
+
+  // Continue → activities-stream call
+  await page.getByRole("button", { name: /Continue/i }).click();
+  await expect(page.getByText("Pastéis de Belém Tasting", { exact: false })).toBeVisible({
+    timeout: 10_000,
+  });
+
+  // Confirm constraints made it to the API payload
+  expect(capturedBody?.constraintTags).toEqual(
+    expect.arrayContaining(["Severe allergy", "No long walks"])
+  );
+  expect(capturedBody?.constraintText).toBe("knee surgery last year, taking it easy");
+});
+
+/**
  * PHI-32 / RISE-203 — per-activity "Why this" rationale.
  *
  * The model output now includes a *Why: ...* line per activity. The card

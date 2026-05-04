@@ -43,6 +43,19 @@ const BUDGET_OPTIONS = [
   { id: "luxury", label: "Flexible", description: "Spend where it matters" },
 ];
 
+// PHI-35 / RISE-302: high-stakes constraint chips, prioritised per Elena.
+// Six chips spanning the highest-stakes categories: mobility, dietary,
+// religious/cultural, family. The free-text box catches everything else.
+// Severe allergy is flagged for the model as life-impacting in the prompt.
+const CONSTRAINT_CHIPS = [
+  "Wheelchair accessible only",
+  "No long walks",
+  "Vegetarian",
+  "Halal/Kosher",
+  "Severe allergy",
+  "Stroller-friendly",
+] as const;
+
 const MAX_STYLE_SELECTIONS = 3;
 
 // PHI-27: added "13–17" so teen families aren't silently excluded.
@@ -390,6 +403,11 @@ export default function WelcomePage() {
   const [travelerTypes, setTravelerTypes] = useState<string[]>([]);
   const [budgetTier, setBudgetTier] = useState("");
 
+  // PHI-35: optional constraints. tags are chip-toggleable; freeText is a
+  // textarea for anything not covered by chips.
+  const [constraintTags, setConstraintTags] = useState<string[]>([]);
+  const [constraintText, setConstraintText] = useState("");
+
   // Account
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -469,6 +487,9 @@ export default function WelcomePage() {
             budgetTier: budgetTier || null,
             travelerCount: adultCount + childrenAges.length,
             childrenAges: childrenAges.length > 0 ? childrenAges : null,
+            // PHI-35: optional constraints. Empty fields are dropped server-side.
+            constraintTags: constraintTags.length > 0 ? constraintTags : null,
+            constraintText: constraintText.trim() || null,
           }),
         });
         if (!res.body) return;
@@ -591,6 +612,14 @@ export default function WelcomePage() {
       if (prev.length >= MAX_STYLE_SELECTIONS) return prev;
       return [...prev, style];
     });
+  }
+
+  // PHI-35: constraint chips toggle on/off. No upper bound — users may
+  // have several real constraints that all need respecting.
+  function toggleConstraint(tag: string) {
+    setConstraintTags((prev) =>
+      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
+    );
   }
 
   function addChild() {
@@ -820,6 +849,10 @@ export default function WelcomePage() {
       childrenAges: childrenAges.length > 0 ? childrenAges : null,
       travelerTypes,
       budgetTier,
+      // PHI-35: include constraints in the persisted snapshot so downstream
+      // (itinerary generation, future AI calls) can keep respecting them.
+      constraintTags: constraintTags.length > 0 ? constraintTags : null,
+      constraintText: constraintText.trim() || null,
       activities: [],
     };
     localStorage.setItem("rise_traveler", JSON.stringify(travelerData));
@@ -1223,6 +1256,51 @@ export default function WelcomePage() {
                       <span className="text-xs text-[#6a7f8f]">{opt.description}</span>
                     </button>
                   ))}
+                </div>
+              </div>
+
+              {/* PHI-35: optional constraints — high-stakes for trust-sensitive
+                  travellers (allergies, mobility, dietary, religious). Free-text
+                  + chips for common cases. The model treats these as MUST respect
+                  per the activities-stream prompt. */}
+              <div>
+                <label
+                  htmlFor="trip-constraints"
+                  className="block text-sm font-semibold text-[#4a6580] uppercase tracking-widest mb-1"
+                >
+                  Anything we should know?
+                </label>
+                <p className="text-[#6a7f8f] text-sm mb-4">
+                  Optional. Allergies, mobility, dietary, religious — anything we should respect.
+                </p>
+                <textarea
+                  id="trip-constraints"
+                  value={constraintText}
+                  onChange={(e) => setConstraintText(e.target.value)}
+                  placeholder="e.g. one of us has a knee issue, no long walks; severe peanut allergy"
+                  rows={3}
+                  className="w-full bg-white border border-[#b8b3a9] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-[#0e2a47] text-sm placeholder-[#9ca3af] transition-colors mb-3"
+                  data-testid="constraint-textarea"
+                />
+                <div className="flex flex-wrap gap-2">
+                  {CONSTRAINT_CHIPS.map((chip) => {
+                    const selected = constraintTags.includes(chip);
+                    return (
+                      <button
+                        key={chip}
+                        type="button"
+                        onClick={() => toggleConstraint(chip)}
+                        aria-pressed={selected}
+                        className={`px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all ${
+                          selected
+                            ? "border-[#1a6b7f] bg-[#1a6b7f]/10 text-[#0e2a47]"
+                            : "border-[#e8e4de] bg-white text-[#4a6580] hover:border-[#b8b3a9] hover:text-[#0e2a47]"
+                        }`}
+                      >
+                        {chip}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             </div>

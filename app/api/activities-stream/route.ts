@@ -43,6 +43,10 @@ export async function POST(req: NextRequest) {
     budgetTier,
     travelerCount,
     childrenAges,
+    // PHI-35: high-stakes constraints — mobility, dietary, religious,
+    // allergies. Treated as MUST respect in the prompt below.
+    constraintTags,
+    constraintText,
   } = await req.json();
 
   // Hard limit check
@@ -84,10 +88,33 @@ export async function POST(req: NextRequest) {
   const composition = buildCompositionSegment(travelerCount, childrenAges);
   if (composition) profileLines.push(`- Composition: ${composition}`);
 
+  // PHI-35: assemble the MUST-respect constraints block. We separate this
+  // from the general profile because the model is instructed to treat it
+  // with extra weight, and to flag uncertainty when a constraint can't be
+  // confidently satisfied (Elena's "uncertain → say so" rule from PHI-32).
+  const constraintLines: string[] = [];
+  if (Array.isArray(constraintTags) && constraintTags.length > 0) {
+    constraintLines.push(`- Tagged: ${constraintTags.join(", ")}`);
+  }
+  if (typeof constraintText === "string" && constraintText.trim().length > 0) {
+    constraintLines.push(`- In their words: "${constraintText.trim()}"`);
+  }
+  const hasSevereAllergy =
+    Array.isArray(constraintTags) && constraintTags.some((t: string) => /severe allergy/i.test(t));
+
+  const constraintBlock =
+    constraintLines.length > 0
+      ? `\n\nMUST respect (life-impacting — never silently ignore${
+          hasSevereAllergy
+            ? "; if 'Severe allergy' is tagged, EVERY food activity MUST include explicit allergy awareness or be filtered out"
+            : ""
+        }):\n${constraintLines.join("\n")}\n`
+      : "";
+
   const profileBlock =
     profileLines.length > 0
-      ? `\n\nTraveller profile (treat these as hard constraints — every suggestion must fit):\n${profileLines.join("\n")}\n`
-      : "";
+      ? `\n\nTraveller profile (treat these as hard constraints — every suggestion must fit):\n${profileLines.join("\n")}\n${constraintBlock}`
+      : constraintBlock;
 
   const userMessage =
     `Destination: ${destination} (${duration}).${profileBlock}\n` +
