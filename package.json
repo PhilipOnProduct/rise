@@ -11,7 +11,8 @@
     "test:e2e:update": "playwright test --update-snapshots",
     "eval:recommendations": "tsx --env-file=.env.local scripts/eval-recommendations.ts",
     "eval:family": "tsx scripts/eval-family-prompts.ts",
-    "eval:location": "tsx --env-file=.env.local scripts/eval-itinerary-location.ts"
+    "eval:location": "tsx --env-file=.env.local scripts/eval-itinerary-location.ts",
+    "eval:parser": "tsx --env-file=.env.local scripts/eval-freeform-parser.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
