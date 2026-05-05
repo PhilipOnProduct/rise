@@ -52,6 +52,9 @@ type RawDay = {
   date: string;
   day_number: number;
   items: RawItem[];
+  // PHI-37: multi-leg trips — leg index per day, transition flag.
+  leg_index?: number;
+  is_transition?: boolean;
 };
 
 type TravelConnector = {
@@ -89,6 +92,10 @@ function mapRawDays(rawDays: RawDay[]): ItineraryDay[] {
       sequence: idx,
       category: item.type,
     })),
+    // PHI-37: pass through leg metadata so the UI can render leg headers
+    // and transition days. Absent on single-leg trips.
+    ...(typeof d.leg_index === "number" && { leg_index: d.leg_index }),
+    ...(d.is_transition && { is_transition: d.is_transition }),
   }));
 }
 
@@ -689,6 +696,10 @@ type StoredTraveler = {
   travelerCount?: number | null;
   childrenAges?: string[] | null;
   activities?: unknown[];
+  // PHI-37: full legs[] when the trip is multi-leg. Persisted by the
+  // welcome page on save so /itinerary can render leg headers and the
+  // transition-day chrome without an extra fetch.
+  legs?: { id?: string; place?: { name?: string }; startDate?: string; endDate?: string }[];
 };
 
 export default function ItineraryViewPage() {
@@ -700,6 +711,10 @@ export default function ItineraryViewPage() {
   const [departureDate, setDepartureDate] = useState("");
   const [returnDate, setReturnDate] = useState("");
   const [hotel, setHotel] = useState("");
+  // PHI-37: leg metadata for the trip — populated from the StoredTraveler
+  // snapshot. Empty for single-leg trips, in which case the page renders
+  // the day list flat (existing behaviour).
+  const [legs, setLegs] = useState<NonNullable<StoredTraveler["legs"]>>([]);
   const [swappingId, setSwappingId] = useState<string | null>(null);
   const [swapErrorId, setSwapErrorId] = useState<string | null>(null);
   const [swapSuggestion, setSwapSuggestion] = useState<{
@@ -903,6 +918,8 @@ export default function ItineraryViewPage() {
       setDepartureDate(traveler.departureDate ?? "");
       setReturnDate(traveler.returnDate ?? "");
       setHotel(traveler.hotel ?? "");
+      // PHI-37: hydrate leg metadata for the leg-aware day timeline.
+      setLegs(Array.isArray(traveler.legs) ? traveler.legs : []);
       travelerRef.current = traveler;
       void load(traveler);
     })();
@@ -1483,30 +1500,104 @@ export default function ItineraryViewPage() {
           </div>
         )}
 
-        {/* Vertical day timeline */}
+        {/* Vertical day timeline. PHI-37: when the trip is multi-leg, days
+            are grouped under leg headers and transition days are rendered
+            without the full day-section chrome. Single-leg trips render
+            identically to before. */}
         {!loading && (
           <div className="mt-6">
-            {days.map((day) => (
-              <DaySection
-                key={day.day_number}
-                day={day}
-                scrollMarginTop={scrollMarginTop}
-                connectors={connectors.filter((c) => c.day_number === day.day_number)}
-                onRemoveActivity={handleRemoveActivity}
-                onSwapActivity={handleSwapActivity}
-                swappingId={swappingId}
-                swapErrorId={swapErrorId}
-                swapSuggestion={swapSuggestion?.dayNumber === day.day_number ? swapSuggestion : null}
-                onAcceptSwap={acceptSwap}
-                onRejectSwap={rejectSwap}
-                onSuggestForBlock={handleSuggestForBlock}
-                addingSuggestion={addingSuggestion && addingDayNumber === day.day_number}
-                addingBlock={addingDayNumber === day.day_number ? addingBlock : null}
-                blockSuggestion={blockSuggestion?.dayNumber === day.day_number ? blockSuggestion : null}
-                onAcceptAdd={acceptAdd}
-                onRejectAdd={rejectAdd}
-              />
-            ))}
+            {(() => {
+              const isMultiLeg =
+                legs.length >= 2 &&
+                days.some((d) => typeof d.leg_index === "number");
+              if (!isMultiLeg) {
+                return days.map((day) => (
+                  <DaySection
+                    key={day.day_number}
+                    day={day}
+                    scrollMarginTop={scrollMarginTop}
+                    connectors={connectors.filter((c) => c.day_number === day.day_number)}
+                    onRemoveActivity={handleRemoveActivity}
+                    onSwapActivity={handleSwapActivity}
+                    swappingId={swappingId}
+                    swapErrorId={swapErrorId}
+                    swapSuggestion={swapSuggestion?.dayNumber === day.day_number ? swapSuggestion : null}
+                    onAcceptSwap={acceptSwap}
+                    onRejectSwap={rejectSwap}
+                    onSuggestForBlock={handleSuggestForBlock}
+                    addingSuggestion={addingSuggestion && addingDayNumber === day.day_number}
+                    addingBlock={addingDayNumber === day.day_number ? addingBlock : null}
+                    blockSuggestion={blockSuggestion?.dayNumber === day.day_number ? blockSuggestion : null}
+                    onAcceptAdd={acceptAdd}
+                    onRejectAdd={rejectAdd}
+                  />
+                ));
+              }
+              // Multi-leg: emit a leg header before each leg's first day,
+              // and a muted transition card for is_transition days.
+              let lastLeg = -1;
+              return days.map((day) => {
+                const dayLegIdx =
+                  typeof day.leg_index === "number" ? day.leg_index : lastLeg;
+                const headerNeeded = dayLegIdx !== lastLeg && dayLegIdx >= 0;
+                lastLeg = dayLegIdx;
+                const leg = legs[dayLegIdx];
+                const legName = leg?.place?.name ?? `Leg ${dayLegIdx + 1}`;
+
+                return (
+                  <div key={day.day_number}>
+                    {headerNeeded && (
+                      <div
+                        className="sticky top-0 z-10 bg-[#f8f6f1] -mx-4 px-4 py-2 mb-2 border-b border-[#e8e4de]"
+                        data-testid={`itinerary-leg-header-${dayLegIdx}`}
+                      >
+                        <p className="text-xs font-bold text-[#1a6b7f] uppercase tracking-widest">
+                          Leg {dayLegIdx + 1} · {legName}
+                        </p>
+                      </div>
+                    )}
+                    {day.is_transition ? (
+                      <div
+                        data-testid={`itinerary-transition-day-${day.day_number}`}
+                        className="rounded-2xl border border-dashed border-[#d4cfc5] bg-[#f5f2ec] p-5 mb-3"
+                      >
+                        <p className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-1">
+                          Day {day.day_number}
+                          {day.date ? ` · ${day.date}` : ""} · Travel day
+                        </p>
+                        <p className="text-sm text-[#4a6580]">
+                          {day.activities?.[0]?.name ?? `Travel to ${legName}`}
+                        </p>
+                        {day.activities?.[0]?.description && (
+                          <p className="text-xs text-[#6a7f8f] mt-1">
+                            {day.activities[0].description}
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <DaySection
+                        day={day}
+                        scrollMarginTop={scrollMarginTop}
+                        connectors={connectors.filter((c) => c.day_number === day.day_number)}
+                        onRemoveActivity={handleRemoveActivity}
+                        onSwapActivity={handleSwapActivity}
+                        swappingId={swappingId}
+                        swapErrorId={swapErrorId}
+                        swapSuggestion={swapSuggestion?.dayNumber === day.day_number ? swapSuggestion : null}
+                        onAcceptSwap={acceptSwap}
+                        onRejectSwap={rejectSwap}
+                        onSuggestForBlock={handleSuggestForBlock}
+                        addingSuggestion={addingSuggestion && addingDayNumber === day.day_number}
+                        addingBlock={addingDayNumber === day.day_number ? addingBlock : null}
+                        blockSuggestion={blockSuggestion?.dayNumber === day.day_number ? blockSuggestion : null}
+                        onAcceptAdd={acceptAdd}
+                        onRejectAdd={rejectAdd}
+                      />
+                    )}
+                  </div>
+                );
+              });
+            })()}
           </div>
         )}
       </main>

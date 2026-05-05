@@ -752,6 +752,267 @@ test("welcome step 4 shows Tier-2 inline signup prompt after 2 ratings", async (
   await expect(tier2).toContainText(/Loving these picks/i);
 });
 
+/**
+ * PHI-37 — Multi-leg activity generation smoke test.
+ *
+ * Walks the parser flow with a 2-leg trip: Tokyo + Kyoto, 6 nights.
+ * Asserts:
+ *  - The chip-confirm screen shows the per-leg night allocator.
+ *  - +/- on the allocator reallocates while keeping the total fixed.
+ *  - Activities-stream POST body carries legs[] with both destinations.
+ *  - Step-5 itinerary preview renders leg-1 and leg-2 section headers
+ *    AND at least one activity within each leg group.
+ *  - The transition day between legs renders as a muted travel card.
+ */
+test("welcome multi-leg parser drives leg-aware activity gen", async ({
+  page,
+}) => {
+  // Parser returns Tokyo + Kyoto, 6 nights total.
+  await page.route("**/api/parse-trip", async (route: Route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        intent: {
+          destinations: [
+            { name: "Tokyo", kind: "locality" },
+            { name: "Kyoto", kind: "locality" },
+          ],
+          dates: { durationNights: 6 },
+          party: { adults: 2 },
+          styleTags: ["Cultural", "Food-led"],
+          budgetTier: "comfortable",
+          constraintTags: [],
+          clarifications: [],
+        },
+        tokensIn: 100,
+        tokensOut: 50,
+      }),
+    });
+  });
+
+  // Resolve-place returns simple PlaceRefs for both.
+  await page.route("**/api/resolve-place", async (route: Route) => {
+    const body = JSON.parse(route.request().postData() ?? "{}");
+    const isTokyo = /tokyo/i.test(body.name ?? "");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        resolved: {
+          name: body.name,
+          id: isTokyo ? "ChIJ-Tokyo" : "ChIJ-Kyoto",
+          lat: isTokyo ? 35.6762 : 35.0116,
+          lng: isTokyo ? 139.6503 : 135.7681,
+          type: "locality",
+        },
+      }),
+    });
+  });
+
+  // Capture the activities-stream POST body so we can assert legs[]
+  // landed with the right shape.
+  let activitiesPostBody: Record<string, unknown> | null = null;
+  await page.route("**/api/activities-stream", async (route: Route) => {
+    try {
+      activitiesPostBody = JSON.parse(route.request().postData() ?? "{}");
+    } catch {}
+    // Multi-leg mock activities — each card prefixed with LEG: <index>.
+    const stream = [
+      "LEG: 0",
+      "**Sensō-ji Temple** — Cultural/Historic",
+      "Tokyo's oldest Buddhist temple, in Asakusa.",
+      "*When: morning, ~90 min*",
+      "*Why: Matches your Cultural style — Tokyo's most-cited cultural site.*",
+      "",
+      "LEG: 0",
+      "**Tsukiji Outer Market** — Food & Dining",
+      "Stalls and small restaurants packed with seafood and snacks.",
+      "*When: morning, ~2 hours*",
+      "*Why: Picked because you flagged Food-led.*",
+      "",
+      "LEG: 1",
+      "**Fushimi Inari Shrine** — Cultural/Historic",
+      "Thousands of vermilion torii gates climbing a mountainside.",
+      "*When: morning, ~2 hours*",
+      "*Why: Iconic Kyoto, matches your Cultural style.*",
+      "",
+      "LEG: 1",
+      "**Nishiki Market** — Food & Dining",
+      "400-year-old covered market — Kyoto's pantry.",
+      "*When: afternoon, ~90 min*",
+      "*Why: Picked because you flagged Food-led — Kyoto's main food street.*",
+      "",
+    ].join("\n");
+    await route.fulfill({
+      status: 200,
+      contentType: "text/plain; charset=utf-8",
+      body: stream,
+    });
+  });
+
+  // Itinerary generate returns a 6-day plan: 3 days Tokyo, 1 transition,
+  // 3 days Kyoto. (6 nights = 7 days.)
+  await page.route("**/api/itinerary/generate", async (route: Route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        days: [
+          {
+            day_number: 1,
+            date: "2026-06-15",
+            leg_index: 0,
+            items: [
+              {
+                id: "d1m",
+                title: "Sensō-ji Temple",
+                description: "Tokyo's oldest temple.",
+                type: "activity",
+                time_block: "morning",
+              },
+            ],
+          },
+          {
+            day_number: 2,
+            date: "2026-06-16",
+            leg_index: 0,
+            items: [
+              {
+                id: "d2m",
+                title: "Tsukiji Outer Market",
+                description: "Seafood stalls.",
+                type: "restaurant",
+                time_block: "morning",
+              },
+            ],
+          },
+          {
+            day_number: 3,
+            date: "2026-06-17",
+            leg_index: 0,
+            items: [
+              {
+                id: "d3m",
+                title: "Meiji Shrine",
+                description: "Quiet shrine in a forest.",
+                type: "activity",
+                time_block: "morning",
+              },
+            ],
+          },
+          {
+            day_number: 4,
+            date: "2026-06-18",
+            leg_index: 1,
+            is_transition: true,
+            items: [
+              {
+                id: "d4t",
+                title: "Travel to Kyoto",
+                description: "Shinkansen Tokyo → Kyoto, ~2h15m.",
+                type: "transport",
+                time_block: "morning",
+              },
+            ],
+          },
+          {
+            day_number: 5,
+            date: "2026-06-19",
+            leg_index: 1,
+            items: [
+              {
+                id: "d5m",
+                title: "Fushimi Inari Shrine",
+                description: "Torii gate paths.",
+                type: "activity",
+                time_block: "morning",
+              },
+            ],
+          },
+          {
+            day_number: 6,
+            date: "2026-06-20",
+            leg_index: 1,
+            items: [
+              {
+                id: "d6a",
+                title: "Nishiki Market",
+                description: "Kyoto's pantry.",
+                type: "restaurant",
+                time_block: "afternoon",
+              },
+            ],
+          },
+        ],
+      }),
+    });
+  });
+
+  await page.goto("/welcome");
+
+  // Submit a multi-leg parser input.
+  await page.getByTestId("parser-textarea").fill(
+    "Two of us, Tokyo then Kyoto for 6 nights, cultural and food-led, comfortable budget"
+  );
+  await page.getByTestId("parser-submit").click();
+
+  // Per-leg allocator visible with both rows.
+  const allocator = page.getByTestId("leg-allocator");
+  await expect(allocator).toBeVisible();
+  await expect(page.getByTestId("leg-allocator-row-0")).toContainText("Tokyo");
+  await expect(page.getByTestId("leg-allocator-row-1")).toContainText("Kyoto");
+  // Equal split: 6 nights → 3/3.
+  await expect(page.getByTestId("leg-allocator-value-0")).toContainText("3 night");
+  await expect(page.getByTestId("leg-allocator-value-1")).toContainText("3 night");
+
+  // Reallocate one night from Kyoto to Tokyo.
+  await allocator.getByLabel("Increase nights in Tokyo").click();
+  await expect(page.getByTestId("leg-allocator-value-0")).toContainText("4 night");
+  await expect(page.getByTestId("leg-allocator-value-1")).toContainText("2 night");
+
+  // Accept and walk to step 4.
+  await page.getByRole("button", { name: /Looks right/i }).click();
+  // Step 1 (dates) — keep parsed values; user enters dates.
+  await page.locator('input[type="date"]').first().fill("2026-06-15");
+  await page.locator('input[type="date"]').nth(1).fill("2026-06-21");
+  await page.getByRole("button", { name: /Continue/i }).click();
+  // Step 2 (hotel) — skip.
+  await page.getByRole("button", { name: /haven't booked yet/i }).click();
+  // Step 3 (profile) — pick Couple chip.
+  await page.getByRole("button", { name: /Couple/i }).click();
+  await page.getByRole("button", { name: /Continue/i }).click();
+
+  // Step 4 — wait for activities to stream.
+  await expect(page.getByText("Sensō-ji Temple", { exact: false })).toBeVisible({
+    timeout: 10_000,
+  });
+
+  // Activities-stream POST body should have legs[] with both Tokyo + Kyoto.
+  expect(activitiesPostBody).not.toBeNull();
+  expect(Array.isArray((activitiesPostBody as Record<string, unknown>)?.legs)).toBe(true);
+  const sentLegs = (activitiesPostBody as { legs: { place: { name: string } }[] }).legs;
+  expect(sentLegs.length).toBe(2);
+  expect(sentLegs[0].place.name).toBe("Tokyo");
+  expect(sentLegs[1].place.name).toBe("Kyoto");
+
+  // Thumbs up two activities to clear the rate gate, then continue.
+  await page.locator('button[title="Interested"]').nth(0).click();
+  await page.locator('button[title="Interested"]').nth(1).click();
+  await page.getByRole("button", { name: /Continue with/i }).click();
+
+  // Step 5 — leg headers visible, at least one activity per leg, and
+  // the transition day rendered as a muted card.
+  await expect(page.getByTestId("leg-header-0")).toContainText("Tokyo");
+  await expect(page.getByTestId("leg-header-1")).toContainText("Kyoto");
+  // Pick one activity per leg from the preview (mocked plan above).
+  await expect(page.getByText(/Sensō-ji Temple/)).toBeVisible();
+  await expect(page.getByText(/Fushimi Inari Shrine/)).toBeVisible();
+  // Transition day surfaces with the travel-card chrome.
+  await expect(page.getByTestId("transition-day-4")).toBeVisible();
+  await expect(page.getByTestId("transition-day-4")).toContainText("Travel to Kyoto");
+});
+
 test("welcome step 5 renders with description shown exactly once", async ({ page }) => {
   await page.goto("/welcome");
   // PHI-34: dual-CTA landing — drop into structured form for the wizard walk.

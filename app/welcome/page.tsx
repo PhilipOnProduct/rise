@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import PlacesAutocomplete from "@/app/components/PlacesAutocomplete";
 import type { TripIntent } from "@/lib/trip-intent";
-import type { PlaceRef } from "@/lib/trip-schema";
+import { newLegId, type PlaceRef, type TripLeg } from "@/lib/trip-schema";
 
 const TOTAL_WIZARD_STEPS = 5; // steps 1–5
 
@@ -97,6 +97,11 @@ type PreviewDay = {
   date: string;
   day_number: number;
   items: PreviewItem[];
+  // PHI-37: multi-leg trips — index into legs[] (0-based). Absent on
+  // single-leg trips. `is_transition: true` flags a travel day between
+  // two legs and is rendered as a muted transport-only card.
+  leg_index?: number;
+  is_transition?: boolean;
 };
 
 type ParsedActivity = {
@@ -108,6 +113,9 @@ type ParsedActivity = {
   // PHI-32: optional because older streams may not include it; the UI
   // hides the "Why this" affordance when missing.
   rationale?: string;
+  // PHI-37: leg index this activity belongs to. Absent on single-leg
+  // streams; populated when the upstream emits "LEG: <index>" markers.
+  legIndex?: number;
 };
 
 export type ActivityFeedbackEntry = {
@@ -135,6 +143,40 @@ function addDays(dateStr: string, days: number) {
   const d = new Date(dateStr);
   d.setDate(d.getDate() + days);
   return d.toISOString().split("T")[0];
+}
+
+/**
+ * PHI-37 slice 1: nights between two ISO dates (return - departure, in
+ * whole nights). Returns null when either side is missing or unparseable.
+ */
+function nightsBetween(
+  departure: string | undefined,
+  ret: string | undefined
+): number | null {
+  if (!departure || !ret) return null;
+  const a = Date.parse(departure);
+  const b = Date.parse(ret);
+  if (!Number.isFinite(a) || !Number.isFinite(b) || b <= a) return null;
+  return Math.round((b - a) / (24 * 60 * 60 * 1000));
+}
+
+/**
+ * PHI-37 slice 1: equal-split a total night count across N legs.
+ *
+ * Default is even distribution; remainder loaded into earlier legs. A
+ * 7-night, 3-leg trip splits 3 / 2 / 2. A 5-night, 2-leg trip splits
+ * 3 / 2. Returns an array of length `legCount` summing to `totalNights`.
+ * If totalNights is 0 or unknown, returns zeros so callers can decide
+ * the fallback (e.g. "ask the user" or "default 1 per leg").
+ */
+function equalSplitNights(legCount: number, totalNights: number): number[] {
+  if (legCount <= 0) return [];
+  if (totalNights <= 0) return new Array(legCount).fill(0);
+  const base = Math.floor(totalNights / legCount);
+  const remainder = totalNights - base * legCount;
+  return Array.from({ length: legCount }, (_, i) =>
+    i < remainder ? base + 1 : base
+  );
 }
 
 /**
@@ -197,10 +239,26 @@ function parseActivities(text: string): ParsedActivity[] {
   // PHI-32: Why line is optional — old streams without rationale still parse.
   const regex =
     /\*\*([^*\n]+)\*\*\s*[—–\-]\s*([^\n]+)\n([^\n*][^\n]*)\n\*When:\s*([^*\n]+)\*(?:\s*\n\*Why:\s*([^*\n]+)\*)?/g;
+  // PHI-37: scan for "LEG: <index>" markers so multi-leg streams tag each
+  // activity with its leg. Single-leg streams have no markers and the
+  // legIndex stays undefined, which is fine for downstream renderers.
+  const legMarker = /LEG:\s*(\d+)/g;
+  const legAt: { offset: number; index: number }[] = [];
+  let mm: RegExpExecArray | null;
+  while ((mm = legMarker.exec(text)) !== null) {
+    legAt.push({ offset: mm.index, index: Number(mm[1]) });
+  }
+
   const results: ParsedActivity[] = [];
   let match;
   let idx = 0;
   while ((match = regex.exec(text)) !== null) {
+    // Find the most recent LEG marker that appeared before this card.
+    let legIndex: number | undefined;
+    for (const m of legAt) {
+      if (m.offset < match.index) legIndex = m.index;
+      else break;
+    }
     results.push({
       id: `act-${idx++}`,
       name: match[1].trim(),
@@ -208,9 +266,69 @@ function parseActivities(text: string): ParsedActivity[] {
       description: match[3].trim(),
       when: match[4].trim(),
       rationale: match[5]?.trim() || undefined,
+      ...(legIndex !== undefined && { legIndex }),
     });
   }
   return results;
+}
+
+/**
+ * PHI-37 slice 3: reusable day card for the step-5 itinerary preview.
+ * Single-leg trips render the same markup as before. Multi-leg trips
+ * use the same component but the parent wraps groups of days with a
+ * sticky leg header. Transition days (`is_transition: true`) render as
+ * muted travel-only cards with no item list.
+ */
+function PreviewDayCard({ day }: { day: PreviewDay }) {
+  if (day.is_transition) {
+    const transitionItem = day.items?.[0];
+    return (
+      <div
+        data-testid={`transition-day-${day.day_number}`}
+        className="rounded-2xl border border-dashed border-[#d4cfc5] bg-[#f5f2ec] p-5"
+      >
+        <p className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-1">
+          Day {day.day_number}
+          {day.date ? ` · ${day.date}` : ""} · Travel day
+        </p>
+        <p className="text-sm text-[#4a6580]">
+          {transitionItem?.title ?? "Travel between legs."}
+        </p>
+        {transitionItem?.description && (
+          <p className="text-xs text-[#6a7f8f] mt-1">
+            {transitionItem.description}
+          </p>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-2xl border border-[#e8e4de] bg-white p-5">
+      <p className="text-xs font-bold text-[#1a6b7f] uppercase tracking-widest mb-1">
+        Day {day.day_number}
+        {day.date ? ` · ${day.date}` : ""}
+      </p>
+      <ul className="flex flex-col gap-2.5 mt-2">
+        {day.items.map((item) => (
+          <li key={item.id} className="flex flex-col gap-0.5">
+            <div className="flex items-baseline gap-2">
+              <span className="text-[10px] uppercase tracking-widest text-[#6a7f8f] w-16 shrink-0">
+                {item.time_block}
+              </span>
+              <span className="text-sm font-semibold text-[#0e2a47]">
+                {item.title}
+              </span>
+            </div>
+            {item.description && (
+              <p className="text-xs text-[#4a6580] ml-[72px] leading-relaxed">
+                {item.description}
+              </p>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 function logActivityEvent(payload: {
@@ -469,6 +587,21 @@ export default function WelcomePage() {
   // user is reviewing chips, so when they accept we already have lat/lng/id
   // for the structured form + persisted leg.
   const [resolvedPlaces, setResolvedPlaces] = useState<Record<string, PlaceRef>>({});
+  // PHI-37 slice 4: per-leg night overrides edited on the chip-confirm
+  // screen via the date allocator. Default empty — applyParsedIntentAndAdvance
+  // falls back to equal-split when no override exists. Cleared on parse
+  // start and on chip-screen "Start over".
+  const [legNightOverrides, setLegNightOverrides] = useState<number[]>([]);
+  // PHI-37 slice 1: per-leg snapshot taken at chip-accept time. Holds the
+  // parser's destinations (with resolved PlaceRefs where available) and a
+  // per-leg night allocation. Empty / single-entry means single-leg path
+  // and the existing `destination` field is the source of truth. 2+ entries
+  // means the trip is multi-leg and we send `legs[]` to the API at save
+  // time. Date allocation is equal-split for v1 (slice 4 will add a UI
+  // for the user to override).
+  const [parsedLegs, setParsedLegs] = useState<
+    { place: PlaceRef; nights: number }[]
+  >([]);
 
   // Activity cards + feedback
   const [parsedActivities, setParsedActivities] = useState<ParsedActivity[]>([]);
@@ -545,6 +678,9 @@ export default function WelcomePage() {
       let accumulated = "";
       let emittedCount = 0;
       try {
+        // PHI-37 slice 2: include legs[] when multi-leg so the activity
+        // stream is generated per-leg with LEG: <index> markers.
+        const legsForApi = buildLegsForApi();
         const res = await fetch("/api/activities-stream", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -561,6 +697,7 @@ export default function WelcomePage() {
             // PHI-35: optional constraints. Empty fields are dropped server-side.
             constraintTags: constraintTags.length > 0 ? constraintTags : null,
             constraintText: constraintText.trim() || null,
+            ...(legsForApi && { legs: legsForApi }),
           }),
         });
         if (!res.body) return;
@@ -624,6 +761,9 @@ export default function WelcomePage() {
     (async () => {
       try {
         const feedbackArray = Object.values(activityFeedback);
+        // PHI-37 slice 2: include legs[] when multi-leg so the day-by-day
+        // plan covers every leg with transition days flagged.
+        const legsForApi = buildLegsForApi();
         const res = await fetch("/api/itinerary/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -638,6 +778,7 @@ export default function WelcomePage() {
             activityFeedback: feedbackArray,
             travelerCount: adultCount + childrenAges.length,
             childrenAges: childrenAges.length > 0 ? childrenAges : null,
+            ...(legsForApi && { legs: legsForApi }),
           }),
         });
         if (!res.ok) {
@@ -718,8 +859,34 @@ export default function WelcomePage() {
   // on every step advance. Fire-and-forget — client-side state remains the
   // primary source of truth during onboarding. Failures are silent (the
   // happy path doesn't depend on it; the row will catch up on next advance).
+  // PHI-37 slice 1: build the TripLeg[] that we send to the API at save
+  // time. Returns null when the trip is single-leg (parsedLegs.length <= 1)
+  // — callers fall back to the existing flat-fields path. When multi-leg,
+  // the leg list reflects parsedLegs (places + per-leg nights) anchored
+  // on the current departureDate when one is set, so subsequent date
+  // edits on the wizard flow through naturally.
+  function buildLegsForApi(): TripLeg[] | null {
+    if (parsedLegs.length < 2) return null;
+    const start = departureDate || undefined;
+    let cursor = start;
+    return parsedLegs.map((leg) => {
+      const startDate = cursor;
+      const endDate = cursor ? addDays(cursor, leg.nights) : undefined;
+      cursor = endDate;
+      return {
+        id: newLegId(),
+        place: leg.place,
+        ...(startDate && { startDate }),
+        ...(endDate && { endDate }),
+      };
+    });
+  }
+
   function patchAnonymousSession() {
     if (typeof window === "undefined") return;
+    // PHI-37 slice 1: when the parser produced a multi-leg trip, send the
+    // full legs[] array so all destinations are persisted (not just legs[0]).
+    const legs = buildLegsForApi();
     const body = {
       destination,
       destinationVerified,
@@ -729,6 +896,7 @@ export default function WelcomePage() {
       ...(destinationPlace?.lat != null && { destinationLat: destinationPlace.lat }),
       ...(destinationPlace?.lng != null && { destinationLng: destinationPlace.lng }),
       ...(destinationPlace?.type && { destinationPlaceType: destinationPlace.type }),
+      ...(legs && { legs }),
       departureDate,
       returnDate,
       hotel: hotel || null,
@@ -987,6 +1155,8 @@ export default function WelcomePage() {
           }),
         });
       } else {
+        // PHI-37 slice 1: send full legs[] when multi-leg.
+        const legs = buildLegsForApi();
         const res = await fetch("/api/travelers", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -998,6 +1168,7 @@ export default function WelcomePage() {
             ...(destinationPlace?.lat != null && { destinationLat: destinationPlace.lat }),
             ...(destinationPlace?.lng != null && { destinationLng: destinationPlace.lng }),
             ...(destinationPlace?.type && { destinationPlaceType: destinationPlace.type }),
+            ...(legs && { legs }),
             departureDate,
             returnDate,
             hotel: hotel || null,
@@ -1037,6 +1208,8 @@ export default function WelcomePage() {
           body: JSON.stringify({ id: travelerId, name, email }),
         });
       } else {
+        // PHI-37 slice 1: send full legs[] when multi-leg.
+        const legs = buildLegsForApi();
         const res = await fetch("/api/travelers", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1051,6 +1224,7 @@ export default function WelcomePage() {
             ...(destinationPlace?.lat != null && { destinationLat: destinationPlace.lat }),
             ...(destinationPlace?.lng != null && { destinationLng: destinationPlace.lng }),
             ...(destinationPlace?.type && { destinationPlaceType: destinationPlace.type }),
+            ...(legs && { legs }),
             departureDate,
             returnDate,
             hotel: hotel || null,
@@ -1068,6 +1242,9 @@ export default function WelcomePage() {
         }
       }
     } catch {}
+    // PHI-37 slice 3: persist legs[] in the local snapshot so /itinerary
+    // can render leg headers + transition-day chrome without a refetch.
+    const legsForStorage = buildLegsForApi();
     const travelerData = {
       id: travelerId,
       name,
@@ -1086,6 +1263,7 @@ export default function WelcomePage() {
       constraintTags: constraintTags.length > 0 ? constraintTags : null,
       constraintText: constraintText.trim() || null,
       activities: [],
+      ...(legsForStorage && { legs: legsForStorage }),
     };
     localStorage.setItem("rise_traveler", JSON.stringify(travelerData));
     localStorage.setItem("rise_onboarded", "true");
@@ -1106,6 +1284,9 @@ export default function WelcomePage() {
     if (!parserText.trim()) return;
     setParserPhase("parsing");
     setParserError(null);
+    // PHI-37 slice 4: clear stale per-leg night overrides when the user
+    // re-parses; the allocator initialises again on the new chip screen.
+    setLegNightOverrides([]);
     logOnboardingEvent("freeform_initiated", { length: parserText.length });
     try {
       const res = await fetch("/api/parse-trip", {
@@ -1191,6 +1372,34 @@ export default function WelcomePage() {
       if (resolved?.lat != null && resolved?.lng != null) {
         setDestinationBias({ lat: resolved.lat, lng: resolved.lng });
       }
+    }
+    // PHI-37 slice 1+4: snapshot all parsed destinations into parsedLegs
+    // so we can persist a full TripLeg[] when the user saves. We don't
+    // persist legs (only legs[0] gets used) when there's a single
+    // destination — that's the current single-leg path.
+    const dests = parsedIntent.destinations.filter((d) => d.name);
+    if (dests.length >= 2) {
+      const totalNights =
+        parsedIntent.dates.durationNights ??
+        nightsBetween(parsedIntent.dates.departure, parsedIntent.dates.return) ??
+        0;
+      // Slice 4: prefer the user's allocator overrides when they edited
+      // them on the chip-confirm screen; fall back to equal-split.
+      const split =
+        legNightOverrides.length === dests.length
+          ? legNightOverrides
+          : equalSplitNights(dests.length, totalNights);
+      setParsedLegs(
+        dests.map((d, i) => ({
+          place:
+            resolvedPlaces[d.name] ?? { name: d.name, unverified: true },
+          nights: split[i] ?? 0,
+        }))
+      );
+    } else {
+      // Single-leg: keep parsedLegs empty so persistence falls through
+      // to the existing single-leg path.
+      setParsedLegs([]);
     }
     if (parsedIntent.dates.departure) setDepartureDate(parsedIntent.dates.departure);
     if (parsedIntent.dates.return) setReturnDate(parsedIntent.dates.return);
@@ -1408,6 +1617,122 @@ export default function WelcomePage() {
                 </span>
               )}
             </div>
+            {/* PHI-37 slice 4: per-leg night allocator. Visible only when
+                the parser returned 2+ destinations. Equal-split by default;
+                +/- buttons reallocate from the longest leg so the total
+                stays consistent with what the parser captured. */}
+            {intent.destinations.length >= 2 && (() => {
+              const legCount = intent.destinations.length;
+              const totalNights =
+                intent.dates.durationNights ??
+                nightsBetween(intent.dates.departure, intent.dates.return) ??
+                0;
+              const split =
+                legNightOverrides.length === legCount
+                  ? legNightOverrides
+                  : equalSplitNights(legCount, totalNights);
+              const sum = split.reduce((s, n) => s + n, 0);
+              const adjust = (i: number, delta: number) => {
+                if (totalNights <= 0) {
+                  // No total known — let user freely adjust each leg.
+                  const next = [...split];
+                  next[i] = Math.max(0, next[i] + delta);
+                  setLegNightOverrides(next);
+                  return;
+                }
+                // Reallocate from/to another leg so total stays pinned.
+                // Each leg keeps >= 1 night.
+                const next = [...split];
+                if (delta > 0) {
+                  let donor = -1;
+                  let donorVal = 1;
+                  for (let j = 0; j < legCount; j++) {
+                    if (j === i) continue;
+                    if (next[j] > donorVal) {
+                      donor = j;
+                      donorVal = next[j];
+                    }
+                  }
+                  if (donor === -1 || next[donor] <= 1) return;
+                  next[i] += 1;
+                  next[donor] -= 1;
+                } else {
+                  if (next[i] <= 1) return;
+                  let recipient = -1;
+                  let recipientVal = Infinity;
+                  for (let j = 0; j < legCount; j++) {
+                    if (j === i) continue;
+                    if (next[j] < recipientVal) {
+                      recipient = j;
+                      recipientVal = next[j];
+                    }
+                  }
+                  if (recipient === -1) return;
+                  next[i] -= 1;
+                  next[recipient] += 1;
+                }
+                setLegNightOverrides(next);
+              };
+              return (
+                <div
+                  className="mb-6 rounded-2xl border border-[#d4cfc5] bg-white px-5 py-4"
+                  data-testid="leg-allocator"
+                >
+                  <p className="text-xs font-bold text-[#0e2a47] uppercase tracking-widest mb-1">
+                    Nights per stop
+                  </p>
+                  <p className="text-xs text-[#6a7f8f] mb-3">
+                    {totalNights > 0
+                      ? `We've split ${totalNights} night${totalNights === 1 ? "" : "s"} evenly. Tap +/− to adjust.`
+                      : "Set how many nights you'll spend at each stop."}
+                  </p>
+                  <ul className="flex flex-col gap-2">
+                    {intent.destinations.map((d, i) => (
+                      <li
+                        key={`${d.name}-${i}`}
+                        className="flex items-center justify-between gap-3"
+                        data-testid={`leg-allocator-row-${i}`}
+                      >
+                        <span className="text-sm text-[#0e2a47] font-medium truncate">
+                          {d.name}
+                        </span>
+                        <span className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => adjust(i, -1)}
+                            disabled={split[i] <= 1}
+                            className="w-7 h-7 rounded-full border border-[#d4cfc5] text-[#1a6b7f] hover:border-[#1a6b7f] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                            aria-label={`Decrease nights in ${d.name}`}
+                          >
+                            −
+                          </button>
+                          <span
+                            className="text-sm w-16 text-center font-medium text-[#0e2a47]"
+                            data-testid={`leg-allocator-value-${i}`}
+                          >
+                            {split[i] ?? 0} night{(split[i] ?? 0) === 1 ? "" : "s"}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => adjust(i, 1)}
+                            className="w-7 h-7 rounded-full border border-[#d4cfc5] text-[#1a6b7f] hover:border-[#1a6b7f] transition-colors"
+                            aria-label={`Increase nights in ${d.name}`}
+                          >
+                            +
+                          </button>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  {totalNights > 0 && sum !== totalNights && (
+                    <p className="text-xs text-[#d4a94a] mt-2">
+                      Total: {sum} of {totalNights}
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
+
             {intent.clarifications.length > 0 && (
               <div className="mb-6 rounded-2xl border border-[#d4a94a]/40 bg-[#d4a94a]/5 px-5 py-4">
                 <p className="text-xs font-bold text-[#0e2a47] uppercase tracking-widest mb-2">
@@ -2083,37 +2408,73 @@ export default function WelcomePage() {
                   </div>
                 )}
                 {itineraryPreview && itineraryPreview.length > 0 && (
-                  <div className="flex flex-col gap-3">
-                    {itineraryPreview.map((day) => (
-                      <div
-                        key={day.day_number}
-                        className="rounded-2xl border border-[#e8e4de] bg-white p-5"
-                      >
-                        <p className="text-xs font-bold text-[#1a6b7f] uppercase tracking-widest mb-1">
-                          Day {day.day_number}
-                          {day.date ? ` · ${day.date}` : ""}
-                        </p>
-                        <ul className="flex flex-col gap-2.5 mt-2">
-                          {day.items.map((item) => (
-                            <li key={item.id} className="flex flex-col gap-0.5">
-                              <div className="flex items-baseline gap-2">
-                                <span className="text-[10px] uppercase tracking-widest text-[#6a7f8f] w-16 shrink-0">
-                                  {item.time_block}
-                                </span>
-                                <span className="text-sm font-semibold text-[#0e2a47]">
-                                  {item.title}
-                                </span>
-                              </div>
-                              {item.description && (
-                                <p className="text-xs text-[#4a6580] ml-[72px] leading-relaxed">
-                                  {item.description}
-                                </p>
-                              )}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    ))}
+                  <div
+                    className="flex flex-col gap-3"
+                    data-testid="itinerary-preview-days"
+                  >
+                    {/* PHI-37 slice 3: group days by leg_index when the
+                        plan is multi-leg. Single-leg renders identically
+                        to before — the multiLegPreview wrapper kicks in
+                        only when at least one day has a leg_index AND
+                        parsedLegs has 2+ entries. */}
+                    {(() => {
+                      const isMultiLeg =
+                        parsedLegs.length >= 2 &&
+                        itineraryPreview.some((d) => typeof d.leg_index === "number");
+                      if (!isMultiLeg) {
+                        // Single-leg: existing flat day list.
+                        return itineraryPreview.map((day) => (
+                          <PreviewDayCard key={day.day_number} day={day} />
+                        ));
+                      }
+                      // Multi-leg: group days by leg_index, with a leg
+                      // header per group and transition days styled
+                      // differently. Days without a leg_index fall into
+                      // the previous leg (or leg 0 if at the start).
+                      const groups: { legIndex: number; days: PreviewDay[] }[] = [];
+                      let currentLeg = -1;
+                      for (const day of itineraryPreview) {
+                        const idx =
+                          typeof day.leg_index === "number"
+                            ? day.leg_index
+                            : Math.max(0, currentLeg);
+                        if (idx !== currentLeg) {
+                          groups.push({ legIndex: idx, days: [day] });
+                          currentLeg = idx;
+                        } else {
+                          groups[groups.length - 1].days.push(day);
+                        }
+                      }
+                      return groups.map((g, gi) => {
+                        const leg = parsedLegs[g.legIndex];
+                        const legName = leg?.place?.name ?? `Leg ${g.legIndex + 1}`;
+                        return (
+                          <div
+                            key={`leg-${gi}`}
+                            data-testid={`leg-section-${g.legIndex}`}
+                            className="flex flex-col gap-2"
+                          >
+                            <div className="sticky top-0 z-10 bg-[#f8f6f1] py-2 -mx-1 px-1">
+                              <p
+                                className="text-xs font-bold text-[#1a6b7f] uppercase tracking-widest"
+                                data-testid={`leg-header-${g.legIndex}`}
+                              >
+                                Leg {g.legIndex + 1} · {legName}
+                                {leg?.nights
+                                  ? ` · ${leg.nights} night${leg.nights === 1 ? "" : "s"}`
+                                  : ""}
+                              </p>
+                            </div>
+                            {g.days.map((day) => (
+                              <PreviewDayCard
+                                key={day.day_number}
+                                day={day}
+                              />
+                            ))}
+                          </div>
+                        );
+                      });
+                    })()}
                   </div>
                 )}
               </div>
