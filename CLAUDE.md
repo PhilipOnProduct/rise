@@ -350,6 +350,7 @@ create index idx_connectors_traveler on travel_connectors(traveler_id);
 
 ### AI / Anthropic
 - Default model: `claude-sonnet-4-6`
+- **The activity-gen prompt lives in `lib/activity-gen-prompt.ts`.** Both `app/api/activities-stream/route.ts` and `scripts/eval-activities.ts` import `ACTIVITY_GEN_SYSTEM` and `buildActivityGenUserMessage()` from there. Edit there, not in the route or the eval — they're the same string by construction (PHI-43).
 - Use streaming (`client.messages.stream()`) for any response displayed progressively (recommendations, transport advice, onboarding activity preview). Use `stream.finalMessage()` to get the complete response afterwards.
 - Use non-streaming (`client.messages.create()`) when the response must be parsed as structured JSON (e.g. itinerary generation). Always wrap `JSON.parse()` in try/catch and return a meaningful error.
 - Always wrap Claude calls with `logAiInteraction` from `lib/ai-logger.ts` so every interaction is logged to `/admin`. Also call `logApiUsage()` from `lib/log-api-usage.ts` after each successful call for cost tracking. Call `checkApiLimit("anthropic")` at the start of each route and return 429 if exceeded.
