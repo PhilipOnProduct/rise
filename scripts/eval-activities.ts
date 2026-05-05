@@ -29,78 +29,14 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import type { TripLeg } from "../lib/trip-schema";
+// PHI-43: SYSTEM and user-message builder live in lib/. The eval and the
+// production route import the same module so they cannot drift.
+import {
+  ACTIVITY_GEN_SYSTEM,
+  buildActivityGenUserMessage,
+} from "../lib/activity-gen-prompt";
 
-// ── Prompt mirroring the route ───────────────────────────────────────────
-// IMPORTANT: keep in sync with app/api/activities-stream/route.ts SYSTEM.
-
-const SYSTEM = `You are a travel activity recommender. Suggest 5–6 must-do activities for the destination and traveller profile provided. For each, provide its name, a one-sentence description, a brief note on when in the trip it works best, and a short "why this fits" rationale.
-
-Format each as:
-
-**[Activity Name]** — [Category]
-[One-sentence description]
-*When: [timing or day suggestion]*
-*Why: [≤25 words explaining why this specific activity fits this specific traveller]*
-
-Description rules:
-- Be specific to the destination — avoid generic suggestions that any visitor might do.
-- Keep descriptions concise.
-- Never reference the traveller's profile, preferences, or travel style in the description — write as if recommending to anyone visiting the destination.
-
-Why rules (Elena's guidance — these are trust-building, get them right):
-1. Never invent a connection. If the only reason is "matches your style chip", say so plainly — don't fabricate a hotel-proximity claim if you don't have hotel data.
-2. Cite specific user input ("you flagged kid-friendly", "your couple preference", "your savvy budget") — never vague "your interests".
-3. When uncertain a constraint is satisfied, say so explicitly: "Likely accessible — please confirm."
-
-Life-impacting constraints (PHI-41 — these are non-negotiable, every relevant card MUST acknowledge):
-
-The constraintTags below trigger HARD rules. Failing any of these is worse than dropping the activity entirely.
-
-- "Severe allergy" — EVERY food/dining/restaurant/market card MUST include explicit allergy awareness in the Why. Use the user's exact allergen if they named one (peanut, shellfish, etc.). Phrasing: "Allergen-aware kitchen — please confirm with the restaurant" or "Menu may contain <allergen> — call ahead." If a card cannot satisfy this, drop it.
-- "Halal/Kosher" — EVERY food/dining/restaurant/market card MUST mention kosher / halal / certified / dietary law in the Why. Phrasing: "Kosher-certified per your note" or "Dietary-law compliant — please verify." If certification is uncertain, say "Likely <kosher/halal> — please confirm."
-- "Vegetarian" — EVERY food/dining/restaurant/market card MUST mention vegetarian / vegan / plant-based options in the Why. Phrasing: "Vegetarian-friendly menu" or "Strong vegetarian options per your note." Non-veg-friendly venues should be dropped, not papered over.
-- "Wheelchair accessible only" — EVERY card MUST mention accessibility / wheelchair / step-free / elevator / please confirm in the Why. Inaccessible venues must be dropped.
-- "No long walks" — EVERY card MUST mention short walk / mobility / low-impact / step-free / seated / easy walk in the Why. High-effort activities (hiking, climbing, trekking) must be dropped.
-- "Stroller-friendly" — EVERY card MUST mention stroller / pram / family-friendly / easy access in the Why. Stairs-only venues must be dropped.
-
-Variety: each activity must be from a different category. Spread suggestions across food & dining, cultural/historic, outdoor/adventure, nightlife/entertainment, relaxation/wellness, and shopping/local markets. Do not repeat a category.
-
-Multi-leg trips (only when the user message provides a "Legs:" section):
-
-**LEG MARKER FORMAT — non-negotiable.** Every single activity card MUST be preceded by its own marker line:
-
-LEG: <index>
-**Activity name** — Category
-...
-
-The marker line is the FIRST line of every card. No exceptions, even for the first card under a leg, even after a paragraph break, even on the longest 3-leg trips. Skipping a marker means the card is dropped on the client side. Re-emit the marker for every card — the client groups by leg using these markers.
-
-Example for a 3-leg trip:
-
-LEG: 0
-**Sensō-ji Temple** — Cultural/Historic
-...
-
-LEG: 0
-**Tsukiji Outer Market** — Food & Dining
-...
-
-LEG: 1
-**Fushimi Inari Shrine** — Cultural/Historic
-...
-
-LEG: 2
-**Dōtonbori Walk** — Nightlife/Entertainment
-...
-
-Other multi-leg rules:
-- Generate activities for EACH leg in order. Every leg with ≥1 night MUST have at least one card. Skipping a leg is a hard failure.
-- Bias toward fewer activities on short legs (≤2 nights = 2–3 activities total; 3–4 nights = 3–4; 5+ nights = 4–5). The "last leg fatigue" pattern is real — travellers want lighter plans on later legs.
-- Stay in the previous leg's hotel when a leg is ≤2 nights and the next leg is geographically reachable as a day trip — suggest day-trip activities from the previous base instead of full hotel change. Note this in the Why.
-- Never recommend cross-border or cross-leg activities. Activities for "Spain + Portugal" must stay within each leg's own city/region; no Lisbon-to-Madrid day trips.
-- Each activity belongs to exactly one leg. Variety rules apply within each leg, not across the whole trip.
-- Do NOT generate activities for transition days. The client will render a travel-only card for the day a user moves between legs.
-- Life-impacting constraints apply to EVERY relevant card on EVERY leg. Multi-leg trips have more cards, so attention drift is the failure mode — re-check before emitting each card. The reminder block at the end of the user message is non-negotiable.`;
+const SYSTEM = ACTIVITY_GEN_SYSTEM;
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -139,96 +75,23 @@ type ParsedCard = {
   legIndex?: number;
 };
 
-// ── User-message construction (mirrors the route) ────────────────────────
-
-function buildCompositionSegment(
-  travelerCount?: number,
-  childrenAges?: string[]
-): string | null {
-  if (!travelerCount) return null;
-  if (!childrenAges?.length) return `${travelerCount} travellers`;
-  return `${travelerCount} travellers (children ages: ${childrenAges.filter(Boolean).join(", ")})`;
-}
+// ── User-message construction (delegates to the lib) ─────────────────────
+// PHI-43: the construction logic now lives in lib/activity-gen-prompt.ts.
+// This wrapper just maps the Case shape to ActivityGenInputs.
 
 function buildUserMessage(c: Case): string {
-  const isMultiLeg = Array.isArray(c.legs) && c.legs.length >= 2;
-  const styleList: string[] =
-    c.styleTags?.length ? c.styleTags : ["mixed styles"];
-  const profileLines: string[] = [];
-  const companyLabel: Record<string, string> = {
-    solo: "solo traveller",
-    partner: "couple",
-    friends: "group of friends",
-    family: "family with children",
-  };
-  const budgetLabel: Record<string, string> = {
-    budget: "savvy (budget-conscious)",
-    comfortable: "comfortable (mid-range spend)",
-    luxury: "flexible (willing to spend more for quality)",
-  };
-  if (c.travelCompany)
-    profileLines.push(`- Travelling as: ${companyLabel[c.travelCompany] ?? c.travelCompany}`);
-  if (c.styleTags?.length) profileLines.push(`- Travel style: ${c.styleTags.join(", ")}`);
-  if (c.budgetTier) profileLines.push(`- Budget: ${budgetLabel[c.budgetTier] ?? c.budgetTier}`);
-  const composition = buildCompositionSegment(c.travelerCount, c.childrenAges);
-  if (composition) profileLines.push(`- Composition: ${composition}`);
-
-  const constraintLines: string[] = [];
-  if (c.constraintTags?.length) {
-    constraintLines.push(`- Tagged: ${c.constraintTags.join(", ")}`);
-  }
-  if (c.constraintText) {
-    constraintLines.push(`- In their words: "${c.constraintText}"`);
-  }
-  // PHI-41: per-category EVERY-card hard rules now live in SYSTEM.
-  const constraintBlock = constraintLines.length
-    ? `\n\nMUST respect (life-impacting — never silently ignore):\n${constraintLines.join("\n")}\n`
-    : "";
-
-  const profileBlock = profileLines.length
-    ? `\n\nTraveller profile (treat these as hard constraints — every suggestion must fit):\n${profileLines.join("\n")}\n${constraintBlock}`
-    : constraintBlock;
-
-  const legsBlock = isMultiLeg
-    ? "\n\nLegs:\n" +
-      c.legs!
-        .map((leg, i) => {
-          const name = leg.place?.name ?? `Leg ${i + 1}`;
-          const legNights =
-            leg.startDate && leg.endDate
-              ? Math.round(
-                  (new Date(leg.endDate).getTime() -
-                    new Date(leg.startDate).getTime()) /
-                    86_400_000
-                )
-              : null;
-          const nightsStr = legNights
-            ? ` — ${legNights} night${legNights === 1 ? "" : "s"}`
-            : "";
-          const hotelStr = leg.hotel ? ` [hotel: ${leg.hotel}]` : "";
-          return `- LEG ${i}: ${name}${nightsStr}${hotelStr}`;
-        })
-        .join("\n") +
-      "\n\nGenerate activities for EACH leg, prefixing every activity with a `LEG: <index>` marker line." +
-      "\nPer-leg hotels: if a leg has a [hotel: ...] tag, you MAY reference proximity to that hotel in the Why line. If a leg has no hotel tag, NEVER fabricate a hotel-proximity claim for that leg."
-    : "";
-
-  const headline = isMultiLeg
-    ? `Multi-leg trip across: ${c.legs!.map((l) => l.place?.name ?? "?").join(" → ")} (${c.duration}).`
-    : `Destination: ${c.destination} (${c.duration}).`;
-
-  // PHI-41: closing reminder for multi-leg + life-impacting constraints
-  // — fights Sonnet's attention-drop on long card lists.
-  const reminderBlock =
-    isMultiLeg && constraintLines.length > 0
-      ? `\n\nReminder (non-negotiable): the life-impacting constraints above apply to EVERY relevant card across EVERY leg. Re-check before emitting each card. Never silently drop a constraint just because the card list is long. If a card cannot satisfy a life-impacting constraint, drop the card — not the constraint.`
-      : "";
-
-  return (
-    `${headline}${profileBlock}${legsBlock}\n` +
-    `Budget: ${budgetLabel[c.budgetTier ?? "comfortable"] ?? "comfortable"}. Style: ${styleList.join(", ")}.\n` +
-    `Every suggestion must genuinely suit this profile — not generic activities any visitor might do.${reminderBlock}`
-  );
+  return buildActivityGenUserMessage({
+    destination: c.destination,
+    duration: c.duration, // eval cases provide pre-formatted duration
+    travelCompany: c.travelCompany,
+    styleTags: c.styleTags,
+    budgetTier: c.budgetTier,
+    travelerCount: c.travelerCount,
+    childrenAges: c.childrenAges,
+    constraintTags: c.constraintTags,
+    constraintText: c.constraintText,
+    legs: c.legs,
+  });
 }
 
 // ── Card parsing (mirrors welcome page parseActivities) ──────────────────
