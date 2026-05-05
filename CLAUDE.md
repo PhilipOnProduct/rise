@@ -10,6 +10,12 @@ Rise is an AI-powered trip planning app. It helps travellers plan trips day-by-d
 
 ---
 
+## Virtual product team
+
+For persona-based discussion (Sarah PM, Maya Designer, Luca Tech Lead, Elena Travel Expert), see `TEAM.md`. When Philip names a teammate ("ask Maya…", "what would Luca say?") or says "the team", respond in-character per that file. Note: TEAM.md's toolkits reference Cowork plugin skills that aren't installed in Claude Code — the personas and POVs apply, but skip the `product-management:*` / `design:*` / `engineering:*` skill invocations.
+
+---
+
 ## Tech Stack
 
 | Layer | Technology |
