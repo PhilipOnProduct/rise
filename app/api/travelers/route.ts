@@ -93,23 +93,16 @@ export async function POST(req: NextRequest) {
     .insert({
       name: name || null,
       email: email ? email.toLowerCase().trim() : null,
-      // PHI-33: legs is the source of truth going forward.
+      // PHI-33 PR2: legs is now the only place trip shape lives. Legacy
+      // destination/hotel/departure_date/return_date columns dropped.
       legs: derived.legs,
-      // Legacy columns mirrored on write so existing readers (until they
-      // migrate to legs) keep working. Dropped in a follow-up migration
-      // once analytics confirms no readers remain.
-      destination: destination || derived.legs[0]?.place?.name || null,
-      departure_date: departureDate || null,
-      return_date: returnDate || null,
-      hotel: hotel ?? derived.legs[0]?.hotel ?? null,
       activities: activities ?? [],
       travel_company: travelCompany || null,
       style_tags: styleTags || null,
       budget_tier: budgetTier || null,
       traveler_count: travelerCount ?? null,
       children_ages: childrenAges?.length > 0 ? childrenAges : null,
-      // PHI-35 — constraints flow through the same payload (silently dropped
-      // by Supabase if the columns aren't migrated yet).
+      // PHI-35 — constraints (columns added in migration 0003).
       ...(Array.isArray(constraintTags) && constraintTags.length > 0
         ? { constraint_tags: constraintTags }
         : {}),
@@ -172,9 +165,10 @@ export async function PATCH(req: NextRequest) {
         ? constraintText.trim()
         : null;
 
-  // PHI-33: trip-shape updates go through deriveLegs so we always end up
-  // with a valid legs JSONB. Either the caller sent `legs` directly, or
-  // they sent the legacy flat fields and we synthesise a single leg.
+  // PHI-33 PR2: trip-shape updates go through deriveLegs so we always end
+  // up with a valid legs JSONB. Either the caller sent `legs` directly,
+  // or they sent the legacy flat fields and we synthesise a single leg.
+  // No more legacy mirror writes — those columns are dropped.
   const tripChange =
     legs !== undefined ||
     destination !== undefined ||
@@ -192,11 +186,6 @@ export async function PATCH(req: NextRequest) {
         );
       }
       updates.legs = derived.legs;
-      // Mirror legacy columns until the follow-up drop migration.
-      updates.destination = destination ?? derived.legs[0]?.place?.name ?? null;
-      updates.departure_date = departureDate ?? derived.legs[0]?.startDate ?? null;
-      updates.return_date = returnDate ?? derived.legs[0]?.endDate ?? null;
-      updates.hotel = hotel ?? derived.legs[0]?.hotel ?? null;
     }
   }
 
