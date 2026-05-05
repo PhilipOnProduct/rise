@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
-import { buildSingleLegTrip, type TripLeg } from "@/lib/trip-schema";
+import { buildSingleLegTrip, type PlaceType, type TripLeg } from "@/lib/trip-schema";
 
 /**
  * PHI-31 / RISE-202 — anonymous session API
@@ -62,6 +62,7 @@ type PatchBody = {
   destinationLat?: number;
   destinationLng?: number;
   destinationPlaceId?: string;
+  destinationPlaceType?: PlaceType;
   departureDate?: string;
   returnDate?: string;
   hotel?: string | null;
@@ -98,6 +99,7 @@ export async function PATCH(req: NextRequest) {
         destinationLat: body.destinationLat,
         destinationLng: body.destinationLng,
         destinationPlaceId: body.destinationPlaceId,
+        destinationPlaceType: body.destinationPlaceType,
         departureDate: body.departureDate,
         returnDate: body.returnDate,
         hotel: body.hotel ?? null,

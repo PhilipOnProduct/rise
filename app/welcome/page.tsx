@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import PlacesAutocomplete from "@/app/components/PlacesAutocomplete";
 import type { TripIntent } from "@/lib/trip-intent";
+import type { PlaceRef } from "@/lib/trip-schema";
 
 const TOTAL_WIZARD_STEPS = 5; // steps 1–5
 
@@ -411,6 +412,11 @@ export default function WelcomePage() {
   // May 2026 onboarding review where typing "Lisbon, Portugal" silently
   // resolved to a different place.
   const [destinationVerified, setDestinationVerified] = useState(false);
+  // Follow-up #4: resolved PlaceRef for the primary destination — populated
+  // either by the parser flow (via /api/resolve-place) or by future
+  // PHI-30-aware autocomplete wiring. Persisted on save so the leg carries
+  // lat/lng/id, not just a name.
+  const [destinationPlace, setDestinationPlace] = useState<PlaceRef | null>(null);
   const [departureDate, setDepartureDate] = useState("");
   const [returnDate, setReturnDate] = useState("");
   const [hotel, setHotel] = useState("");
@@ -458,6 +464,11 @@ export default function WelcomePage() {
   const [parserText, setParserText] = useState("");
   const [parsedIntent, setParsedIntent] = useState<TripIntent | null>(null);
   const [parserError, setParserError] = useState<string | null>(null);
+  // Follow-up #4: resolved places for parser output. Keyed by destination
+  // name as the parser returned it. Populated in the background while the
+  // user is reviewing chips, so when they accept we already have lat/lng/id
+  // for the structured form + persisted leg.
+  const [resolvedPlaces, setResolvedPlaces] = useState<Record<string, PlaceRef>>({});
 
   // Activity cards + feedback
   const [parsedActivities, setParsedActivities] = useState<ParsedActivity[]>([]);
@@ -691,6 +702,12 @@ export default function WelcomePage() {
     const body = {
       destination,
       destinationVerified,
+      // Follow-up #4: persist resolved place fields when available so the
+      // anon session row can be claimed into a leg with lat/lng/id intact.
+      ...(destinationPlace?.id && { destinationPlaceId: destinationPlace.id }),
+      ...(destinationPlace?.lat != null && { destinationLat: destinationPlace.lat }),
+      ...(destinationPlace?.lng != null && { destinationLng: destinationPlace.lng }),
+      ...(destinationPlace?.type && { destinationPlaceType: destinationPlace.type }),
       departureDate,
       returnDate,
       hotel: hotel || null,
@@ -745,6 +762,16 @@ export default function WelcomePage() {
       if (status === "OK" && results?.[0]) {
         const loc = results[0].geometry.location;
         setDestinationBias({ lat: loc.lat(), lng: loc.lng() });
+        // Follow-up #4: capture the autocomplete-confirmed place into the
+        // PlaceRef so the saved leg has lat/lng (and place_id when the
+        // geocoder returns one).
+        const r = results[0] as google.maps.GeocoderResult & { place_id?: string };
+        setDestinationPlace({
+          name: place,
+          ...(r.place_id && { id: r.place_id }),
+          lat: loc.lat(),
+          lng: loc.lng(),
+        });
       }
     });
   }
@@ -754,6 +781,9 @@ export default function WelcomePage() {
   function handleDestinationChange(text: string) {
     setDestination(text);
     setDestinationVerified(false);
+    // Follow-up #4: clear the resolved PlaceRef when the user types, so
+    // a stale lat/lng/id doesn't accompany the new name.
+    setDestinationPlace(null);
   }
 
   // PHI-30: user explicitly chose to proceed with their typed text without
@@ -941,6 +971,12 @@ export default function WelcomePage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             destination,
+            // Follow-up #4: include resolved place data when available so
+            // the leg's place_id / lat / lng land in the JSONB on first write.
+            ...(destinationPlace?.id && { destinationPlaceId: destinationPlace.id }),
+            ...(destinationPlace?.lat != null && { destinationLat: destinationPlace.lat }),
+            ...(destinationPlace?.lng != null && { destinationLng: destinationPlace.lng }),
+            ...(destinationPlace?.type && { destinationPlaceType: destinationPlace.type }),
             departureDate,
             returnDate,
             hotel: hotel || null,
@@ -987,6 +1023,13 @@ export default function WelcomePage() {
             name,
             email,
             destination,
+            // Follow-up #4: include resolved place data on signup-time
+            // create so the leg's place_id / lat / lng are persisted on
+            // first write rather than left for a later enrichment pass.
+            ...(destinationPlace?.id && { destinationPlaceId: destinationPlace.id }),
+            ...(destinationPlace?.lat != null && { destinationLat: destinationPlace.lat }),
+            ...(destinationPlace?.lng != null && { destinationLng: destinationPlace.lng }),
+            ...(destinationPlace?.type && { destinationPlaceType: destinationPlace.type }),
             departureDate,
             returnDate,
             hotel: hotel || null,
@@ -1064,9 +1107,46 @@ export default function WelcomePage() {
           : "freeform_parsed_clean",
         { clarifications: data.intent.clarifications.length }
       );
+      // Follow-up #4: kick off place resolution in the background while the
+      // user reviews the chips. Parallel + fire-and-forget; failures fall
+      // through to the unverified-name path on accept.
+      void resolveParsedDestinations(data.intent.destinations);
     } catch (e: unknown) {
       setParserError(e instanceof Error ? e.message : "Network error.");
       setParserPhase("landing");
+    }
+  }
+
+  // Follow-up #4: resolve a list of parser-produced destinations to PlaceRefs.
+  // Runs in parallel; merges results into resolvedPlaces as each one returns.
+  // Skips entries already resolved (covers chip-edits where most destinations
+  // are unchanged).
+  async function resolveParsedDestinations(
+    destinations: { name: string; kind?: string }[]
+  ) {
+    const work = destinations
+      .filter((d) => d.name && !resolvedPlaces[d.name])
+      .map(async (d) => {
+        try {
+          const r = await fetch("/api/resolve-place", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: d.name, hint: d.kind ?? null }),
+          });
+          if (!r.ok) return null;
+          const body = (await r.json()) as { resolved: PlaceRef | null };
+          return body.resolved ? ([d.name, body.resolved] as const) : null;
+        } catch {
+          return null;
+        }
+      });
+    const settled = await Promise.all(work);
+    const next: Record<string, PlaceRef> = {};
+    for (const entry of settled) {
+      if (entry) next[entry[0]] = entry[1];
+    }
+    if (Object.keys(next).length) {
+      setResolvedPlaces((prev) => ({ ...prev, ...next }));
     }
   }
 
@@ -1078,6 +1158,18 @@ export default function WelcomePage() {
     if (first?.name) {
       setDestination(first.name);
       setDestinationVerified(true);
+      // Follow-up #4: pull the resolved PlaceRef (if the background
+      // resolution finished). Fall back to a name-only PlaceRef marked
+      // unverified so downstream readers can tell the difference.
+      const resolved = resolvedPlaces[first.name];
+      setDestinationPlace(
+        resolved ?? { name: first.name, unverified: true }
+      );
+      // Capture lat/lng for the autocomplete bias on the structured form,
+      // matching what handleDestinationSelect would do.
+      if (resolved?.lat != null && resolved?.lng != null) {
+        setDestinationBias({ lat: resolved.lat, lng: resolved.lng });
+      }
     }
     if (parsedIntent.dates.departure) setDepartureDate(parsedIntent.dates.departure);
     if (parsedIntent.dates.return) setReturnDate(parsedIntent.dates.return);
@@ -1137,10 +1229,14 @@ export default function WelcomePage() {
                   type="button"
                   onClick={() => {
                     const next = prompt("Where to?");
-                    if (next?.trim())
+                    if (next?.trim()) {
                       updateIntent({
                         destinations: [{ name: next.trim() }],
                       });
+                      // Follow-up #4: resolve in the background so the leg
+                      // saved on accept already carries lat/lng/id.
+                      void resolveParsedDestinations([{ name: next.trim() }]);
+                    }
                   }}
                   className="inline-flex items-center gap-1.5 rounded-xl border border-dashed border-[#d4a94a]/60 bg-white px-3 py-1.5 text-sm text-[#0e2a47] hover:border-[#1a6b7f] transition-colors"
                   aria-label="Add destination"
@@ -1159,6 +1255,9 @@ export default function WelcomePage() {
                         const arr = [...intent.destinations];
                         arr[i] = { ...d, name: next.trim() };
                         updateIntent({ destinations: arr });
+                        // Follow-up #4: resolve any newly-named destination
+                        // in the background so the leg gets lat/lng/id.
+                        void resolveParsedDestinations([{ name: next.trim(), kind: d.kind }]);
                       }
                     }}
                     className="inline-flex items-center gap-1.5 rounded-xl border border-[#d4cfc5] bg-white px-3 py-1.5 text-sm text-[#0e2a47] hover:border-[#1a6b7f] transition-colors"
