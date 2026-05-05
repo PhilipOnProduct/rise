@@ -1,0 +1,86 @@
+Activity-gen eval — after PHI-41 prompt strengthening (2026-05-05)
+Model: claude-sonnet-4-6 (default temperature)
+Run by: Philip (manual, 2nd PHI-41 iteration)
+Cases: 30 (15 single-leg + 15 multi-leg)
+
+Running 30 activity-gen eval cases against claude-sonnet-4-6...
+
+✗ lisbon-couple-cultural               2/3  — Couple, cultural + food, 4 nights, comfortable
+    × category variety (no repeats)
+    cards: 6 parsed
+✓ lisbon-severe-peanut-allergy         2/2  — Family with peanut-allergy child — life-impacting must surface in Why
+✓ tokyo-wheelchair                     2/2  — Wheelchair user — life-impacting must echo in every Why
+✓ edinburgh-vegetarian                 1/1  — Vegetarian solo — dietary preserved
+✓ barcelona-knee-issue                 2/2  — Mobility constraint via free text — must surface in Why
+✓ paris-anniversary-luxury             2/2  — Anniversary couple, luxury — Why should reference occasion
+✓ rome-family-stroller                 1/1  — Stroller-friendly family
+✓ berlin-solo-budget-nightlife         2/2  — Solo budget nightlife
+✓ marrakech-anniversary-medina         2/2  — Anniversary couple, medina-curious
+✓ iceland-photographer                 2/2  — Adventure photographer
+✓ santorini-shore-day                  1/1  — Single shore day — short, no hiking
+✓ dublin-stag                          2/2  — Stag weekend friend group, nightlife heavy
+✓ amsterdam-wheelchair-art             1/1  — Wheelchair + art
+✓ kyoto-couple-cultural                2/2  — Single-leg Kyoto, slow travel
+✗ jerusalem-kosher-history             0/1  — Kosher history trip
+    × food/dining cards reference kosher / dietary law [life-impacting]
+    cards: 6 parsed
+✓ tokyo-kyoto-2leg                     3/3  — Tokyo + Kyoto, 6 nights, no per-leg hotel
+✓ lisbon-porto-2leg                    1/1  — Lisbon + Porto, 5 nights
+✓ spain-portugal-3leg-luxury           1/1  — Madrid + Lisbon + Porto, 9 nights luxury
+✓ lisbon-sintra-day-trip-2leg          2/2  — Lisbon + Sintra (1 night) — short last leg
+✓ tokyo-kyoto-osaka-3leg               1/1  — Tokyo + Kyoto + Osaka
+✓ rome-florence-venice-3leg            1/1  — Italy classic 3-leg
+✗ barcelona-mallorca-allergy           1/2  — Multi-leg with allergy constraint — every leg must respect
+    × every food/dining card mentions allergy / shellfish / awareness [life-impacting]
+    cards: 9 parsed
+✓ tokyo-kyoto-with-tokyo-hotel         2/2  — Multi-leg with hotel only on leg 0 — anchor only there
+✓ lisbon-porto-with-both-hotels        1/1  — Multi-leg with hotels on both legs
+✓ amsterdam-bruges-2leg-mobility       2/2  — Multi-leg with mobility constraint
+✓ rome-florence-2leg-stroller          2/2  — Multi-leg family with stroller-friendly
+✓ edinburgh-glasgow-2leg               1/1  — UK multi-leg
+✓ berlin-prague-2leg-history           1/1  — Berlin + Prague, history-focused
+✓ marrakech-fes-2leg                   1/1  — Morocco multi-leg
+✓ kyoto-osaka-2leg-vegan               1/1  — Multi-leg with vegan constraint
+
+──── Summary ────
+Field accuracy:           93.8%  (target ≥ 85%)
+Life-impacting failures:  2
+Cases run:                30
+Total checks:             48
+Passed:                   45
+
+EVAL FAILED — pass gate not met. Iterate the prompt.
+
+────────────────────────────────────────────────────────────
+Comparison to baseline (2026-05-05, before PHI-41)
+
+|                            | Baseline | PHI-41 v1 | PHI-41 v2 |
+|----------------------------|----------|-----------|-----------|
+| Field accuracy             | 95.8%    | 91.7%     | 93.8%     |
+| Life-impacting failures    | 2        | 2         | 2         |
+| jerusalem-kosher           | ✗        | ✓         | ✗         |
+| barcelona-mallorca-allergy | ✗        | ✓         | ✗         |
+| spain-portugal-3leg        | ✓        | ✗         | ✓         |
+| tokyo-kyoto-osaka-3leg     | ✓        | ✗         | ✓         |
+
+What v2 fixed (vs v1):
+- 3-leg LEG marker emission. Strengthened the marker rule in SYSTEM with
+  an explicit example, fixed the 0/1 regressions on both 3-leg cases.
+
+What's still flaky:
+- "EVERY food card mentions <constraint>" check on cases with 5+ food
+  cards (jerusalem-kosher: 6 food cards; barcelona-mallorca-allergy: 9
+  food cards). Across runs, Sonnet 4.6 at default temperature drops the
+  acknowledgement on 1 of N cards stochastically. The prompt change moved
+  these from "always fail" to "intermittent" but didn't get them to "0
+  failures across all runs."
+
+Conclusion:
+- The prompt change is a real improvement on the systematic failures
+  (kosher gating, 3-leg LEG markers, multi-leg attention drift). All cases
+  that were systematic failures now pass at least sometimes.
+- Hitting 0 life-impacting failures across runs requires reducing eval
+  variance. Filing a follow-up to lower model temperature in the eval
+  call (currently default ~1.0; 0.2 should be enough to stabilise).
+
+Field accuracy gate (≥85%) still passes. Both PHI-41 runs are above gate.

@@ -27,26 +27,26 @@ export default function FeedbackAdminPage() {
   }, []);
 
   return (
-    <main className="min-h-screen bg-[#0a0a0a] px-6 py-14">
+    <main className="min-h-screen bg-[#f8f6f1] px-6 py-14">
       <div className="max-w-5xl mx-auto">
 
         <div className="mb-10">
           <h1 className="text-4xl font-extrabold tracking-tight">User feedback</h1>
-          <p className="text-gray-500 mt-1">{loading ? "Loading…" : `${entries.length} entries`}</p>
+          <p className="text-[#6a7f8f] mt-1">{loading ? "Loading…" : `${entries.length} entries`}</p>
         </div>
 
         {!loading && entries.length === 0 && (
-          <p className="text-gray-600 text-sm">No feedback yet.</p>
+          <p className="text-[#6a7f8f] text-sm">No feedback yet.</p>
         )}
 
         <div className="flex flex-col gap-3">
           {entries.map((entry) => (
-            <div key={entry.id} className="bg-[#111] border border-[#1e1e1e] rounded-2xl px-5 py-4">
+            <div key={entry.id} className="bg-white border border-[#e8e4de] rounded-2xl px-5 py-4">
               <div className="flex items-start justify-between gap-4 mb-2">
-                <span className="text-xs font-mono text-[#00D64F]/70 truncate">{entry.page}</span>
-                <span className="shrink-0 text-xs text-gray-600">{formatDate(entry.created_at)}</span>
+                <span className="text-xs font-mono text-[#1a6b7f]/70 truncate">{entry.page}</span>
+                <span className="shrink-0 text-xs text-[#6a7f8f]">{formatDate(entry.created_at)}</span>
               </div>
-              <p className="text-sm text-gray-300 whitespace-pre-wrap">{entry.feedback}</p>
+              <p className="text-sm text-[#0e2a47] whitespace-pre-wrap">{entry.feedback}</p>
             </div>
           ))}
         </div>

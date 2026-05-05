@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
 import { logAiInteraction } from "@/lib/ai-logger";
+import { logApiUsage, checkApiLimit } from "@/lib/log-api-usage";
 
 const client = new Anthropic();
 const MODEL = "claude-haiku-4-5-20251001";
@@ -13,6 +14,12 @@ export type Chip = {
 export async function POST(req: NextRequest) {
   const { activityName, activityCategory, travelCompany, styleTags, budgetTier } =
     await req.json();
+
+  // Hard limit check
+  const limit = await checkApiLimit("anthropic");
+  if (!limit.allowed) {
+    return NextResponse.json({ error: "API limit exceeded", provider: "anthropic", spentUsd: limit.spentUsd, limitUsd: limit.limitUsd }, { status: 429 });
+  }
 
   const companyLabel: Record<string, string> = {
     solo: "solo traveller",
@@ -78,9 +85,11 @@ export async function POST(req: NextRequest) {
       .map((c) => ({ label: c.label, type: "soft_signal" as const }));
 
     // "Done it before" is always the hard exclusion chip, prepended
+    // "Not for me" is always appended as a generic soft-signal fallback
     const chips: Chip[] = [
       { label: "Done it before", type: "hard_exclusion" },
       ...softChips,
+      { label: "Not for me", type: "soft_signal" },
     ];
 
     await logAiInteraction({
@@ -94,6 +103,11 @@ export async function POST(req: NextRequest) {
       output_tokens: response.usage.output_tokens,
     });
 
+    await logApiUsage({
+      provider: "anthropic", apiType: "activity-chips", feature: "onboarding",
+      model: MODEL, inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens,
+    });
+
     return NextResponse.json({ chips });
   } catch (err) {
     console.error("[activity-chips]", err);
@@ -103,6 +117,7 @@ export async function POST(req: NextRequest) {
       { label: "Not my travel style", type: "soft_signal" },
       { label: "Doesn't fit the itinerary", type: "soft_signal" },
       { label: "Timing doesn't work", type: "soft_signal" },
+      { label: "Not for me", type: "soft_signal" },
     ];
     return NextResponse.json({ chips: fallback });
   }

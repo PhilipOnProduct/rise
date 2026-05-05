@@ -27,13 +27,25 @@ type ConversationRow = {
   created_at: string;
 };
 
-type ObjectiveStatus = "backlog" | "refine" | "in-progress" | "done";
+type ObjectiveStatus = "backlog" | "refine" | "implement" | "done";
+type CardType = "objective" | "improvement" | "bug";
+type Discussion = {
+  date: string;
+  summary: string;
+  transcript: TeamMessages;
+  prd: string | null;
+};
+
 type Objective = {
   id: string;
   title: string;
   description: string | null;
   status: ObjectiveStatus;
   prd: string | null;
+  card_type: CardType;
+  pm_summary: string | null;
+  claude_code_result: string | null;
+  discussions: Discussion[];
   created_at: string;
 };
 
@@ -61,7 +73,7 @@ const PM_SYSTEM =
   "You are Sarah, the Product Manager for Rise, a travel assistant app. " +
   "You are having a 1-on-1 conversation with Philip, the founder. " +
   "Your role is to help him clarify thinking, discuss ideas and issues, and agree on clear objectives to work on. " +
-  "When you and Philip agree on an objective, summarize it clearly and tell him to save it using the 'Save objective' input below the chat. You cannot save it yourself. " +
+  "When you and Philip agree on an objective, summarize it clearly in one sentence and ask if he'd like to add it to the kanban board. Use a phrase like 'Shall we save that as an objective?' or 'Want me to add that to the kanban?' to signal agreement. " +
   "Keep responses concise and conversational — this is a 1-on-1, not a formal meeting. " +
   "Be direct, ask good questions, and push back when needed.";
 
@@ -73,35 +85,35 @@ const AGENTS: Record<
     name: "Sarah",
     role: "PM",
     initial: "S",
-    badge: "bg-[#00D64F] text-black",
+    badge: "bg-[#1a6b7f] text-white",
     system: `You are Sarah, the Product Manager at Rise — a travel assistant app. ${RISE_CONTEXT}\nFrame problems clearly, identify the core user need, and make decisive product recommendations. Be concise and strategic. Use short paragraphs.`,
   },
   alex: {
     name: "Alex",
     role: "Researcher",
     initial: "A",
-    badge: "bg-blue-600 text-white",
+    badge: "bg-blue-600 text-[#0e2a47]",
     system: `You are Alex, a User Researcher for Rise. ${RISE_CONTEXT}\nYour role is to identify the core user assumption embedded in this objective — what must be true about how users think or behave for this feature to work. Flag the single biggest assumption risk clearly and concisely. One paragraph. No research methodology, no validation recommendations.`,
   },
   maya: {
     name: "Maya",
     role: "Designer",
     initial: "M",
-    badge: "bg-purple-600 text-white",
-    system: `You are Maya, a Product Designer for Rise. ${RISE_CONTEXT} Rise uses a dark Uber-inspired design: #0a0a0a background, #00D64F green accent, DM Sans font.\nYour role is to identify usability risk — where will users get confused, misunderstand the interaction, or fail to complete the intended action? Focus on the moment of highest friction in the proposed feature. What is the one thing most likely to go wrong in the user's hands?\nNo interaction design specs. No component suggestions. No visual design details. One to two paragraphs.`,
+    badge: "bg-purple-600 text-[#0e2a47]",
+    system: `You are Maya, a Product Designer for Rise. ${RISE_CONTEXT} Rise uses a light warm design: #f8f6f1 background, #1a6b7f teal accent, DM Sans font.\nYour role is to identify usability risk — where will users get confused, misunderstand the interaction, or fail to complete the intended action? Focus on the moment of highest friction in the proposed feature. What is the one thing most likely to go wrong in the user's hands?\nNo interaction design specs. No component suggestions. No visual design details. One to two paragraphs.`,
   },
   luca: {
     name: "Luca",
     role: "Tech Lead",
     initial: "L",
-    badge: "bg-orange-500 text-white",
+    badge: "bg-orange-500 text-[#0e2a47]",
     system: `You are Luca, the Tech Lead for Rise. ${RISE_CONTEXT}\nYour role in every product discussion is exactly two things:\n1. Feasibility risk — what is the single biggest technical risk that could prevent this from working or make it significantly harder than expected? Be specific about why it's a risk for Rise specifically, not in general.\n2. What's newly possible — what does current technology (AI, APIs, browser capabilities, Supabase features) make possible that's directly relevant to this objective and that the team might not be aware of?\nNo implementation details. No architecture suggestions. No function names. No data structures. Two paragraphs maximum.\nImportant: your observations are input for Sarah to consider — not decisions for the team to adopt. Explicitly frame your 'what's newly possible' point as an option worth exploring, not a recommendation to implement.`,
   },
   elena: {
     name: "Elena",
     role: "Travel Expert",
     initial: "ET",
-    badge: "text-white",
+    badge: "text-[#0e2a47]",
     bgColor: "#185fa5",
     system: `You are Elena, a Senior Travel Planner with 15 years experience creating personalised trips. ${RISE_CONTEXT}\nYour role is to flag mismatches between the product assumption and how real travellers actually think and behave. What in this objective contradicts real travel psychology, real traveller behaviour, or how trips actually get planned and experienced? Be specific and direct. One to two paragraphs maximum. No design suggestions, no technical input, no product strategy.`,
   },
@@ -124,6 +136,74 @@ const RESEARCH_MODE_INSTRUCTION =
 
 function getModeInstruction(buildMode: boolean): string {
   return buildMode ? BUILD_MODE_INSTRUCTION : RESEARCH_MODE_INSTRUCTION;
+}
+
+const CARD_TYPE_STYLES: Record<CardType, { label: string; className: string }> = {
+  objective:   { label: "Objective",    className: "bg-[#e8f4f6] text-[#1a6b7f]" },
+  improvement: { label: "Improvement",  className: "bg-[#fef3e2] text-[#ba7517]" },
+  bug:         { label: "Bug",          className: "bg-[#fde8e8] text-[#c0392b]" },
+};
+
+const STATUS_LABELS: Record<ObjectiveStatus, string> = {
+  backlog: "Backlog",
+  refine: "Refine",
+  implement: "Implement",
+  done: "Done",
+};
+
+const NEXT_STATUS: Partial<Record<ObjectiveStatus, ObjectiveStatus>> = {
+  backlog: "refine",
+  refine: "implement",
+  implement: "done",
+};
+
+// ── Markdown renderer ─────────────────────────────────────────────────────────
+// Lightweight inline markdown → React for agent/coach/PM chat bubbles.
+
+function MarkdownText({ text, className }: { text: string; className?: string }) {
+  const lines = text.split("\n");
+  const elements: React.ReactNode[] = [];
+
+  function inlineBold(line: string, key: string): React.ReactNode {
+    const parts = line.split(/\*\*(.+?)\*\*/g);
+    if (parts.length === 1) return line;
+    return (
+      <span key={key}>
+        {parts.map((part, j) =>
+          j % 2 === 1 ? <strong key={j}>{part}</strong> : part
+        )}
+      </span>
+    );
+  }
+
+  let i = 0;
+  for (const line of lines) {
+    const k = String(i++);
+    if (line.match(/^---+\s*$/)) {
+      elements.push(<hr key={k} className="border-t border-[#d4cfc5] my-3" />);
+    } else if (line.startsWith("### ")) {
+      elements.push(<p key={k} className="font-semibold text-[#0e2a47] text-sm mt-3 mb-1">{inlineBold(line.slice(4), k)}</p>);
+    } else if (line.startsWith("## ")) {
+      elements.push(<p key={k} className="font-bold text-[#0e2a47] text-sm mt-4 mb-1">{inlineBold(line.slice(3), k)}</p>);
+    } else if (line.startsWith("# ")) {
+      elements.push(<p key={k} className="font-bold text-[#0e2a47] text-base mt-4 mb-1">{inlineBold(line.slice(2), k)}</p>);
+    } else if (line.startsWith("- ") || line.startsWith("* ")) {
+      elements.push(<p key={k} className="ml-4 before:content-['•'] before:mr-2 before:text-[#6a7f8f]">{inlineBold(line.slice(2), k)}</p>);
+    } else if (line.match(/^\d+\.\s/)) {
+      const match = line.match(/^(\d+\.)\s(.*)$/);
+      if (match) {
+        elements.push(<p key={k} className="ml-4"><span className="text-[#6a7f8f] mr-2">{match[1]}</span>{inlineBold(match[2], k)}</p>);
+      } else {
+        elements.push(<p key={k}>{inlineBold(line, k)}</p>);
+      }
+    } else if (line.trim() === "") {
+      elements.push(<br key={k} />);
+    } else {
+      elements.push(<p key={k}>{inlineBold(line, k)}</p>);
+    }
+  }
+
+  return <div className={className ?? "text-sm text-[#0e2a47] leading-relaxed"}>{elements}</div>;
 }
 
 // ── Supabase error serializer ──────────────────────────────────────────────────
@@ -173,6 +253,8 @@ async function streamChat(
 }
 
 // ── Supabase helpers ───────────────────────────────────────────────────────────
+
+const OBJECTIVE_COLUMNS = "id, title, description, status, prd, card_type, pm_summary, claude_code_result, discussions, created_at";
 
 async function saveTeamConversation(problem: string, msgs: TeamMessages): Promise<string | null> {
   const { data, error } = await supabase
@@ -236,25 +318,38 @@ async function upsertPMConversation(
 async function loadObjectives(): Promise<Objective[]> {
   const { data, error } = await supabase
     .from("objectives")
-    .select("id, title, description, status, prd, created_at")
+    .select(OBJECTIVE_COLUMNS)
     .order("created_at", { ascending: false });
   if (error) { console.error("[objectives] load error", dbErr(error)); return []; }
-  return data as Objective[];
+  return (data ?? []).map((row) => ({
+    ...row,
+    card_type: row.card_type ?? "objective",
+    discussions: row.discussions ?? [],
+  })) as Objective[];
 }
 
 async function saveObjectiveWithDetails(
   title: string,
   description: string | null,
   status: ObjectiveStatus,
-  prd?: string | null
+  prd?: string | null,
+  cardType?: CardType,
+  pmSummary?: string | null,
 ): Promise<Objective | null> {
   const { data, error } = await supabase
     .from("objectives")
-    .insert({ title, description: description ?? null, status, prd: prd ?? null })
-    .select("id, title, description, status, prd, created_at")
+    .insert({
+      title,
+      description: description ?? null,
+      status,
+      prd: prd ?? null,
+      card_type: cardType ?? "objective",
+      pm_summary: pmSummary ?? null,
+    })
+    .select(OBJECTIVE_COLUMNS)
     .single();
   if (error) { console.error("[objectives] save error", dbErr(error)); return null; }
-  return data as Objective;
+  return { ...data, card_type: data.card_type ?? "objective", discussions: data.discussions ?? [] } as Objective;
 }
 
 async function updateObjectiveStatus(id: string, status: ObjectiveStatus): Promise<void> {
@@ -268,6 +363,11 @@ async function updateObjectivePrd(id: string, prd: string): Promise<void> {
     .update({ prd, status: "refine" })
     .eq("id", id);
   if (error) console.error("[objectives] prd update error", dbErr(error));
+}
+
+async function updateObjectiveField(id: string, fields: Partial<Record<string, unknown>>): Promise<void> {
+  const { error } = await supabase.from("objectives").update(fields).eq("id", id);
+  if (error) console.error("[objectives] field update error", dbErr(error));
 }
 
 async function deleteObjective(id: string): Promise<void> {
@@ -411,13 +511,12 @@ function downloadConversationFile(
   const parts = [
     `# ${problem}`,
     ``,
-    `_${date} · Contributors: Sarah (PM), Alex (Researcher), Maya (Designer), Luca (Tech Lead), Elena (Travel Expert)_`,
+    `_${date} · Contributors: Sarah (PM)${alexContent ? ", Alex (Researcher)" : ""}, Maya (Designer), Luca (Tech Lead), Elena (Travel Expert)_`,
     ``,
     `---`,
     ``,
     section("Sarah", "Framing", sarahSystem, `Frame this problem for the product team:\n\n${problem}`, sarahFrame),
-    ``, `---`, ``,
-    section("Alex", "Research", `${agents.alex.system}\n\n${mode}`, specialistInput, alexContent),
+    ...(alexContent ? [``, `---`, ``, section("Alex", "Research", `${agents.alex.system}\n\n${mode}`, specialistInput, alexContent)] : []),
     ``, `---`, ``,
     section("Maya", "Design", `${agents.maya.system}\n\n${mode}`, specialistInput, mayaContent),
     ``, `---`, ``,
@@ -464,6 +563,23 @@ async function fetchKanbanTitle(problem: string, prdContent: string): Promise<st
   }
 }
 
+// ── Card context builder (for injecting into agent prompts) ─────────────────
+
+function buildCardContext(obj: Objective): string {
+  const parts = [`Card: ${obj.title} (${CARD_TYPE_STYLES[obj.card_type].label})`];
+  if (obj.description) parts.push(`Description: ${obj.description}`);
+  if (obj.pm_summary) parts.push(`PM conversation summary: ${obj.pm_summary}`);
+  if (obj.discussions.length > 0) {
+    parts.push("Previous discussions:");
+    obj.discussions.forEach((d, i) => {
+      parts.push(`  Discussion ${i + 1} (${d.date}): ${d.summary}`);
+    });
+  }
+  if (obj.prd) parts.push(`Existing PRD:\n${obj.prd}`);
+  if (obj.claude_code_result) parts.push(`Claude Code result:\n${obj.claude_code_result}`);
+  return parts.join("\n");
+}
+
 // ── Shared sub-components ──────────────────────────────────────────────────────
 
 function ThinkingDots() {
@@ -472,11 +588,45 @@ function ThinkingDots() {
       {[0, 1, 2].map((i) => (
         <span
           key={i}
-          className="w-1.5 h-1.5 rounded-full bg-[#00D64F] animate-pulse"
+          className="w-1.5 h-1.5 rounded-full bg-[#1a6b7f] animate-pulse"
           style={{ animationDelay: `${i * 150}ms` }}
         />
       ))}
     </span>
+  );
+}
+
+function CardTypeBadge({ type }: { type: CardType }) {
+  const style = CARD_TYPE_STYLES[type];
+  return (
+    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${style.className}`}>
+      {style.label}
+    </span>
+  );
+}
+
+function CardTypeSelector({ value, onChange }: { value: CardType; onChange: (v: CardType) => void }) {
+  const types: CardType[] = ["objective", "improvement", "bug"];
+  return (
+    <div className="flex gap-2">
+      {types.map((t) => {
+        const style = CARD_TYPE_STYLES[t];
+        const isActive = value === t;
+        return (
+          <button
+            key={t}
+            onClick={() => onChange(t)}
+            className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors ${
+              isActive
+                ? `${style.className} border-current`
+                : "bg-white text-[#6a7f8f] border-[#d4cfc5] hover:border-[#b8b3a9]"
+            }`}
+          >
+            {style.label}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -504,17 +654,17 @@ function AgentBubble({
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-2">
-          <span className="text-sm font-bold text-white">{agent.name}</span>
-          <span className="text-xs text-gray-600 bg-[#1a1a1a] px-2 py-0.5 rounded-full">
+          <span className="text-sm font-bold text-[#0e2a47]">{agent.name}</span>
+          <span className="text-xs text-[#6a7f8f] bg-[#f0ede8] px-2 py-0.5 rounded-full">
             {roleOverride ?? agent.role}
           </span>
           {thinking && <ThinkingDots />}
         </div>
         {content && (
-          <div className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap">{content}</div>
+          <MarkdownText text={content} />
         )}
         {!content && thinking && (
-          <div className="text-sm text-gray-600 italic">Thinking…</div>
+          <div className="text-sm text-[#6a7f8f] italic">Thinking…</div>
         )}
       </div>
     </div>
@@ -524,9 +674,9 @@ function AgentBubble({
 function SectionDivider({ label }: { label: string }) {
   return (
     <div className="flex items-center gap-3">
-      <div className="flex-1 h-px bg-[#1e1e1e]" />
-      <span className="text-xs font-bold text-gray-600 uppercase tracking-widest">{label}</span>
-      <div className="flex-1 h-px bg-[#1e1e1e]" />
+      <div className="flex-1 h-px bg-[#d4cfc5]" />
+      <span className="text-xs font-bold text-[#4a6580] uppercase tracking-widest">{label}</span>
+      <div className="flex-1 h-px bg-[#d4cfc5]" />
     </div>
   );
 }
@@ -534,7 +684,7 @@ function SectionDivider({ label }: { label: string }) {
 function PrdLine({ line, i }: { line: string; i: number }) {
   if (line.startsWith("## ")) {
     return (
-      <h3 key={i} className="text-xs font-bold text-gray-500 uppercase tracking-widest mt-6 mb-2 first:mt-0">
+      <h3 key={i} className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mt-6 mb-2 first:mt-0">
         {line.slice(3)}
       </h3>
     );
@@ -542,10 +692,10 @@ function PrdLine({ line, i }: { line: string; i: number }) {
   if (line.trim() === "") return <div key={i} className="h-1" />;
   const parts = line.split(/(\*\*[^*]+\*\*)/g);
   return (
-    <p key={i} className="text-sm text-gray-300 leading-relaxed">
+    <p key={i} className="text-sm text-[#0e2a47] leading-relaxed">
       {parts.map((part, j) =>
         part.startsWith("**") && part.endsWith("**")
-          ? <strong key={j} className="text-white font-semibold">{part.slice(2, -2)}</strong>
+          ? <strong key={j} className="text-[#0e2a47] font-semibold">{part.slice(2, -2)}</strong>
           : part
       )}
     </p>
@@ -616,7 +766,7 @@ function PastConversations({
     return (
       <button
         onClick={() => setOpen(true)}
-        className="self-start text-xs text-gray-600 hover:text-gray-300 transition-colors"
+        className="self-start text-xs text-[#6a7f8f] hover:text-[#0e2a47] transition-colors"
       >
         Past discussions →
       </button>
@@ -624,16 +774,16 @@ function PastConversations({
   }
 
   return (
-    <div className="bg-[#111] border border-[#1e1e1e] rounded-2xl p-4">
+    <div className="bg-white border border-[#e8e4de] rounded-2xl p-4">
       <div className="flex items-center justify-between mb-3">
-        <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">Past discussions</span>
-        <button onClick={() => setOpen(false)} className="text-xs text-gray-600 hover:text-gray-300 transition-colors">
+        <span className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest">Past discussions</span>
+        <button onClick={() => setOpen(false)} className="text-xs text-[#6a7f8f] hover:text-[#0e2a47] transition-colors">
           Close
         </button>
       </div>
-      {loading && <p className="text-xs text-gray-600 py-2">Loading…</p>}
+      {loading && <p className="text-xs text-[#6a7f8f] py-2">Loading…</p>}
       {!loading && rows.length === 0 && (
-        <p className="text-xs text-gray-600 py-2">No past conversations yet.</p>
+        <p className="text-xs text-[#6a7f8f] py-2">No past conversations yet.</p>
       )}
       {!loading && rows.length > 0 && (
         <div className="flex flex-col gap-1">
@@ -650,22 +800,22 @@ function PastConversations({
             return (
               <div key={row.id}>
                 {/* Title row — click to load + delete button */}
-                <div className="flex items-start gap-1 group/row rounded-xl hover:bg-[#1a1a1a] transition-colors">
+                <div className="flex items-start gap-1 group/row rounded-xl hover:bg-[#f0ede8] transition-colors">
                   <button
                     onClick={() => { onLoad(row); setOpen(false); }}
                     className="flex-1 text-left px-3 py-2.5 min-w-0"
                   >
-                    <p className="text-sm text-gray-300 group-hover/row:text-white break-words">{row.title}</p>
-                    <p className="text-xs text-gray-600 mt-0.5">
+                    <p className="text-sm text-[#0e2a47] group-hover/row:text-[#0e2a47] break-words">{row.title}</p>
+                    <p className="text-xs text-[#6a7f8f] mt-0.5">
                       {new Date(row.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
-                      {hasPrd && <span className="ml-2 text-[#00D64F]">· PRD</span>}
-                      {isActive && <span className="ml-2 text-gray-600">· Active</span>}
+                      {hasPrd && <span className="ml-2 text-[#1a6b7f]">· PRD</span>}
+                      {isActive && <span className="ml-2 text-[#6a7f8f]">· Active</span>}
                     </p>
                   </button>
                   {!isActive && (
                     <button
                       onClick={() => setConfirmDeleteId(isConfirmingDelete ? null : row.id)}
-                      className="shrink-0 mt-2 mr-2 p-1.5 text-gray-700 hover:text-red-400 transition-colors opacity-0 group-hover/row:opacity-100"
+                      className="shrink-0 mt-2 mr-2 p-1.5 text-[#6a7f8f] hover:text-red-400 transition-colors opacity-0 group-hover/row:opacity-100"
                       title="Delete"
                     >
                       ×
@@ -676,7 +826,7 @@ function PastConversations({
                 {/* Inline delete confirmation */}
                 {isConfirmingDelete && (
                   <div className="flex items-center gap-2 px-3 pb-2">
-                    <span className="text-xs text-gray-500">Delete this conversation?</span>
+                    <span className="text-xs text-[#6a7f8f]">Delete this conversation?</span>
                     <button
                       onClick={() => handleDelete(row.id)}
                       disabled={isDeleting}
@@ -686,7 +836,7 @@ function PastConversations({
                     </button>
                     <button
                       onClick={() => setConfirmDeleteId(null)}
-                      className="text-xs text-gray-600 hover:text-gray-400"
+                      className="text-xs text-[#6a7f8f] hover:text-[#4a6580]"
                     >
                       No
                     </button>
@@ -700,9 +850,9 @@ function PastConversations({
                     {existingFeedback.length > 0 && (
                       <div className="flex flex-col gap-2 mb-2">
                         {existingFeedback.map((fb, i) => (
-                          <div key={i} className="border-l-2 border-[#00D64F] pl-3 py-0.5">
-                            <p className="text-xs font-semibold text-gray-600 uppercase tracking-widest mb-1">Your feedback</p>
-                            <p className="text-xs text-gray-400 leading-relaxed whitespace-pre-wrap">{fb}</p>
+                          <div key={i} className="border-l-2 border-[#1a6b7f] pl-3 py-0.5">
+                            <p className="text-xs font-semibold text-[#6a7f8f] uppercase tracking-widest mb-1">Your feedback</p>
+                            <p className="text-xs text-[#4a6580] leading-relaxed whitespace-pre-wrap">{fb}</p>
                           </div>
                         ))}
                       </div>
@@ -717,19 +867,19 @@ function PastConversations({
                           value={draft}
                           onChange={(e) => setDraftMap((prev) => ({ ...prev, [row.id]: e.target.value }))}
                           placeholder="What would you improve or change about this PRD?"
-                          className="w-full bg-[#0a0a0a] border border-[#2a2a2a] focus:border-[#00D64F] outline-none rounded-xl px-4 py-3 text-white placeholder-[#444] transition-colors text-xs resize-none"
+                          className="w-full bg-[#f8f6f1] border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-[#0e2a47] placeholder-[#9ca3af] transition-colors text-xs resize-none"
                         />
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => handleSaveFeedback(row.id)}
                             disabled={!draft.trim() || savingId === row.id}
-                            className="text-xs font-semibold bg-[#00D64F] text-black rounded-xl px-4 py-2 hover:bg-[#00c248] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                            className="text-xs font-semibold bg-[#1a6b7f] text-white rounded-xl px-4 py-2 hover:bg-[#155a6b] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                           >
                             {savingId === row.id ? "Saving…" : "Save feedback"}
                           </button>
                           <button
                             onClick={() => { setOpenFeedbackId(null); setDraftMap((prev) => ({ ...prev, [row.id]: "" })); }}
-                            className="text-xs text-gray-600 hover:text-gray-300 transition-colors"
+                            className="text-xs text-[#6a7f8f] hover:text-[#0e2a47] transition-colors"
                           >
                             Cancel
                           </button>
@@ -738,7 +888,7 @@ function PastConversations({
                     ) : (
                       <button
                         onClick={() => setOpenFeedbackId(row.id)}
-                        className="text-xs text-gray-600 hover:text-[#00D64F] transition-colors"
+                        className="text-xs text-[#6a7f8f] hover:text-[#1a6b7f] transition-colors"
                       >
                         + Add feedback
                       </button>
@@ -754,15 +904,342 @@ function PastConversations({
   );
 }
 
+// ── Card Detail Panel ─────────────────────────────────────────────────────────
+
+function CardDetailPanel({
+  obj,
+  onClose,
+  onUpdate,
+  onDiscussionSaved,
+  buildMode,
+}: {
+  obj: Objective;
+  onClose: () => void;
+  onUpdate: (updated: Objective) => void;
+  onDiscussionSaved: (objectiveId: string, discussion: Discussion, prd: string | null) => void;
+  buildMode: boolean;
+}) {
+  const [showDiscussionModal, setShowDiscussionModal] = useState(false);
+  const [codeResult, setCodeResult] = useState(obj.claude_code_result ?? "");
+  const [savingResult, setSavingResult] = useState(false);
+  const [resultSaved, setResultSaved] = useState(false);
+  const [expandedDiscIdx, setExpandedDiscIdx] = useState<number | null>(null);
+  const [prdOpen, setPrdOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmNoDisc, setConfirmNoDisc] = useState(false);
+
+  const implPrompt = obj.prd ? extractImplementationPrompt(obj.prd) : "";
+  const nextStatus = NEXT_STATUS[obj.status];
+  const cleanTitle = obj.title.replace(/\*+/g, "");
+
+  function handleCopy() {
+    navigator.clipboard.writeText(implPrompt);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  async function handleSaveResult() {
+    setSavingResult(true);
+    await updateObjectiveField(obj.id, { claude_code_result: codeResult || null });
+    onUpdate({ ...obj, claude_code_result: codeResult || null });
+    setSavingResult(false);
+    setResultSaved(true);
+    setTimeout(() => setResultSaved(false), 2000);
+  }
+
+  async function handleMoveToNext(force?: boolean) {
+    if (!nextStatus) return;
+    // Warn when moving refine → implement without any discussions
+    if (obj.status === "refine" && nextStatus === "implement" && obj.discussions.length === 0 && !force) {
+      setConfirmNoDisc(true);
+      return;
+    }
+    setConfirmNoDisc(false);
+    await updateObjectiveStatus(obj.id, nextStatus);
+    onUpdate({ ...obj, status: nextStatus });
+  }
+
+  async function handleDelete() {
+    await deleteObjective(obj.id);
+    onUpdate({ ...obj, status: "done", id: "__deleted__" });
+    onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/20" onClick={onClose} />
+
+      {/* Panel */}
+      <div className="relative w-full max-w-xl bg-[#f8f6f1] border-l border-[#d4cfc5] overflow-y-auto shadow-xl">
+        <div className="p-6 flex flex-col gap-6">
+
+          {/* Header */}
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-2 flex-wrap">
+                <CardTypeBadge type={obj.card_type} />
+                <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${STATUS_STYLES[obj.status]}`}>
+                  {STATUS_LABELS[obj.status]}
+                </span>
+              </div>
+              <h2 className="text-lg font-bold text-[#0e2a47] leading-snug">{cleanTitle}</h2>
+              <p className="text-xs text-[#6a7f8f] mt-1">
+                {new Date(obj.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+              </p>
+            </div>
+            <button onClick={onClose} className="text-[#6a7f8f] hover:text-[#0e2a47] text-lg shrink-0 p-1">×</button>
+          </div>
+
+          {/* Description */}
+          {obj.description && (
+            <div>
+              <p className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-2">Description</p>
+              <p className="text-sm text-[#0e2a47] leading-relaxed">{obj.description}</p>
+            </div>
+          )}
+
+          {/* PM summary */}
+          {obj.pm_summary && (
+            <div>
+              <p className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-2">PM conversation summary</p>
+              <p className="text-sm text-[#4a6580] leading-relaxed">{obj.pm_summary}</p>
+            </div>
+          )}
+
+          {/* Discussions */}
+          {obj.discussions.length > 0 && (
+            <div>
+              <p className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-2">
+                Team discussions ({obj.discussions.length})
+              </p>
+              <div className="flex flex-col gap-2">
+                {obj.discussions.map((disc, idx) => (
+                  <div key={idx} className="bg-white border border-[#e8e4de] rounded-xl p-3">
+                    <button
+                      onClick={() => setExpandedDiscIdx(expandedDiscIdx === idx ? null : idx)}
+                      className="w-full text-left"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-[#6a7f8f]">{disc.date}</span>
+                        <span className="text-xs text-[#6a7f8f]">{expandedDiscIdx === idx ? "▲" : "▼"}</span>
+                      </div>
+                      <p className="text-sm text-[#0e2a47] mt-1 leading-relaxed">{disc.summary}</p>
+                    </button>
+                    {expandedDiscIdx === idx && (
+                      <div className="mt-3 pt-3 border-t border-[#e8e4de] flex flex-col gap-3">
+                        {disc.transcript.framing && (
+                          <div>
+                            <p className="text-xs font-semibold text-[#4a6580] mb-1">Sarah (Framing)</p>
+                            <p className="text-xs text-[#6a7f8f] leading-relaxed whitespace-pre-wrap">{disc.transcript.framing}</p>
+                          </div>
+                        )}
+                        {disc.transcript.alex && (
+                          <div>
+                            <p className="text-xs font-semibold text-[#4a6580] mb-1">Alex (Research)</p>
+                            <p className="text-xs text-[#6a7f8f] leading-relaxed whitespace-pre-wrap">{disc.transcript.alex}</p>
+                          </div>
+                        )}
+                        {disc.transcript.maya && (
+                          <div>
+                            <p className="text-xs font-semibold text-[#4a6580] mb-1">Maya (Design)</p>
+                            <p className="text-xs text-[#6a7f8f] leading-relaxed whitespace-pre-wrap">{disc.transcript.maya}</p>
+                          </div>
+                        )}
+                        {disc.transcript.luca && (
+                          <div>
+                            <p className="text-xs font-semibold text-[#4a6580] mb-1">Luca (Tech)</p>
+                            <p className="text-xs text-[#6a7f8f] leading-relaxed whitespace-pre-wrap">{disc.transcript.luca}</p>
+                          </div>
+                        )}
+                        {disc.transcript.elena && (
+                          <div>
+                            <p className="text-xs font-semibold text-[#4a6580] mb-1">Elena (Travel Expert)</p>
+                            <p className="text-xs text-[#6a7f8f] leading-relaxed whitespace-pre-wrap">{disc.transcript.elena}</p>
+                          </div>
+                        )}
+                        {disc.transcript.synthesis && (
+                          <div>
+                            <p className="text-xs font-semibold text-[#4a6580] mb-1">Sarah (Synthesis)</p>
+                            <p className="text-xs text-[#6a7f8f] leading-relaxed whitespace-pre-wrap">{disc.transcript.synthesis}</p>
+                          </div>
+                        )}
+                        {disc.prd && (
+                          <div>
+                            <p className="text-xs font-semibold text-[#4a6580] mb-1">PRD</p>
+                            <p className="text-xs text-[#6a7f8f] leading-relaxed whitespace-pre-wrap max-h-48 overflow-y-auto">{disc.prd}</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Start team discussion — visible for refine cards */}
+          {obj.status === "refine" && (
+            <button
+              onClick={() => setShowDiscussionModal(true)}
+              className="rounded-2xl bg-[#1a6b7f] text-white font-bold px-6 py-3 hover:bg-[#155a6b] transition-colors text-sm w-fit"
+            >
+              Start team discussion →
+            </button>
+          )}
+
+          {/* Full-screen discussion modal */}
+          {showDiscussionModal && (
+            <div className="fixed inset-0 z-[60] bg-[#f8f6f1] overflow-y-auto">
+              <div className="max-w-3xl mx-auto px-6 py-8">
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-lg font-bold text-[#0e2a47]">Team discussion: {cleanTitle}</h2>
+                  <button
+                    onClick={() => setShowDiscussionModal(false)}
+                    className="text-[#6a7f8f] hover:text-[#0e2a47] text-xl p-1"
+                  >×</button>
+                </div>
+                <ProductTeamTab
+                  pendingObjective={{ id: obj.id, problem: obj.title + (obj.description ? `\n\n${obj.description}` : "") }}
+                  cardContext={obj}
+                  onObjectiveSaved={() => {}}
+                  onDiscussionSaved={(objId, disc, prd) => {
+                    onDiscussionSaved(objId, disc, prd);
+                    setShowDiscussionModal(false);
+                    // Refresh the card with new discussion
+                    const updated = { ...obj, discussions: [...obj.discussions, disc], prd: prd || obj.prd };
+                    onUpdate(updated);
+                  }}
+                  buildMode={buildMode}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* PRD */}
+          {obj.prd && (
+            <div>
+              <button
+                onClick={() => setPrdOpen(!prdOpen)}
+                className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-2 hover:text-[#4a6580] transition-colors"
+              >
+                {prdOpen ? "Hide PRD ▲" : "View PRD ▼"}
+              </button>
+              {prdOpen && (
+                <div className="bg-white border border-[#e8e4de] rounded-xl p-4 max-h-80 overflow-y-auto">
+                  <div className="flex flex-col gap-1">
+                    {obj.prd.split("\n").map((line, i) => <PrdLine key={i} line={line} i={i} />)}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Claude Code prompt */}
+          {implPrompt && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest">Claude Code Prompt</p>
+                <button onClick={handleCopy} className="text-xs font-semibold text-[#1a6b7f] hover:underline">
+                  {copied ? "Copied!" : "Copy prompt"}
+                </button>
+              </div>
+              <div className="bg-white border border-[#e8e4de] rounded-xl p-4">
+                <p className="text-xs text-[#0e2a47] leading-relaxed whitespace-pre-wrap">{implPrompt}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Claude Code result — only on implement/done */}
+          {(obj.status === "implement" || obj.status === "done") && (
+            <div>
+              <p className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-2">Claude Code Result</p>
+              <textarea
+                rows={5}
+                value={codeResult}
+                onChange={(e) => { setCodeResult(e.target.value); setResultSaved(false); }}
+                placeholder="Paste Claude Code output here…"
+                className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-[#0e2a47] placeholder-[#9ca3af] transition-colors text-xs resize-none"
+              />
+              <div className="flex items-center gap-2 mt-2">
+                <button
+                  onClick={handleSaveResult}
+                  disabled={savingResult}
+                  className="text-xs font-semibold bg-[#1a6b7f] text-white rounded-xl px-4 py-2 hover:bg-[#155a6b] transition-colors disabled:opacity-40"
+                >
+                  {savingResult ? "Saving…" : "Save result"}
+                </button>
+                {resultSaved && <span className="text-xs text-[#1a6b7f]">Saved</span>}
+              </div>
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex flex-col gap-3 pt-2 border-t border-[#d4cfc5]">
+            <div className="flex items-center gap-3 flex-wrap">
+            {nextStatus && (
+              <button
+                onClick={() => handleMoveToNext()}
+                className="rounded-2xl bg-[#1a6b7f] text-white font-bold px-6 py-3 hover:bg-[#155a6b] transition-colors text-sm"
+              >
+                Move to {STATUS_LABELS[nextStatus]} →
+              </button>
+            )}
+            {obj.status !== "done" && (
+              confirmDelete ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-[#6a7f8f]">Delete?</span>
+                  <button onClick={handleDelete} className="text-xs font-semibold text-red-400 hover:text-red-300">Yes</button>
+                  <button onClick={() => setConfirmDelete(false)} className="text-xs text-[#6a7f8f] hover:text-[#4a6580]">No</button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setConfirmDelete(true)}
+                  className="text-xs text-[#6a7f8f] hover:text-red-400 transition-colors"
+                >
+                  Delete card
+                </button>
+              )
+            )}
+            </div>
+            {confirmNoDisc && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+                <p className="text-xs text-amber-700">No team discussion has been run for this card. Move to Implement anyway?</p>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button onClick={() => handleMoveToNext(true)} className="text-xs font-semibold text-amber-700 hover:text-amber-900">Yes</button>
+                  <button onClick={() => setConfirmNoDisc(false)} className="text-xs text-[#6a7f8f] hover:text-[#4a6580]">No</button>
+                </div>
+              </div>
+            )}
+          </div>
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function extractImplementationPrompt(prd: string): string {
+  const marker = "## Claude Code Implementation Prompt";
+  const idx = prd.indexOf(marker);
+  if (idx === -1) return "";
+  return prd.slice(idx + marker.length).trim();
+}
+
 // ── Product Team Tab ───────────────────────────────────────────────────────────
 
 function ProductTeamTab({
   pendingObjective,
+  cardContext,
   onObjectiveSaved,
+  onDiscussionSaved,
   buildMode,
 }: {
   pendingObjective?: { id: string; problem: string } | null;
+  cardContext?: Objective | null;
   onObjectiveSaved?: () => void;
+  onDiscussionSaved?: (objectiveId: string, discussion: Discussion, prd: string | null) => void;
   buildMode: boolean;
 }) {
   const [problem, setProblem] = useState("");
@@ -786,6 +1263,8 @@ function ProductTeamTab({
   const [savingToKanban, setSavingToKanban] = useState(false);
   const [kanbanSaved, setKanbanSaved] = useState(false);
   const [scopeAdditions, setScopeAdditions] = useState("");
+  const [savingToCard, setSavingToCard] = useState(false);
+  const [savedToCard, setSavedToCard] = useState(false);
 
   useEffect(() => {
     loadSarahMemory().then((mem) => {
@@ -801,7 +1280,7 @@ function ProductTeamTab({
     setSarahFrame(""); setAlexContent(""); setMayaContent("");
     setLucaContent(""); setElenaContent(""); setSynthesis(""); setPrd("");
     setPhase("idle"); setTeamError(""); setPrdSlug("");
-    setKanbanSaved(false);
+    setKanbanSaved(false); setSavedToCard(false);
   }, [pendingObjective]);
 
   const isRunning = phase !== "idle" && phase !== "done";
@@ -822,6 +1301,7 @@ function ProductTeamTab({
     setPrdSlug("");
     setActiveObjectiveId(null);
     setKanbanSaved(false);
+    setSavedToCard(false);
   }
 
   async function runDiscussion() {
@@ -830,7 +1310,10 @@ function ProductTeamTab({
     setSarahFrame(""); setAlexContent(""); setMayaContent("");
     setLucaContent(""); setElenaContent(""); setSynthesis(""); setPrd("");
     setTeamError(""); setConversationId(null); setPrdSlug("");
-    setKanbanSaved(false);
+    setKanbanSaved(false); setSavedToCard(false);
+
+    // Build card context injection if available
+    const cardCtx = cardContext ? `\n\nCard context:\n${buildCardContext(cardContext)}` : "";
 
     try {
       // ── Step 1: Sarah frames (with memory) ───────────────────────────────
@@ -843,23 +1326,19 @@ function ProductTeamTab({
       let frameText = "";
       await streamChat(
         TEAM_MODEL, sarahSystemWithMemory,
-        [{ role: "user", content: `Frame this problem for the product team:\n\n${problem}` }],
+        [{ role: "user", content: `Frame this problem for the product team:\n\n${problem}${cardCtx}` }],
         2048, (chunk) => { frameText += chunk; setSarahFrame(frameText); }
       );
       setThinking({});
 
-      // ── Step 2: Specialists in parallel ──────────────────────────────────
+      // ── Step 2: Specialists in parallel (Alex excluded in Build mode) ──
+      const includeAlex = !buildMode;
       setPhase("specialists");
-      setThinking({ alex: true, maya: true, luca: true, elena: true });
-      const specialistPrompt = `Problem: ${problem}\n\nSarah's framing: ${frameText}\n\nShare your expert perspective.`;
+      setThinking({ ...(includeAlex ? { alex: true } : {}), maya: true, luca: true, elena: true });
+      const specialistPrompt = `Problem: ${problem}\n\nSarah's framing: ${frameText}\n\nShare your expert perspective.${cardCtx}`;
       let alexText = "", mayaText = "", lucaText = "", elenaText = "";
 
-      await Promise.all([
-        streamChat(TEAM_MODEL, `${AGENTS.alex.system}\n\n${modeInstruction}`,
-          [{ role: "user", content: specialistPrompt }], 2048,
-          (chunk) => { alexText += chunk; setAlexContent(alexText); }
-        ).then(() => setThinking((p) => { const n = { ...p }; delete n.alex; return n; })),
-
+      const specialistCalls: Promise<void>[] = [
         streamChat(TEAM_MODEL, `${AGENTS.maya.system}\n\n${modeInstruction}`,
           [{ role: "user", content: specialistPrompt }], 2048,
           (chunk) => { mayaText += chunk; setMayaContent(mayaText); }
@@ -874,7 +1353,18 @@ function ProductTeamTab({
           [{ role: "user", content: specialistPrompt }], 2048,
           (chunk) => { elenaText += chunk; setElenaContent(elenaText); }
         ).then(() => setThinking((p) => { const n = { ...p }; delete n.elena; return n; })),
-      ]);
+      ];
+
+      if (includeAlex) {
+        specialistCalls.push(
+          streamChat(TEAM_MODEL, `${AGENTS.alex.system}\n\n${modeInstruction}`,
+            [{ role: "user", content: specialistPrompt }], 2048,
+            (chunk) => { alexText += chunk; setAlexContent(alexText); }
+          ).then(() => setThinking((p) => { const n = { ...p }; delete n.alex; return n; }))
+        );
+      }
+
+      await Promise.all(specialistCalls);
 
       // ── Step 3: Sarah synthesizes ─────────────────────────────────────────
       setPhase("synthesis");
@@ -884,7 +1374,7 @@ function ProductTeamTab({
         TEAM_MODEL, sarahSystemWithMemory,
         [{
           role: "user",
-          content: `Problem: ${problem}\n\nYour framing:\n${frameText}\n\nTeam input:\nAlex (Research): ${alexText}\nMaya (Design): ${mayaText}\nLuca (Tech): ${lucaText}\nElena (Travel Expert): ${elenaText}\n\nSynthesize the key insights and give a clear product recommendation.`,
+          content: `Problem: ${problem}\n\nYour framing:\n${frameText}\n\nTeam input:\n${includeAlex ? `Alex (Research): ${alexText}\n` : ""}Maya (Design): ${mayaText}\nLuca (Tech): ${lucaText}\nElena (Travel Expert): ${elenaText}\n\nSynthesize the key insights and give a clear product recommendation.`,
         }],
         4096, (chunk) => { synthesisText += chunk; setSynthesis(synthesisText); }
       );
@@ -940,12 +1430,12 @@ function ProductTeamTab({
             content:
               `Based on this product discussion, write a structured PRD.\n\n` +
               `Problem: ${problem}\nFraming: ${frameText}\n` +
-              `Research (Alex): ${alexText}\nDesign (Maya): ${mayaText}\nTech (Luca): ${lucaText}\nTravel Expert (Elena): ${elenaText}\n` +
+              `${includeAlex ? `Research (Alex): ${alexText}\n` : ""}Design (Maya): ${mayaText}\nTech (Luca): ${lucaText}\nTravel Expert (Elena): ${elenaText}\n` +
               `Synthesis: ${synthesisText}\n\n` +
               `Use these sections exactly:\n` +
               `## Overview\n## Problem Statement\n## User Need\n## Proposed Solution\n` +
               `## User Stories\n## Success Metrics\n## Technical Considerations (strategic only — no implementation details)\n## Risks & Open Questions\n## Claude Code Implementation Prompt\n\n` +
-              `For the Claude Code Implementation Prompt section: write a prompt the way a senior PM would brief a capable engineer verbally. Describe what to build and why it matters in plain language. Mention any hard constraints that affect how it must work. Do not describe how to implement it — no function names, no data structures, no component names, no step-by-step instructions. Write it the way you would explain the feature to someone who will figure out the implementation themselves.`,
+              `For the Claude Code Implementation Prompt section: write a prompt the way a senior PM would brief a capable engineer verbally. Describe what to build and why it matters in plain language. Mention any hard constraints that affect how it must work. Do not describe how to implement it — no function names, no data structures, no component names, no step-by-step instructions. Write it the way you would explain the feature to someone who will figure out the implementation themselves. Do not include manual testing instructions, QA steps, or scenario-based testing requirements — Claude Code cannot run these. Quality validation is the founder's responsibility after the build is complete.`,
           }],
           8000, (chunk) => { prdText += chunk; setPrd(prdText); }
         );
@@ -1019,7 +1509,7 @@ function ProductTeamTab({
             `Use these sections exactly:\n` +
             `## Overview\n## Problem Statement\n## User Need\n## Proposed Solution\n` +
             `## User Stories\n## Success Metrics\n## Technical Considerations (strategic only — no implementation details)\n## Risks & Open Questions\n## Claude Code Implementation Prompt\n\n` +
-            `For the Claude Code Implementation Prompt section: write a prompt the way a senior PM would brief a capable engineer verbally. Describe what to build and why it matters in plain language. Mention any hard constraints that affect how it must work. Do not describe how to implement it — no function names, no data structures, no component names, no step-by-step instructions. Write it the way you would explain the feature to someone who will figure out the implementation themselves.`,
+            `For the Claude Code Implementation Prompt section: write a prompt the way a senior PM would brief a capable engineer verbally. Describe what to build and why it matters in plain language. Mention any hard constraints that affect how it must work. Do not describe how to implement it — no function names, no data structures, no component names, no step-by-step instructions. Write it the way you would explain the feature to someone who will figure out the implementation themselves. Do not include manual testing instructions, QA steps, or scenario-based testing requirements — Claude Code cannot run these. Quality validation is the founder's responsibility after the build is complete.`,
         }],
         8000, (chunk) => { prdText += chunk; setPrd(prdText); }
       );
@@ -1051,6 +1541,50 @@ function ProductTeamTab({
     setSavingToKanban(false);
   }
 
+  async function handleSaveToCard() {
+    if (!cardContext || !onDiscussionSaved) return;
+    setSavingToCard(true);
+
+    // Generate a 3-5 sentence summary from Sarah
+    let summaryText = "";
+    try {
+      await streamChat(
+        TEAM_MODEL,
+        "You write concise discussion summaries. Reply with ONLY the summary — 3-5 sentences.",
+        [{
+          role: "user",
+          content:
+            `Summarize this product team discussion in 3-5 sentences.\n\n` +
+            `Problem: ${problem}\nFraming: ${sarahFrame}\nSynthesis: ${synthesis}\n` +
+            `PRD available: ${prd ? "yes" : "no"}`,
+        }],
+        200,
+        (chunk) => { summaryText += chunk; }
+      );
+    } catch {
+      summaryText = `Discussion about: ${problem.slice(0, 200)}`;
+    }
+
+    const discussion: Discussion = {
+      date: new Date().toISOString().slice(0, 10),
+      summary: summaryText.trim(),
+      transcript: {
+        problem,
+        framing: sarahFrame,
+        alex: alexContent,
+        maya: mayaContent,
+        luca: lucaContent,
+        elena: elenaContent,
+        synthesis,
+      },
+      prd: prd || null,
+    };
+
+    onDiscussionSaved(cardContext.id, discussion, prd || null);
+    setSavingToCard(false);
+    setSavedToCard(true);
+  }
+
 
   return (
     <div className="flex flex-col gap-8">
@@ -1061,8 +1595,8 @@ function ProductTeamTab({
       {/* Team roster + memory status */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex gap-3 flex-wrap">
-          {(Object.entries(AGENTS) as [AgentId, typeof AGENTS[AgentId]][]).map(([id, a]) => (
-            <div key={id} className="flex items-center gap-2 bg-[#111] border border-[#1e1e1e] rounded-xl px-3 py-2">
+          {(Object.entries(AGENTS) as [AgentId, typeof AGENTS[AgentId]][]).filter(([id]) => id !== "alex" || !buildMode).map(([id, a]) => (
+            <div key={id} className="flex items-center gap-2 bg-white border border-[#e8e4de] rounded-xl px-3 py-2">
               <div
                 className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${a.badge}`}
                 style={a.bgColor ? { backgroundColor: a.bgColor } : undefined}
@@ -1070,23 +1604,32 @@ function ProductTeamTab({
                 {a.initial}
               </div>
               <div>
-                <p className="text-xs font-semibold text-white leading-none">{a.name}</p>
-                <p className="text-xs text-gray-600 mt-0.5">{a.role}</p>
+                <p className="text-xs font-semibold text-[#0e2a47] leading-none">{a.name}</p>
+                <p className="text-xs text-[#6a7f8f] mt-0.5">{a.role}</p>
               </div>
             </div>
           ))}
         </div>
         {memoryLoading && (
-          <p className="text-xs text-gray-600 italic">Sarah is remembering…</p>
+          <p className="text-xs text-[#6a7f8f] italic">Sarah is remembering…</p>
         )}
         {updatingMemory && (
-          <p className="text-xs text-gray-600 italic">Updating Sarah's memory…</p>
+          <p className="text-xs text-[#6a7f8f] italic">Updating Sarah's memory…</p>
         )}
       </div>
 
+      {/* Card context banner */}
+      {cardContext && (
+        <div className="bg-[#e8f4f6] border border-[#1a6b7f]/20 rounded-xl px-4 py-3">
+          <p className="text-xs font-bold text-[#1a6b7f] uppercase tracking-widest mb-1">Discussing card</p>
+          <p className="text-sm text-[#0e2a47] font-semibold">{cardContext.title.replace(/\*+/g, "")}</p>
+          {cardContext.description && <p className="text-xs text-[#4a6580] mt-1">{cardContext.description}</p>}
+        </div>
+      )}
+
       {/* Input */}
       <div>
-        <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">
+        <label className="block text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-3">
           Describe the problem
         </label>
         <textarea
@@ -1095,20 +1638,20 @@ function ProductTeamTab({
           onChange={(e) => setProblem(e.target.value)}
           placeholder="e.g. Users drop off at step 3 of the onboarding flow. We don't know why."
           disabled={isRunning}
-          className="w-full bg-[#111] border border-[#2a2a2a] focus:border-[#00D64F] outline-none rounded-xl px-5 py-4 text-white placeholder-[#444] transition-colors text-sm resize-none disabled:opacity-50"
+          className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-5 py-4 text-[#0e2a47] placeholder-[#9ca3af] transition-colors text-sm resize-none disabled:opacity-50"
         />
         <div className="mt-3 flex items-center gap-3">
           <button
             onClick={runDiscussion}
             disabled={!problem.trim() || isRunning}
-            className="rounded-2xl bg-[#00D64F] text-black font-bold px-8 py-4 hover:bg-[#00c248] transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm"
+            className="rounded-2xl bg-[#1a6b7f] text-white font-bold px-8 py-4 hover:bg-[#155a6b] transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm"
           >
             {isRunning ? "Discussing…" : "Start discussion →"}
           </button>
           {teamError && !isRunning && (
             <button
               onClick={runDiscussion}
-              className="rounded-2xl border border-[#333] text-gray-400 hover:text-white hover:border-[#555] font-semibold px-6 py-4 transition-colors text-sm"
+              className="rounded-2xl border border-[#333] text-[#4a6580] hover:text-[#0e2a47] hover:border-[#555] font-semibold px-6 py-4 transition-colors text-sm"
             >
               Retry →
             </button>
@@ -1129,7 +1672,7 @@ function ProductTeamTab({
           {(alexContent || mayaContent || lucaContent || elenaContent || phase === "specialists") && (
             <>
               <SectionDivider label="Team response" />
-              <AgentBubble agentId="alex" content={alexContent} thinking={!!thinking.alex} />
+              {(alexContent || thinking.alex) && <AgentBubble agentId="alex" content={alexContent} thinking={!!thinking.alex} />}
               <AgentBubble agentId="maya" content={mayaContent} thinking={!!thinking.maya} />
               <AgentBubble agentId="luca" content={lucaContent} thinking={!!thinking.luca} />
               <AgentBubble agentId="elena" content={elenaContent} thinking={!!thinking.elena} />
@@ -1148,38 +1691,48 @@ function ProductTeamTab({
               <div className="flex items-center gap-3 flex-wrap">
                 <button
                   onClick={() => downloadConversationFile(problem, AGENTS, buildMode, sarahMemory, sarahFrame, alexContent, mayaContent, lucaContent, elenaContent, synthesis, prd)}
-                  className="rounded-2xl border border-[#2a2a2a] text-gray-300 hover:text-white hover:border-[#444] font-semibold px-6 py-3 transition-colors text-sm"
+                  className="rounded-2xl border border-[#d4cfc5] text-[#0e2a47] hover:text-[#0e2a47] hover:border-[#b8b3a9] font-semibold px-6 py-3 transition-colors text-sm"
                 >
                   Download conversation ↓
                 </button>
                 {prd && (
                   <button
                     onClick={regeneratePrd}
-                    className="rounded-2xl border border-[#2a2a2a] text-gray-300 hover:text-white hover:border-[#444] font-semibold px-6 py-3 transition-colors text-sm"
+                    className="rounded-2xl border border-[#d4cfc5] text-[#0e2a47] hover:text-[#0e2a47] hover:border-[#b8b3a9] font-semibold px-6 py-3 transition-colors text-sm"
                   >
                     Regenerate PRD →
                   </button>
                 )}
-                {prd && !kanbanSaved && (
+                {prd && !kanbanSaved && !cardContext && (
                   <button
                     onClick={handleSaveToKanban}
                     disabled={savingToKanban}
-                    className="rounded-2xl border border-[#2a2a2a] text-gray-300 hover:text-white hover:border-[#444] font-semibold px-6 py-3 transition-colors text-sm disabled:opacity-40"
+                    className="rounded-2xl border border-[#d4cfc5] text-[#0e2a47] hover:text-[#0e2a47] hover:border-[#b8b3a9] font-semibold px-6 py-3 transition-colors text-sm disabled:opacity-40"
                   >
                     {savingToKanban ? "Saving…" : "Save to Kanban →"}
+                  </button>
+                )}
+                {cardContext && !savedToCard && (
+                  <button
+                    onClick={handleSaveToCard}
+                    disabled={savingToCard}
+                    className="rounded-2xl bg-[#1a6b7f] text-white font-bold px-6 py-3 hover:bg-[#155a6b] transition-colors text-sm disabled:opacity-40"
+                  >
+                    {savingToCard ? "Saving…" : "Save to card →"}
                   </button>
                 )}
               </div>
               {scopeAdditions && scopeAdditions !== "No scope additions." && !kanbanSaved && (
                 <div className="bg-amber-500/5 border border-amber-500/15 rounded-xl px-4 py-3">
                   <p className="text-xs font-bold text-amber-500/60 uppercase tracking-widest mb-1.5">Team additions</p>
-                  <p className="text-xs text-gray-500 leading-relaxed whitespace-pre-wrap">{scopeAdditions}</p>
+                  <p className="text-xs text-[#6a7f8f] leading-relaxed whitespace-pre-wrap">{scopeAdditions}</p>
                 </div>
               )}
               {kanbanSaved && (
-                <div className="flex flex-col gap-1">
-                  <p className="text-xs text-[#00D64F]">{activeObjectiveId ? "PRD saved to Kanban card" : "Saved to Kanban"}</p>
-                </div>
+                <p className="text-xs text-[#1a6b7f]">{activeObjectiveId ? "PRD saved to Kanban card" : "Saved to Kanban"}</p>
+              )}
+              {savedToCard && (
+                <p className="text-xs text-[#1a6b7f]">Discussion saved to card</p>
               )}
             </div>
           )}
@@ -1191,9 +1744,9 @@ function ProductTeamTab({
                 <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${AGENTS.sarah.badge}`}>
                   {AGENTS.sarah.initial}
                 </div>
-                <div className="flex-1 bg-[#111] border border-[#1e1e1e] rounded-2xl p-6">
+                <div className="flex-1 bg-white border border-[#e8e4de] rounded-2xl p-6">
                   {phase === "prd" && thinking.sarah && !prd && (
-                    <div className="flex items-center gap-2 text-sm text-gray-600 italic">
+                    <div className="flex items-center gap-2 text-sm text-[#6a7f8f] italic">
                       <ThinkingDots /> Writing PRD…
                     </div>
                   )}
@@ -1301,16 +1854,16 @@ function ProductCoachTab({ buildMode }: { buildMode: boolean }) {
 
       {/* Intro */}
       {messages.length === 0 && (
-        <div className="bg-[#111] border border-[#1e1e1e] rounded-2xl p-6">
+        <div className="bg-white border border-[#e8e4de] rounded-2xl p-6">
           <div className="flex items-center gap-3 mb-3">
-            <div className="w-9 h-9 rounded-full bg-[#00D64F] flex items-center justify-center text-black font-bold text-sm">C</div>
+            <div className="w-9 h-9 rounded-full bg-[#1a6b7f] flex items-center justify-center text-white font-bold text-sm">C</div>
             <div>
-              <p className="text-sm font-bold text-white">Product Coach</p>
-              <p className="text-xs text-gray-600">Powered by Claude Opus 4</p>
+              <p className="text-sm font-bold text-[#0e2a47]">Product Coach</p>
+              <p className="text-xs text-[#6a7f8f]">Powered by Claude Opus 4</p>
             </div>
           </div>
-          <p className="text-sm text-gray-400 leading-relaxed">
-            Ask me anything about product management — strategy, prioritisation, discovery, metrics, stakeholders. I'll challenge your thinking and help you grow. Try: <em className="text-gray-300">"How should I think about prioritising our roadmap as an early MVP?"</em>
+          <p className="text-sm text-[#4a6580] leading-relaxed">
+            Ask me anything about product management — strategy, prioritisation, discovery, metrics, stakeholders. I'll challenge your thinking and help you grow. Try: <em className="text-[#0e2a47]">"How should I think about prioritising our roadmap as an early MVP?"</em>
           </p>
         </div>
       )}
@@ -1321,22 +1874,22 @@ function ProductCoachTab({ buildMode }: { buildMode: boolean }) {
           {messages.map((msg, i) => (
             msg.role === "user" ? (
               <div key={i} className="flex justify-end">
-                <div className="bg-[#00D64F]/10 border border-[#00D64F]/20 rounded-2xl rounded-tr-sm px-5 py-3.5 max-w-xl">
-                  <p className="text-sm text-white leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                <div className="bg-[#1a6b7f]/10 border border-[#1a6b7f]/20 rounded-2xl rounded-tr-sm px-5 py-3.5 max-w-xl">
+                  <p className="text-sm text-[#0e2a47] leading-relaxed whitespace-pre-wrap">{msg.content}</p>
                 </div>
               </div>
             ) : (
               <div key={i} className="flex gap-4">
-                <div className="w-9 h-9 rounded-full bg-[#00D64F] flex items-center justify-center text-black font-bold text-sm flex-shrink-0">C</div>
+                <div className="w-9 h-9 rounded-full bg-[#1a6b7f] flex items-center justify-center text-white font-bold text-sm flex-shrink-0">C</div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-2">
-                    <span className="text-sm font-bold text-white">Coach</span>
+                    <span className="text-sm font-bold text-[#0e2a47]">Coach</span>
                     {thinking && i === messages.length - 1 && !msg.content && <ThinkingDots />}
                   </div>
                   {msg.content ? (
-                    <div className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap">{msg.content}</div>
+                    <MarkdownText text={msg.content} />
                   ) : (
-                    <div className="text-sm text-gray-600 italic">Thinking…</div>
+                    <div className="text-sm text-[#6a7f8f] italic">Thinking…</div>
                   )}
                 </div>
               </div>
@@ -1347,14 +1900,14 @@ function ProductCoachTab({ buildMode }: { buildMode: boolean }) {
       )}
 
       {/* Input */}
-      <div className="flex flex-col gap-2 sticky bottom-0 bg-[#0a0a0a] pt-2 pb-4">
+      <div className="flex flex-col gap-2 sticky bottom-0 bg-[#f8f6f1] pt-2 pb-4">
         {coachError && (
           <div className="flex items-center justify-between gap-4 bg-red-950/40 border border-red-800/40 rounded-xl px-4 py-3">
             <p className="text-sm text-red-400">{coachError}</p>
             <button
               onClick={retry}
               disabled={thinking}
-              className="text-sm font-semibold text-red-300 hover:text-white transition-colors flex-shrink-0 disabled:opacity-50"
+              className="text-sm font-semibold text-red-300 hover:text-[#0e2a47] transition-colors flex-shrink-0 disabled:opacity-50"
             >
               Retry →
             </button>
@@ -1368,12 +1921,12 @@ function ProductCoachTab({ buildMode }: { buildMode: boolean }) {
             onKeyDown={handleKeyDown}
             placeholder="Ask your coach… (Enter to send, Shift+Enter for newline)"
             disabled={thinking}
-            className="flex-1 bg-[#111] border border-[#2a2a2a] focus:border-[#00D64F] outline-none rounded-xl px-5 py-4 text-white placeholder-[#444] transition-colors text-sm resize-none disabled:opacity-50"
+            className="flex-1 bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-5 py-4 text-[#0e2a47] placeholder-[#9ca3af] transition-colors text-sm resize-none disabled:opacity-50"
           />
           <button
             onClick={send}
             disabled={!input.trim() || thinking}
-            className="rounded-2xl bg-[#00D64F] text-black font-bold px-6 py-4 hover:bg-[#00c248] transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm flex-shrink-0"
+            className="rounded-2xl bg-[#1a6b7f] text-white font-bold px-6 py-4 hover:bg-[#155a6b] transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm flex-shrink-0"
           >
             {thinking ? "…" : "Send →"}
           </button>
@@ -1387,10 +1940,10 @@ function ProductCoachTab({ buildMode }: { buildMode: boolean }) {
 // ── Kanban constants & helpers ─────────────────────────────────────────────────
 
 const STATUS_STYLES: Record<ObjectiveStatus, string> = {
-  backlog:       "bg-gray-500/10 text-gray-400 border border-gray-700",
-  refine:        "bg-[#185fa5]/15 text-[#185fa5] border border-[#185fa5]/40",
-  "in-progress": "bg-[#ba7517]/15 text-[#ba7517] border border-[#ba7517]/40",
-  done:          "bg-[#00D64F]/15 text-[#00D64F] border border-[#00D64F]/30",
+  backlog:    "bg-[#e8f0f4] text-[#1a6b7f] border border-[#1a6b7f]/20",
+  refine:     "bg-[#e8f0fb] text-[#185fa5] border border-[#185fa5]/20",
+  implement:  "bg-[#fef3e2] text-[#ba7517] border border-[#ba7517]/20",
+  done:       "bg-[#eaf4ee] text-[#2d7a4f] border border-[#2d7a4f]/20",
 };
 
 const KANBAN_COLUMNS: Array<{
@@ -1399,90 +1952,66 @@ const KANBAN_COLUMNS: Array<{
   borderClass: string;
   textClass: string;
 }> = [
-  { status: "backlog",     label: "Backlog",     borderClass: "border-gray-700",   textClass: "text-gray-400" },
-  { status: "refine",      label: "Refine",      borderClass: "border-[#185fa5]",  textClass: "text-[#185fa5]" },
-  { status: "in-progress", label: "In Progress", borderClass: "border-[#ba7517]",  textClass: "text-[#ba7517]" },
-  { status: "done",        label: "Done",        borderClass: "border-[#00D64F]",  textClass: "text-[#00D64F]" },
+  { status: "backlog",    label: "Backlog",    borderClass: "border-[#c8c3bb]",  textClass: "text-[#4a6580]" },
+  { status: "refine",     label: "Refine",     borderClass: "border-[#c8c3bb]",  textClass: "text-[#4a6580]" },
+  { status: "implement",  label: "Implement",  borderClass: "border-[#c8c3bb]",  textClass: "text-[#4a6580]" },
+  { status: "done",       label: "Done",       borderClass: "border-[#c8c3bb]",  textClass: "text-[#4a6580]" },
 ];
-
-function extractImplementationPrompt(prd: string): string {
-  const marker = "## Claude Code Implementation Prompt";
-  const idx = prd.indexOf(marker);
-  if (idx === -1) return "";
-  return prd.slice(idx + marker.length).trim();
-}
 
 // ── Kanban Card ────────────────────────────────────────────────────────────────
 
 function KanbanCard({
   obj,
   col,
-  onDiscuss,
+  onClick,
   onDelete,
   onDragStart,
 }: {
   obj: Objective;
   col: typeof KANBAN_COLUMNS[number];
-  onDiscuss: (id: string, problem: string) => void;
+  onClick: () => void;
   onDelete: (id: string) => void;
   onDragStart: (id: string, fromStatus: ObjectiveStatus) => void;
 }) {
-  const [prdOpen, setPrdOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const isDone = obj.status === "done";
-  const implPrompt = obj.prd ? extractImplementationPrompt(obj.prd) : "";
-  const discussProblem = obj.title + (obj.description ? `\n\n${obj.description}` : "");
-
-  function handleCopy() {
-    navigator.clipboard.writeText(implPrompt);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
+  const cleanTitle = obj.title.replace(/\*+/g, "");
 
   return (
     <div
       draggable={!isDone}
       onDragStart={isDone ? undefined : () => onDragStart(obj.id, obj.status)}
-      className={`bg-[#111] border ${col.borderClass} rounded-2xl p-4 flex flex-col gap-3 ${!isDone ? "cursor-grab active:cursor-grabbing" : ""}`}
+      onClick={onClick}
+      className={`bg-white border ${col.borderClass} rounded-2xl p-4 flex flex-col gap-2 cursor-pointer hover:shadow-sm transition-shadow ${!isDone ? "active:cursor-grabbing" : ""}`}
     >
-      {/* Title */}
-      <div>
-        <p className="text-sm font-bold text-white leading-snug line-clamp-2" title={obj.title}>{obj.title}</p>
-        {obj.description && (
-          <p className="text-xs text-gray-500 mt-1 leading-relaxed line-clamp-3 overflow-hidden">{obj.description}</p>
-        )}
+      {/* Type badge + title */}
+      <div className="flex items-start gap-2">
+        <CardTypeBadge type={obj.card_type} />
+        <p className="text-sm font-bold text-[#0e2a47] leading-snug line-clamp-2 flex-1" title={cleanTitle}>{cleanTitle}</p>
       </div>
+      {obj.description && (
+        <p className="text-xs text-[#6a7f8f] leading-relaxed line-clamp-2 overflow-hidden">{obj.description}</p>
+      )}
 
-      {/* Actions */}
-      <div className="flex items-center gap-3 flex-wrap">
-        {!isDone && (obj.status === "backlog" || obj.status === "refine") && (
-          <button
-            onClick={() => onDiscuss(obj.id, discussProblem)}
-            className="text-xs font-semibold text-[#00D64F] hover:underline"
-          >
-            Discuss with team →
-          </button>
-        )}
-        {obj.prd && (
-          <button
-            onClick={() => setPrdOpen(!prdOpen)}
-            className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
-          >
-            {prdOpen ? "Hide PRD" : "View PRD"}
-          </button>
-        )}
+      {/* Bottom row */}
+      <div className="flex items-center justify-between mt-1" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2">
+          {obj.prd && <span className="text-xs text-[#1a6b7f]">PRD</span>}
+          {obj.discussions.length > 0 && (
+            <span className="text-xs text-[#6a7f8f]">{obj.discussions.length} disc.</span>
+          )}
+        </div>
         {!isDone && (
           confirmDelete ? (
-            <div className="flex items-center gap-2 ml-auto">
-              <span className="text-xs text-gray-500">Delete?</span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-[#6a7f8f]">Delete?</span>
               <button onClick={() => onDelete(obj.id)} className="text-xs font-semibold text-red-400 hover:text-red-300">Yes</button>
-              <button onClick={() => setConfirmDelete(false)} className="text-xs text-gray-600 hover:text-gray-400">No</button>
+              <button onClick={() => setConfirmDelete(false)} className="text-xs text-[#6a7f8f] hover:text-[#4a6580]">No</button>
             </div>
           ) : (
             <button
               onClick={() => setConfirmDelete(true)}
-              className="text-xs text-gray-600 hover:text-red-400 transition-colors ml-auto"
+              className="text-xs text-[#6a7f8f] hover:text-red-400 transition-colors"
               title="Delete"
             >
               🗑
@@ -1490,41 +2019,32 @@ function KanbanCard({
           )
         )}
       </div>
-
-      {/* Expanded PRD */}
-      {prdOpen && obj.prd && (
-        <div className="border-t border-[#1e1e1e] pt-3 flex flex-col gap-3">
-          <div className="text-xs text-gray-400 leading-relaxed max-h-64 overflow-y-auto whitespace-pre-wrap">
-            {obj.prd}
-          </div>
-          {implPrompt && (
-            <div className="bg-[#0a0a0a] border border-[#2a2a2a] rounded-xl p-3 flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">Claude Code Prompt</span>
-                <button onClick={handleCopy} className="text-xs font-semibold text-[#00D64F] hover:underline">
-                  {copied ? "Copied!" : "Copy prompt"}
-                </button>
-              </div>
-              <p className="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap">{implPrompt}</p>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }
 
 // ── Kanban Tab ─────────────────────────────────────────────────────────────────
 
-function KanbanTab({ onDiscuss }: { onDiscuss: (objectiveId: string, problem: string) => void }) {
+function KanbanTab({
+  onCardClick,
+  refreshKey,
+}: {
+  onCardClick: (obj: Objective) => void;
+  refreshKey: number;
+}) {
   const [objectives, setObjectives] = useState<Objective[]>([]);
   const [loading, setLoading] = useState(true);
   const [dragging, setDragging] = useState<{ id: string; fromStatus: ObjectiveStatus } | null>(null);
   const [dragOverCol, setDragOverCol] = useState<ObjectiveStatus | null>(null);
+  const [showNewCard, setShowNewCard] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
+  const [newDesc, setNewDesc] = useState("");
+  const [newType, setNewType] = useState<CardType>("objective");
+  const [savingNew, setSavingNew] = useState(false);
 
   useEffect(() => {
     loadObjectives().then((data) => { setObjectives(data); setLoading(false); });
-  }, []);
+  }, [refreshKey]);
 
   async function handleDelete(id: string) {
     await deleteObjective(id);
@@ -1554,17 +2074,74 @@ function KanbanTab({ onDiscuss }: { onDiscuss: (objectiveId: string, problem: st
     await updateObjectiveStatus(id, toStatus);
   }
 
-  if (loading) return <p className="text-sm text-gray-600 py-4">Loading…</p>;
+  async function handleCreateCard() {
+    if (!newTitle.trim()) return;
+    setSavingNew(true);
+    const obj = await saveObjectiveWithDetails(newTitle.trim(), newDesc.trim() || null, "backlog", null, newType);
+    if (obj) {
+      setObjectives((prev) => [obj, ...prev]);
+      setNewTitle(""); setNewDesc(""); setNewType("objective"); setShowNewCard(false);
+    }
+    setSavingNew(false);
+  }
+
+  if (loading) return <p className="text-sm text-[#6a7f8f] py-4">Loading…</p>;
+
+  const newCardForm = showNewCard ? (
+    <div className="bg-white border border-[#e8e4de] rounded-2xl p-5 mb-4 flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest">New card</span>
+        <button onClick={() => setShowNewCard(false)} className="text-[#6a7f8f] hover:text-[#0e2a47] text-sm">×</button>
+      </div>
+      <CardTypeSelector value={newType} onChange={setNewType} />
+      <input
+        type="text"
+        value={newTitle}
+        onChange={(e) => setNewTitle(e.target.value)}
+        placeholder="Card title…"
+        autoFocus
+        className="w-full bg-[#f8f6f1] border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-[#0e2a47] placeholder-[#9ca3af] transition-colors text-sm"
+      />
+      <textarea
+        rows={2}
+        value={newDesc}
+        onChange={(e) => setNewDesc(e.target.value)}
+        placeholder="Description (optional)…"
+        className="w-full bg-[#f8f6f1] border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-[#0e2a47] placeholder-[#9ca3af] transition-colors text-xs resize-none"
+      />
+      <button
+        onClick={handleCreateCard}
+        disabled={!newTitle.trim() || savingNew}
+        className="rounded-2xl bg-[#1a6b7f] text-white font-bold px-6 py-3 hover:bg-[#155a6b] transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm w-fit"
+      >
+        {savingNew ? "Creating…" : "Create card →"}
+      </button>
+    </div>
+  ) : (
+    <div className="mb-4">
+      <button
+        onClick={() => setShowNewCard(true)}
+        className="text-sm font-semibold text-[#1a6b7f] hover:underline"
+      >
+        + New card
+      </button>
+    </div>
+  );
 
   if (objectives.length === 0) {
     return (
-      <div className="border border-dashed border-[#2a2a2a] rounded-2xl p-10 text-center">
-        <p className="text-sm text-gray-600">No cards yet — save objectives from the PM tab to populate the board.</p>
+      <div>
+        {newCardForm}
+        <div className="border border-dashed border-[#d4cfc5] rounded-2xl p-10 text-center">
+          <p className="text-sm text-[#6a7f8f]">No cards yet — save objectives from the PM tab or create one above.</p>
+        </div>
       </div>
     );
   }
 
   return (
+    <div>
+    {newCardForm}
     <div className="grid grid-cols-4 gap-3 pb-4">
       {KANBAN_COLUMNS.map((col) => {
         const cards = objectives.filter((o) => o.status === col.status);
@@ -1580,15 +2157,15 @@ function KanbanTab({ onDiscuss }: { onDiscuss: (objectiveId: string, problem: st
           >
             <div className="flex items-center justify-between px-1">
               <span className={`text-xs font-bold uppercase tracking-widest ${col.textClass}`}>{col.label}</span>
-              <span className="text-xs text-gray-700">{cards.length}</span>
+              <span className="text-xs text-[#6a7f8f]">{cards.length}</span>
             </div>
             <div
               className={`flex flex-col gap-3 min-h-[80px] rounded-2xl transition-colors ${
-                isOver ? "bg-white/5 ring-1 ring-white/20" : ""
+                isOver ? "bg-[#1a6b7f]/5 ring-1 ring-[#1a6b7f]/20" : ""
               }`}
             >
               {cards.length === 0 ? (
-                <div className={`border ${col.borderClass} border-dashed rounded-2xl p-4 text-xs text-gray-700 text-center`}>
+                <div className={`border ${col.borderClass} rounded-2xl p-4 text-xs text-[#6a7f8f] text-center`}>
                   Empty
                 </div>
               ) : (
@@ -1597,7 +2174,7 @@ function KanbanTab({ onDiscuss }: { onDiscuss: (objectiveId: string, problem: st
                     key={obj.id}
                     obj={obj}
                     col={col}
-                    onDiscuss={onDiscuss}
+                    onClick={() => onCardClick(obj)}
                     onDelete={handleDelete}
                     onDragStart={handleDragStart}
                   />
@@ -1608,19 +2185,31 @@ function KanbanTab({ onDiscuss }: { onDiscuss: (objectiveId: string, problem: st
         );
       })}
     </div>
+    </div>
   );
 }
 
 // ── PM 1-on-1 Tab ─────────────────────────────────────────────────────────────
 
-function PMTab({ onSwitchToKanban, buildMode }: { onSwitchToKanban: () => void; buildMode: boolean }) {
+// Detect if Sarah's last message suggests saving an objective
+function detectObjectiveAgreed(content: string): boolean {
+  const lower = content.toLowerCase();
+  const patterns = [
+    "shall we save", "want me to add", "add that to the kanban", "save that as an objective",
+    "add it to the board", "shall we add", "want to save that", "lock that in",
+    "add this to the kanban", "save this as", "shall i add", "want to add that",
+  ];
+  return patterns.some((p) => lower.includes(p));
+}
+
+function PMTab({ onSwitchToKanban, onObjectiveSaved, buildMode }: { onSwitchToKanban: () => void; onObjectiveSaved: () => void; buildMode: boolean }) {
   const [messages, setMessages] = useState<CoachMessage[]>([]);
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   const [pmError, setPmError] = useState("");
   const [objectives, setObjectives] = useState<Objective[]>([]);
-  const [objInput, setObjInput] = useState("");
   const [savingObj, setSavingObj] = useState(false);
+  const [savedObj, setSavedObj] = useState(false);
   const [riseContext, setRiseContext] = useState("");
   const conversationIdRef = useRef<string | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -1696,38 +2285,70 @@ function PMTab({ onSwitchToKanban, buildMode }: { onSwitchToKanban: () => void; 
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
   }
 
-  async function handleSaveObjective() {
-    const title = objInput.trim();
-    if (!title) return;
+  async function handleAddToKanban() {
     setSavingObj(true);
+    setSavedObj(false);
 
-    // Extract a one-sentence description from Sarah's last message
+    const convoSlice = messages.slice(-10).map((m) => `${m.role === "user" ? "Philip" : "Sarah"}: ${m.content}`).join("\n\n");
+
+    // Extract title and description from the conversation
+    let title = "";
     let description: string | null = null;
-    const lastSarahMsg = [...messages].reverse().find((m) => m.role === "assistant")?.content ?? "";
-    if (lastSarahMsg) {
-      try {
-        let desc = "";
-        await streamChat(
-          PM_MODEL,
-          "You extract concise one-sentence descriptions. Reply with ONLY the sentence — no extra text.",
-          [{
-            role: "user",
-            content:
-              `Write a one-sentence description for this product objective based on the conversation context.\n\n` +
-              `Objective: "${title}"\n\nContext (last message):\n${lastSarahMsg.slice(0, 600)}`,
-          }],
-          80,
-          (chunk) => { desc += chunk; }
-        );
-        const clean = desc.trim().replace(/^["']|["']$/g, "").replace(/\.+$/, "") + ".";
-        if (clean.length > 5) description = clean;
-      } catch { /* non-fatal */ }
+    try {
+      let extracted = "";
+      await streamChat(
+        PM_MODEL,
+        "You extract objective titles. Reply with ONLY the title — max 8 words, no quotes, no punctuation at end.",
+        [{
+          role: "user",
+          content: `Extract the agreed objective from this PM conversation as a concise kanban card title (max 8 words).\n\n${convoSlice}`,
+        }],
+        30,
+        (chunk) => { extracted += chunk; }
+      );
+      title = extracted.trim().replace(/^["']|["']$/g, "").replace(/\.$/g, "");
+    } catch {
+      title = "New objective";
     }
 
-    const obj = await saveObjectiveWithDetails(title, description, "backlog");
+    try {
+      let desc = "";
+      await streamChat(
+        PM_MODEL,
+        "You extract concise one-sentence descriptions. Reply with ONLY the sentence — no extra text.",
+        [{
+          role: "user",
+          content: `Write a one-sentence description for the agreed objective from this conversation.\n\n${convoSlice}`,
+        }],
+        80,
+        (chunk) => { desc += chunk; }
+      );
+      const clean = desc.trim().replace(/^["']|["']$/g, "").replace(/\.+$/, "") + ".";
+      if (clean.length > 5) description = clean;
+    } catch { /* non-fatal */ }
+
+    // Generate PM summary
+    let pmSummary: string | null = null;
+    try {
+      let summary = "";
+      await streamChat(
+        PM_MODEL,
+        "You write concise conversation summaries. Reply with ONLY the summary — 3-5 sentences.",
+        [{
+          role: "user",
+          content: `Summarize this PM conversation in 3-5 sentences. Focus on the key decisions and reasoning.\n\n${convoSlice}`,
+        }],
+        200,
+        (chunk) => { summary += chunk; }
+      );
+      if (summary.trim().length > 10) pmSummary = summary.trim();
+    } catch { /* non-fatal */ }
+
+    const obj = await saveObjectiveWithDetails(title, description, "backlog", null, "objective", pmSummary);
     if (obj) {
-      setObjInput("");
       loadObjectives().then(setObjectives);
+      setSavedObj(true);
+      onObjectiveSaved();
     }
     setSavingObj(false);
   }
@@ -1751,17 +2372,17 @@ function PMTab({ onSwitchToKanban, buildMode }: { onSwitchToKanban: () => void; 
 
         {/* Intro */}
         {messages.length === 0 && (
-          <div className="bg-[#111] border border-[#1e1e1e] rounded-2xl p-6">
+          <div className="bg-white border border-[#e8e4de] rounded-2xl p-6">
             <div className="flex items-center gap-3 mb-3">
-              <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0" style={{ background: "#5a4fcf" }}>
+              <div className="w-9 h-9 rounded-full flex items-center justify-center text-[#0e2a47] font-bold text-sm flex-shrink-0" style={{ background: "#5a4fcf" }}>
                 SM
               </div>
               <div>
-                <p className="text-sm font-bold text-white">Sarah · PM</p>
-                <p className="text-xs text-gray-600">1-on-1 with Philip</p>
+                <p className="text-sm font-bold text-[#0e2a47]">Sarah · PM</p>
+                <p className="text-xs text-[#6a7f8f]">1-on-1 with Philip</p>
               </div>
             </div>
-            <p className="text-sm text-gray-400 leading-relaxed">
+            <p className="text-sm text-[#4a6580] leading-relaxed">
               Hey Philip — what's on your mind? We can work through a problem, align on priorities, or agree on what to focus on next.
             </p>
           </div>
@@ -1773,25 +2394,25 @@ function PMTab({ onSwitchToKanban, buildMode }: { onSwitchToKanban: () => void; 
             {messages.map((msg, i) =>
               msg.role === "user" ? (
                 <div key={i} className="flex justify-end">
-                  <div className="bg-[#00D64F]/10 border border-[#00D64F]/20 rounded-2xl rounded-tr-sm px-5 py-3.5 max-w-xl">
-                    <p className="text-sm text-white leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                  <div className="bg-[#1a6b7f]/10 border border-[#1a6b7f]/20 rounded-2xl rounded-tr-sm px-5 py-3.5 max-w-xl">
+                    <p className="text-sm text-[#0e2a47] leading-relaxed whitespace-pre-wrap">{msg.content}</p>
                   </div>
                 </div>
               ) : (
                 <div key={i} className="flex gap-4">
-                  <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs flex-shrink-0" style={{ background: "#5a4fcf" }}>
+                  <div className="w-9 h-9 rounded-full flex items-center justify-center text-[#0e2a47] font-bold text-xs flex-shrink-0" style={{ background: "#5a4fcf" }}>
                     SM
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-2">
-                      <span className="text-sm font-bold text-white">Sarah</span>
-                      <span className="text-xs text-gray-600 bg-[#1a1a1a] px-2 py-0.5 rounded-full">PM</span>
+                      <span className="text-sm font-bold text-[#0e2a47]">Sarah</span>
+                      <span className="text-xs text-[#6a7f8f] bg-[#f0ede8] px-2 py-0.5 rounded-full">PM</span>
                       {thinking && i === messages.length - 1 && !msg.content && <ThinkingDots />}
                     </div>
                     {msg.content ? (
-                      <div className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap">{msg.content}</div>
+                      <MarkdownText text={msg.content} />
                     ) : (
-                      <div className="text-sm text-gray-600 italic">Thinking…</div>
+                      <div className="text-sm text-[#6a7f8f] italic">Thinking…</div>
                     )}
                   </div>
                 </div>
@@ -1802,14 +2423,14 @@ function PMTab({ onSwitchToKanban, buildMode }: { onSwitchToKanban: () => void; 
         )}
 
         {/* Input */}
-        <div className="flex flex-col gap-2 sticky bottom-0 bg-[#0a0a0a] pt-2 pb-4">
+        <div className="flex flex-col gap-2 sticky bottom-0 bg-[#f8f6f1] pt-2 pb-4">
           {pmError && (
             <div className="flex items-center justify-between gap-4 bg-red-950/40 border border-red-800/40 rounded-xl px-4 py-3">
               <p className="text-sm text-red-400">{pmError}</p>
               <button
                 onClick={retry}
                 disabled={thinking}
-                className="text-sm font-semibold text-red-300 hover:text-white transition-colors flex-shrink-0 disabled:opacity-50"
+                className="text-sm font-semibold text-red-300 hover:text-[#0e2a47] transition-colors flex-shrink-0 disabled:opacity-50"
               >
                 Retry →
               </button>
@@ -1823,12 +2444,12 @@ function PMTab({ onSwitchToKanban, buildMode }: { onSwitchToKanban: () => void; 
               onKeyDown={handleKeyDown}
               placeholder="Message Sarah… (Enter to send, Shift+Enter for newline)"
               disabled={thinking}
-              className="flex-1 bg-[#111] border border-[#2a2a2a] focus:border-[#00D64F] outline-none rounded-xl px-5 py-4 text-white placeholder-[#444] transition-colors text-sm resize-none disabled:opacity-50"
+              className="flex-1 bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-5 py-4 text-[#0e2a47] placeholder-[#9ca3af] transition-colors text-sm resize-none disabled:opacity-50"
             />
             <button
               onClick={send}
               disabled={!input.trim() || thinking}
-              className="rounded-2xl bg-[#00D64F] text-black font-bold px-6 py-4 hover:bg-[#00c248] transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm flex-shrink-0"
+              className="rounded-2xl bg-[#1a6b7f] text-white font-bold px-6 py-4 hover:bg-[#155a6b] transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm flex-shrink-0"
             >
               {thinking ? "…" : "Send →"}
             </button>
@@ -1837,58 +2458,62 @@ function PMTab({ onSwitchToKanban, buildMode }: { onSwitchToKanban: () => void; 
       </div>
 
       {/* Objectives */}
-      <div className="border-t border-[#1a1a1a] pt-8 flex flex-col gap-5">
+      <div className="border-t border-[#d4cfc5] pt-8 flex flex-col gap-5">
 
         <div className="flex items-center justify-between gap-4">
           <div>
-            <h2 className="text-base font-bold text-white mb-1">Agreed objectives</h2>
-            <p className="text-xs text-gray-600">Objectives saved to the Kanban board as backlog cards.</p>
+            <h2 className="text-base font-bold text-[#0e2a47] mb-1">Agreed objectives</h2>
+            <p className="text-xs text-[#6a7f8f]">Objectives saved to the Kanban board as backlog cards.</p>
           </div>
           <button
             onClick={onSwitchToKanban}
-            className="text-sm text-[#00D64F] hover:opacity-75 transition-opacity whitespace-nowrap shrink-0"
+            className="text-sm text-[#1a6b7f] hover:opacity-75 transition-opacity whitespace-nowrap shrink-0"
           >
             View Kanban →
           </button>
         </div>
 
-        {/* Save input */}
-        <div className="flex gap-3 items-end">
-          <input
-            type="text"
-            value={objInput}
-            onChange={(e) => setObjInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") handleSaveObjective(); }}
-            placeholder="Add an agreed objective…"
-            className="flex-1 bg-[#111] border border-[#2a2a2a] focus:border-[#00D64F] outline-none rounded-xl px-5 py-3.5 text-white placeholder-[#444] transition-colors text-sm"
-          />
-          <button
-            onClick={handleSaveObjective}
-            disabled={!objInput.trim() || savingObj}
-            className="rounded-2xl bg-[#00D64F] text-black font-bold px-5 py-3.5 hover:bg-[#00c248] transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm flex-shrink-0"
-          >
-            {savingObj ? "Saving…" : "Save objective"}
-          </button>
-        </div>
+        {/* Add to Kanban button — shown when Sarah suggests saving an objective */}
+        {messages.length >= 2 && !thinking && !savedObj && (() => {
+          const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+          return lastAssistant && detectObjectiveAgreed(lastAssistant.content);
+        })() && (
+          <div className="bg-[#e8f4f6] border border-[#1a6b7f]/20 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+            <p className="text-sm text-[#0e2a47]">Sarah suggested saving an objective from this conversation.</p>
+            <button
+              onClick={handleAddToKanban}
+              disabled={savingObj}
+              className="rounded-2xl bg-[#1a6b7f] text-white font-bold px-5 py-3 hover:bg-[#155a6b] transition-colors disabled:opacity-40 text-sm flex-shrink-0 whitespace-nowrap"
+            >
+              {savingObj ? "Saving…" : "Add to Kanban as Objective →"}
+            </button>
+          </div>
+        )}
+        {savedObj && (
+          <p className="text-xs text-[#1a6b7f]">Objective added to Kanban board</p>
+        )}
 
         {/* List */}
         {objectives.length === 0 ? (
-          <p className="text-sm text-gray-600">No objectives saved yet.</p>
+          <p className="text-sm text-[#6a7f8f]">No objectives saved yet.</p>
         ) : (
           <div className="flex flex-col gap-2">
             {objectives.map((obj) => (
-              <div key={obj.id} className="bg-[#111] border border-[#1e1e1e] rounded-2xl px-5 py-4 flex items-start justify-between gap-4">
+              <div key={obj.id} className="bg-white border border-[#e8e4de] rounded-2xl px-5 py-4 flex items-start justify-between gap-4">
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm text-white leading-relaxed">{obj.title}</p>
+                  <div className="flex items-center gap-2 mb-1">
+                    <CardTypeBadge type={obj.card_type} />
+                    <p className="text-sm text-[#0e2a47] leading-relaxed">{obj.title}</p>
+                  </div>
                   {obj.description && (
-                    <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{obj.description}</p>
+                    <p className="text-xs text-[#6a7f8f] mt-0.5 leading-relaxed">{obj.description}</p>
                   )}
-                  <p className="text-xs text-gray-600 mt-1">
+                  <p className="text-xs text-[#6a7f8f] mt-1">
                     {new Date(obj.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
                   </p>
                 </div>
                 <span className={`shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full capitalize ${STATUS_STYLES[obj.status]}`}>
-                  {obj.status}
+                  {STATUS_LABELS[obj.status]}
                 </span>
               </div>
             ))}
@@ -1906,7 +2531,10 @@ function PMTab({ onSwitchToKanban, buildMode }: { onSwitchToKanban: () => void; 
 export default function TeamPage() {
   const [activeTab, setActiveTab] = useState<"kanban" | "team" | "pm" | "coach">("kanban");
   const [pendingObjective, setPendingObjective] = useState<{ id: string; problem: string } | null>(null);
+  const [cardContext, setCardContext] = useState<Objective | null>(null);
+  const [selectedCard, setSelectedCard] = useState<Objective | null>(null);
   const [buildMode, setBuildMode] = useState<boolean>(true);
+  const [kanbanRefreshKey, setKanbanRefreshKey] = useState(0);
 
   // Pre-select tab from ?tab= query param; load persisted build mode
   useEffect(() => {
@@ -1925,9 +2553,31 @@ export default function TeamPage() {
     localStorage.setItem("rise_team_mode", next ? "build" : "research");
   }
 
-  function handleDiscuss(objectiveId: string, problem: string) {
-    setPendingObjective({ id: objectiveId, problem });
-    setActiveTab("team");
+  function handleDiscussionSaved(objectiveId: string, discussion: Discussion, prd: string | null) {
+    // Save discussion to the card
+    void (async () => {
+      const { data } = await supabase
+        .from("objectives")
+        .select("discussions, prd")
+        .eq("id", objectiveId)
+        .single();
+      const existing: Discussion[] = (data?.discussions as Discussion[]) ?? [];
+      const updated = [...existing, discussion];
+      const fields: Record<string, unknown> = { discussions: updated };
+      if (prd) fields.prd = prd;
+      await updateObjectiveField(objectiveId, fields);
+      setKanbanRefreshKey((k) => k + 1);
+    })();
+  }
+
+  function handleCardUpdate(updated: Objective) {
+    if (updated.id === "__deleted__") {
+      setSelectedCard(null);
+      setKanbanRefreshKey((k) => k + 1);
+      return;
+    }
+    setSelectedCard(updated);
+    setKanbanRefreshKey((k) => k + 1);
   }
 
   const tabs = [
@@ -1938,35 +2588,35 @@ export default function TeamPage() {
   ];
 
   return (
-    <main className="min-h-screen bg-[#0a0a0a] px-6 py-10 overflow-x-hidden">
+    <main className="min-h-screen bg-[#f8f6f1] px-6 py-10 overflow-x-hidden">
       <div className={`${activeTab === "kanban" ? "max-w-5xl" : "max-w-3xl"} mx-auto transition-all`}>
 
         <div className="mb-8 flex items-start justify-between gap-6 flex-wrap">
           <div>
             <h1 className="text-4xl font-extrabold tracking-tight mb-2">Product agents</h1>
-            <p className="text-gray-400">AI-powered product thinking for Rise.</p>
+            <p className="text-[#4a6580]">AI-powered product thinking for Rise.</p>
           </div>
           {/* Build / Research mode toggle */}
           <button
             onClick={toggleMode}
-            className="flex items-center gap-2.5 bg-[#111] border border-[#1e1e1e] rounded-2xl px-4 py-2.5 hover:border-[#2a2a2a] transition-colors shrink-0"
+            className="flex items-center gap-2.5 bg-white border border-[#e8e4de] rounded-2xl px-4 py-2.5 hover:border-[#d4cfc5] transition-colors shrink-0"
           >
-            <span className={`w-2 h-2 rounded-full ${buildMode ? "bg-[#00D64F]" : "bg-amber-400"}`} />
-            <span className="text-sm font-semibold text-white">{buildMode ? "Build mode" : "Research mode"}</span>
-            <span className="text-xs text-gray-600">— tap to switch</span>
+            <span className={`w-2 h-2 rounded-full ${buildMode ? "bg-[#1a6b7f]" : "bg-amber-400"}`} />
+            <span className="text-sm font-semibold text-[#0e2a47]">{buildMode ? "Build mode" : "Research mode"}</span>
+            <span className="text-xs text-[#6a7f8f]">— tap to switch</span>
           </button>
         </div>
 
         {/* Tab bar */}
-        <div className="flex gap-1 bg-[#111] border border-[#1e1e1e] rounded-2xl p-1 w-fit mb-10 overflow-x-auto">
+        <div className="flex gap-1 bg-white border border-[#e8e4de] rounded-2xl p-1 w-fit mb-10 overflow-x-auto">
           {tabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-colors whitespace-nowrap ${
                 activeTab === tab.id
-                  ? "bg-[#00D64F] text-black"
-                  : "text-gray-400 hover:text-white"
+                  ? "bg-[#1a6b7f] text-white"
+                  : "text-[#4a6580] hover:text-[#0e2a47]"
               }`}
             >
               {tab.label}
@@ -1974,18 +2624,36 @@ export default function TeamPage() {
           ))}
         </div>
 
-        {activeTab === "kanban" && <KanbanTab onDiscuss={handleDiscuss} />}
+        {activeTab === "kanban" && (
+          <KanbanTab
+            onCardClick={(obj) => setSelectedCard(obj)}
+            refreshKey={kanbanRefreshKey}
+          />
+        )}
         {activeTab === "team" && (
           <ProductTeamTab
             pendingObjective={pendingObjective}
-            onObjectiveSaved={() => setPendingObjective(null)}
+            cardContext={cardContext}
+            onObjectiveSaved={() => { setPendingObjective(null); setKanbanRefreshKey((k) => k + 1); }}
+            onDiscussionSaved={handleDiscussionSaved}
             buildMode={buildMode}
           />
         )}
-        {activeTab === "pm" && <PMTab onSwitchToKanban={() => setActiveTab("kanban")} buildMode={buildMode} />}
+        {activeTab === "pm" && <PMTab onSwitchToKanban={() => setActiveTab("kanban")} onObjectiveSaved={() => setKanbanRefreshKey((k) => k + 1)} buildMode={buildMode} />}
         {activeTab === "coach" && <ProductCoachTab buildMode={buildMode} />}
 
       </div>
+
+      {/* Card detail slide-in panel */}
+      {selectedCard && (
+        <CardDetailPanel
+          obj={selectedCard}
+          onClose={() => setSelectedCard(null)}
+          onUpdate={handleCardUpdate}
+          onDiscussionSaved={handleDiscussionSaved}
+          buildMode={buildMode}
+        />
+      )}
     </main>
   );
 }
