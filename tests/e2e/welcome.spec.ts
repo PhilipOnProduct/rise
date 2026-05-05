@@ -977,8 +977,22 @@ test("welcome multi-leg parser drives leg-aware activity gen", async ({
   await page.locator('input[type="date"]').first().fill("2026-06-15");
   await page.locator('input[type="date"]').nth(1).fill("2026-06-21");
   await page.getByRole("button", { name: /Continue/i }).click();
-  // Step 2 (hotel) — skip.
-  await page.getByRole("button", { name: /haven't booked yet/i }).click();
+
+  // PHI-39: step 2 renders one hotel field per leg. Both should be visible.
+  await expect(page.getByTestId("multi-leg-hotels")).toBeVisible();
+  await expect(page.getByTestId("leg-hotel-0")).toContainText("Tokyo");
+  await expect(page.getByTestId("leg-hotel-1")).toContainText("Kyoto");
+
+  // Fill the first leg's hotel; leave the second blank to exercise the
+  // "anchor on set legs only" path.
+  const tokyoHotelInput = page
+    .getByTestId("leg-hotel-0")
+    .getByPlaceholder(/Hotel in Tokyo/i);
+  await tokyoHotelInput.fill("Park Hotel Tokyo");
+  // PlacesAutocomplete may open a Google suggestions dropdown that
+  // overlaps the Continue button. Force the click — we're verifying the
+  // form submission path, not the dropdown UX.
+  await page.getByRole("button", { name: /Continue/i }).click({ force: true });
   // Step 3 (profile) — pick Couple chip.
   await page.getByRole("button", { name: /Couple/i }).click();
   await page.getByRole("button", { name: /Continue/i }).click();
@@ -988,13 +1002,18 @@ test("welcome multi-leg parser drives leg-aware activity gen", async ({
     timeout: 10_000,
   });
 
-  // Activities-stream POST body should have legs[] with both Tokyo + Kyoto.
+  // Activities-stream POST body should have legs[] with both Tokyo + Kyoto,
+  // and the per-leg hotel must round-trip through the API on leg 0.
   expect(activitiesPostBody).not.toBeNull();
-  expect(Array.isArray((activitiesPostBody as Record<string, unknown>)?.legs)).toBe(true);
-  const sentLegs = (activitiesPostBody as { legs: { place: { name: string } }[] }).legs;
+  const body = activitiesPostBody as unknown as Record<string, unknown>;
+  expect(Array.isArray(body?.legs)).toBe(true);
+  const sentLegs = body.legs as { place: { name: string }; hotel?: string | null }[];
   expect(sentLegs.length).toBe(2);
   expect(sentLegs[0].place.name).toBe("Tokyo");
   expect(sentLegs[1].place.name).toBe("Kyoto");
+  // PHI-39: leg 0 carries the hotel the user typed; leg 1 stays null.
+  expect(sentLegs[0].hotel).toBe("Park Hotel Tokyo");
+  expect(sentLegs[1].hotel).toBeNull();
 
   // Thumbs up two activities to clear the rate gate, then continue.
   await page.locator('button[title="Interested"]').nth(0).click();

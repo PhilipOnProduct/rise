@@ -353,6 +353,17 @@ create index idx_connectors_traveler on travel_connectors(traveler_id);
 - Use streaming (`client.messages.stream()`) for any response displayed progressively (recommendations, transport advice, onboarding activity preview). Use `stream.finalMessage()` to get the complete response afterwards.
 - Use non-streaming (`client.messages.create()`) when the response must be parsed as structured JSON (e.g. itinerary generation). Always wrap `JSON.parse()` in try/catch and return a meaningful error.
 - Always wrap Claude calls with `logAiInteraction` from `lib/ai-logger.ts` so every interaction is logged to `/admin`. Also call `logApiUsage()` from `lib/log-api-usage.ts` after each successful call for cost tracking. Call `checkApiLimit("anthropic")` at the start of each route and return 429 if exceeded.
+- For welcome-flow routes (parse-trip, activities-stream, itinerary-generate), always pass `session_id: req.cookies.get("rise_session_id")?.value ?? null` to `logAiInteraction`. PHI-40 uses this to group calls by trip in the multi-leg cost report.
+
+### Eval harnesses
+- `npm run eval:parser` — runs the 50-case free-form parser eval. Run before any prompt edit in `app/api/parse-trip/route.ts`. Pass gate: ≥85% field accuracy, 100% on constraint preservation.
+- `npm run eval:activities` — runs the 30-case activity-gen eval (15 single-leg + 15 multi-leg). Run before any prompt edit in `app/api/activities-stream/route.ts`. Pass gate: ≥85% field accuracy, 0 life-impacting failures.
+- Both evals call the live Anthropic API and cost ~$1–2 per run on Sonnet 4.6. Keep `lib/api-costs.ts` rates current.
+
+### Cost telemetry (PHI-40)
+- `npm run report:multi-leg-cost` — reads `ai_logs`, groups by `session_id`, computes per-trip Anthropic cost, splits single-leg vs multi-leg, prints median + p95 + ratio.
+- **Decision rule:** if multi-leg / single-leg median cost ratio crosses **2.5×**, revisit prompt caching, smaller-model fallback for low-stakes calls, or per-leg parallel generation. The script flags this automatically; no auto-rollback.
+- Run on demand — not wired into CI. Sensible cadence: after any prompt edit in `/api/activities-stream` or `/api/itinerary/generate`, and weekly during multi-leg adoption.
 - When Claude returns JSON, strip markdown code fences before parsing: `.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim()`
 - Set `max_tokens` generously for structured JSON responses — truncated JSON causes parse failures. Use 8000+ for multi-day itineraries.
 - JSON parse fallback: if primary parse fails, try extracting between `indexOf("{")` and `lastIndexOf("}")` before giving up.
