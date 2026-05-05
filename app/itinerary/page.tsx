@@ -12,6 +12,13 @@ import type {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
+type BookingMeta = {
+  preferred_platform: "opentable" | "resy" | "thefork";
+  confidence: "high" | "medium" | "low";
+  search_query: string;
+};
+
+type ItineraryItem = {
 const TIME_BLOCK_ORDER: Record<TimeBlock, number> = {
   morning: 0,
   afternoon: 1,
@@ -46,6 +53,12 @@ type RawItem = {
   description: string;
   type: ActivityCategory;
   time_block: TimeBlock;
+  status: "idea" | "confirmed" | "booked";
+  source: "ai_generated" | "user_added" | "guide_tip";
+  booking_meta?: BookingMeta;
+  cuisine?: string;
+  vibe?: string;
+  price_tier?: string;
 };
 
 type RawDay = {
@@ -57,6 +70,28 @@ type RawDay = {
   is_transition?: boolean;
 };
 
+type Traveler = {
+  name: string;
+  destination: string;
+  departureDate: string;
+  returnDate: string;
+  hotel: string;
+  travelCompany?: string;
+  travelerTypes?: string[];
+  budgetTier?: string;
+};
+
+const TIME_BLOCKS: { key: TimeBlock; label: string; emoji: string }[] = [
+  { key: "morning", label: "Morning", emoji: "\u{1F305}" },
+  { key: "afternoon", label: "Afternoon", emoji: "\u{2600}\u{FE0F}" },
+  { key: "evening", label: "Evening", emoji: "\u{1F319}" },
+];
+
+const TYPE_EMOJI: Record<ItineraryItem["type"], string> = {
+  activity: "\u{1F3AF}",
+  restaurant: "\u{1F37D}\u{FE0F}",
+  transport: "\u{1F68C}",
+  note: "\u{1F4DD}",
 type TravelConnector = {
   id: string;
   day_number: number;
@@ -515,6 +550,53 @@ function ActivityCard({ activity, onRemove, onSwap, swapping, swapError, swapSug
   );
 }
 
+function buildBookingUrl(platform: string, searchQuery: string): string {
+  const q = encodeURIComponent(searchQuery);
+  switch (platform) {
+    case "opentable":
+      return `https://www.opentable.com/s?term=${q}`;
+    case "resy":
+      return `https://resy.com/cities?query=${q}`;
+    case "thefork":
+      return `https://www.thefork.com/search?q=${q}`;
+    default:
+      return "#";
+  }
+}
+
+const PLATFORM_LABELS: Record<string, string> = {
+  opentable: "OpenTable",
+  resy: "Resy",
+  thefork: "TheFork",
+};
+
+function BookingLinks({ item }: { item: ItineraryItem }) {
+  const searchQuery = item.booking_meta?.search_query || item.title;
+  const preferred = item.booking_meta?.preferred_platform;
+
+  return (
+    <div className="flex gap-2 mt-2 flex-wrap">
+      {(["opentable", "resy", "thefork"] as const).map((platform) => (
+        <a
+          key={platform}
+          href={buildBookingUrl(platform, searchQuery)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`text-xs px-2.5 py-1 rounded-lg transition-colors ${
+            platform === preferred
+              ? "bg-[#00D64F]/15 text-[#00D64F] border border-[#00D64F]/30 hover:bg-[#00D64F]/25"
+              : "bg-[#1a1a1a] text-gray-400 border border-[#2a2a2a] hover:text-white hover:border-[#444]"
+          }`}
+        >
+          {PLATFORM_LABELS[platform]}
+          {platform === preferred && item.booking_meta?.confidence === "high" && " \u2713"}
+        </a>
+      ))}
+    </div>
+  );
+}
+
+export default function ItineraryPage() {
 // ── DaySection ────────────────────────────────────────────────────────────────
 
 function DaySection({
@@ -748,6 +830,11 @@ export default function ItineraryViewPage() {
   // ── Active day tracking (IntersectionObserver) ──────────────────────────
   const [activeDayNumber, setActiveDayNumber] = useState<number | null>(null);
 
+  // Swap state: tracks which item is currently being swapped
+  const [swappingId, setSwappingId] = useState<string | null>(null);
+  const [swapError, setSwapError] = useState<string | null>(null);
+
+  const STORAGE_KEY = "rise_itinerary";
   // ── Regenerate state ────────────────────────────────────────────────────
   const [regenerating, setRegenerating] = useState(false);
   const [showRegenConfirm, setShowRegenConfirm] = useState(false);
@@ -893,6 +980,7 @@ export default function ItineraryViewPage() {
         setError("Couldn't generate your itinerary. Please try again.");
         setLoading(false);
         return;
+      } catch { /* fall through to generate */ }
       }
 
       localStorage.setItem("rise_itinerary", JSON.stringify(data.days));
@@ -1028,6 +1116,13 @@ export default function ItineraryViewPage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        destination: t.destination,
+        departureDate: t.departureDate,
+        returnDate: t.returnDate,
+        travelCompany: t.travelCompany ?? "",
+        travelerTypes: t.travelerTypes ?? [],
+        budgetTier: t.budgetTier ?? "",
+        activityFeedback,
         traveler_id: t.id,
         refresh: { day_number: dayNumber, swapped_activity_id: activityId },
       }),
@@ -1183,6 +1278,15 @@ export default function ItineraryViewPage() {
     const { activityId, dayNumber, item } = swapSuggestion;
     rejectedTitlesRef.current = [];
     setDays((prev) => {
+      const next = prev.map((d) => ({ ...d, items: [...d.items] }));
+      const srcDay = next[srcDayIdx];
+      const itemIdx = srcDay.items.findIndex((it) => it.id === itemId);
+      if (itemIdx === -1) return prev;
+      const [item] = srcDay.items.splice(itemIdx, 1);
+      const targetDay = next[targetDayIdx];
+      targetDay.items.push({ ...item, time_block: targetBlock });
+      saveToStorage(next);
+      return next;
       const updated = prev.map((d) => {
         if (d.day_number !== dayNumber) return d;
         return {
@@ -1297,6 +1401,91 @@ export default function ItineraryViewPage() {
     refreshConnectorsAfterEdit(dayNumber, item.id);
   }
 
+  // Swap restaurant: generate alternative, replace in-place, persist to DB
+  async function swapRestaurant(dayIdx: number, item: ItineraryItem) {
+    if (!traveler || swappingId) return;
+    const day = days[dayIdx];
+    setSwappingId(item.id);
+    setSwapError(null);
+
+    try {
+      const res = await fetch("/api/itinerary/alternative", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          destination: traveler.destination,
+          departureDate: traveler.departureDate,
+          returnDate: traveler.returnDate,
+          travelCompany: traveler.travelCompany ?? "",
+          travelerTypes: traveler.travelerTypes ?? [],
+          budgetTier: traveler.budgetTier ?? "",
+          replacingRestaurant: item.title,
+          cuisine: item.cuisine,
+          vibe: item.vibe,
+          timeBlock: item.time_block,
+          date: day.date,
+          dayNumber: day.day_number,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.alternative) {
+        setSwapError("Couldn't find an alternative. Try again?");
+        return;
+      }
+
+      const alt = data.alternative as ItineraryItem;
+      // Preserve the same time_block as the original
+      alt.time_block = item.time_block;
+
+      setDays((prev) => {
+        const next = prev.map((d, i) => {
+          if (i !== dayIdx) return d;
+          return {
+            ...d,
+            items: d.items.map((it) => (it.id === item.id ? { ...alt, source: "ai_generated" as const } : it)),
+          };
+        });
+        saveToStorage(next);
+        return next;
+      });
+    } catch {
+      setSwapError("Network error. Try again?");
+    } finally {
+      setSwappingId(null);
+    }
+  }
+
+  // Regenerate
+  function regenerate() {
+    if (!traveler) return;
+    localStorage.removeItem(STORAGE_KEY);
+    setDays([]);
+    setLoading(true);
+    setError(null);
+    fetch("/api/itinerary/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        destination: traveler.destination,
+        departureDate: traveler.departureDate,
+        returnDate: traveler.returnDate,
+        travelCompany: traveler.travelCompany ?? "",
+        travelerTypes: traveler.travelerTypes ?? [],
+        budgetTier: traveler.budgetTier ?? "",
+      }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.days) {
+          setDays(data.days);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(data.days));
+        } else {
+          setError("Couldn't generate your itinerary.");
+        }
+      })
+      .catch(() => setError("Network error."))
+      .finally(() => setLoading(false));
   function rejectAdd() {
     if (!blockSuggestion) return;
     addRejectedRef.current.push(blockSuggestion.item.title);
@@ -1307,6 +1496,13 @@ export default function ItineraryViewPage() {
 
   // ── Regenerate handler ──────────────────────────────────────────────────
 
+  if (loading) {
+    return (
+      <main className="min-h-screen bg-[#0a0a0a] flex flex-col items-center justify-center gap-4 px-6">
+        <div className="w-8 h-8 rounded-full border-2 border-[#00D64F] border-t-transparent animate-spin" />
+        <p className="text-gray-400">Building your {traveler.destination} itinerary...</p>
+      </main>
+    );
   async function handleRegenerate() {
     setShowRegenConfirm(false);
     setRegenerating(true);
@@ -1390,6 +1586,27 @@ export default function ItineraryViewPage() {
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
+    <main className="min-h-screen bg-[#0a0a0a]">
+      {/* Header */}
+      <div className="px-6 pt-10 pb-6 border-b border-[#1a1a1a]">
+        <div className="max-w-3xl mx-auto">
+          <div className="flex items-center justify-between mb-1">
+            <Link href="/dashboard" className="text-sm text-gray-500 hover:text-gray-300 transition-colors">
+              &larr; Dashboard
+            </Link>
+            <button
+              onClick={regenerate}
+              className="text-sm text-gray-500 hover:text-gray-300 transition-colors"
+            >
+              Regenerate
+            </button>
+          </div>
+          <h1 className="text-3xl font-extrabold tracking-tight mt-4">{traveler.destination}</h1>
+          <p className="text-gray-500 text-sm mt-1">
+            {days.length} day itinerary &middot; drag items to reschedule
+          </p>
+        </div>
+      </div>
     <div className="min-h-screen bg-[#f8f6f1]">
       {/* Sticky trip shape bar */}
       <TripShapeBar
@@ -1425,6 +1642,24 @@ export default function ItineraryViewPage() {
                 )}
               </div>
 
+      {/* Swap error toast */}
+      {swapError && (
+        <div className="max-w-3xl mx-auto px-6 pt-4">
+          <div className="bg-red-900/30 border border-red-800/50 rounded-xl px-4 py-3 text-sm text-red-300 flex items-center justify-between">
+            <span>{swapError}</span>
+            <button onClick={() => setSwapError(null)} className="text-red-400 hover:text-red-200 ml-3">&times;</button>
+          </div>
+        </div>
+      )}
+
+      {/* Day view */}
+      {currentDay && (
+        <div className="max-w-3xl mx-auto px-6 py-8">
+          <div className="flex flex-col gap-6">
+            {TIME_BLOCKS.map(({ key: block, label, emoji }) => {
+              const items = currentDay.items.filter((it) => it.time_block === block);
+              const isAddingHere =
+                addingSlot?.dayIdx === activeDay && addingSlot?.block === block;
               {/* Regenerate button */}
               <div className="relative flex-shrink-0">
                 {showRegenConfirm ? (
@@ -1500,6 +1735,110 @@ export default function ItineraryViewPage() {
           </div>
         )}
 
+                  {/* Items */}
+                  <div className="flex flex-col gap-2">
+                    {items.map((item) => {
+                      const isRestaurant = item.type === "restaurant";
+                      const isSwapping = swappingId === item.id;
+
+                      return (
+                        <div
+                          key={item.id}
+                          draggable
+                          onDragStart={() => handleDragStart(activeDay, item.id)}
+                          onDragEnd={handleDragEnd}
+                          className={`group bg-[#111] border rounded-2xl px-5 py-4 cursor-grab active:cursor-grabbing transition-all ${
+                            draggingId === item.id
+                              ? "opacity-40 border-[#00D64F]"
+                              : item.source === "user_added"
+                              ? "border-[#00D64F]/30 hover:border-[#00D64F]/60"
+                              : "border-[#1e1e1e] hover:border-[#333]"
+                          }`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <span className="text-lg mt-0.5 flex-shrink-0">
+                              {TYPE_EMOJI[item.type]}
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="font-semibold text-sm text-white">{item.title}</span>
+                                {isRestaurant && item.price_tier && (
+                                  <span className="text-xs text-gray-500">{item.price_tier}</span>
+                                )}
+                              </div>
+                              {item.description && (
+                                <div className="text-xs text-gray-500 mt-0.5">{item.description}</div>
+                              )}
+                              {isRestaurant && (item.cuisine || item.vibe) && (
+                                <div className="text-xs text-gray-600 mt-1">
+                                  {[item.cuisine, item.vibe].filter(Boolean).join(" \u00B7 ")}
+                                </div>
+                              )}
+                              {item.source === "user_added" && (
+                                <div className="text-xs text-[#00D64F]/60 mt-1">Added by you</div>
+                              )}
+
+                              {/* Booking links for restaurants */}
+                              {isRestaurant && <BookingLinks item={item} />}
+
+                              {/* Swap affordance for restaurants */}
+                              {isRestaurant && (
+                                <button
+                                  onClick={() => swapRestaurant(activeDay, item)}
+                                  disabled={isSwapping}
+                                  className="mt-2.5 text-xs text-gray-500 hover:text-[#00D64F] transition-colors disabled:opacity-50"
+                                >
+                                  {isSwapping ? (
+                                    <span className="flex items-center gap-1.5">
+                                      <span className="inline-block w-3 h-3 rounded-full border border-[#00D64F] border-t-transparent animate-spin" />
+                                      Finding alternative...
+                                    </span>
+                                  ) : (
+                                    "Not feeling this? Find an alternative"
+                                  )}
+                                </button>
+                              )}
+                            </div>
+                            <button
+                              onClick={() => dismissItem(activeDay, item.id)}
+                              className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-gray-600 hover:text-white text-lg leading-none -mt-0.5 ml-1"
+                              title="Dismiss"
+                            >
+                              &times;
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {/* Add item inline */}
+                    {isAddingHere ? (
+                      <div className="flex gap-2">
+                        <input
+                          autoFocus
+                          type="text"
+                          value={addTitle}
+                          onChange={(e) => setAddTitle(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") submitAddItem();
+                            if (e.key === "Escape") { setAddingSlot(null); setAddTitle(""); }
+                          }}
+                          placeholder="What do you want to do?"
+                          className="flex-1 bg-[#111] border border-[#00D64F] focus:outline-none rounded-xl px-4 py-3 text-white text-sm placeholder-[#555]"
+                        />
+                        <button
+                          onClick={submitAddItem}
+                          disabled={!addTitle.trim()}
+                          className="px-4 py-3 rounded-xl bg-[#00D64F] text-black text-sm font-bold disabled:opacity-30 hover:bg-[#00c248] transition-colors"
+                        >
+                          Add
+                        </button>
+                        <button
+                          onClick={() => { setAddingSlot(null); setAddTitle(""); }}
+                          className="px-4 py-3 rounded-xl bg-[#1a1a1a] text-gray-400 text-sm hover:text-white transition-colors"
+                        >
+                          Cancel
+                        </button>
         {/* Vertical day timeline. PHI-37: when the trip is multi-leg, days
             are grouped under leg headers and transition days are rendered
             without the full day-section chrome. Single-leg trips render

@@ -72,6 +72,12 @@ function buildFeedbackSegment(feedback: ActivityFeedbackEntry[]): string {
   return parts.length ? `\n\n${parts.join("\n\n")}` : "";
 }
 
+type BookingMeta = {
+  preferred_platform: "opentable" | "resy" | "thefork";
+  confidence: "high" | "medium" | "low";
+  search_query: string;
+};
+
 type ItineraryItem = {
   id: string;
   title: string;
@@ -80,6 +86,10 @@ type ItineraryItem = {
   time_block: TimeBlock;
   status: "idea";
   source: "ai_generated";
+  booking_meta?: BookingMeta;
+  cuisine?: string;
+  vibe?: string;
+  price_tier?: string;
 };
 
 type ItineraryDay = {
@@ -93,6 +103,8 @@ type ItineraryDay = {
 };
 
 export async function POST(req: NextRequest) {
+  const { destination, departureDate, returnDate, travelCompany, travelerTypes, budgetTier, activityFeedback } =
+    await req.json();
   const {
     destination,
     departureDate,
@@ -139,6 +151,7 @@ export async function POST(req: NextRequest) {
   const days = Math.max(1, nights);
   const styleStr = travelerTypes?.length ? `Travel style: ${travelerTypes.join(", ")}.` : "";
   const companyStr = travelCompany ? `Travelling: ${travelCompany}.` : "";
+  const budgetStr = budgetTier ? `Budget tier: ${budgetTier}.` : "";
   const hotelStr = hotel ? `Staying at: ${hotel}.` : "";
   const feedbackSegment = buildFeedbackSegment(activityFeedback ?? []);
   console.log("[itinerary-generate] Feedback segment:", feedbackSegment || "(none)");
@@ -197,6 +210,11 @@ Multi-leg rules:
     ? `You are a trip planning AI. Generate a structured day-by-day itinerary for a ${days}-day multi-leg trip across ${legs!.map((l) => l.place?.name ?? "?").join(" → ")}.`
     : `You are a trip planning AI. Generate a structured day-by-day itinerary for a ${days}-day trip to ${destination}.`;
 
+  const prompt = `You are a trip planning AI. Generate a structured day-by-day itinerary for a ${days}-day trip to ${destination}.
+Travel dates: ${departureDate} to ${returnDate}.
+${companyStr}
+${styleStr}
+${budgetStr}${feedbackSegment}
   const prompt = `${headline}
 ${companyStr}
 ${hotelStr}
@@ -228,6 +246,18 @@ Each item object:
   "source": "ai_generated"
 }
 
+For items where type is "restaurant", include these additional fields:
+{
+  "cuisine": "Italian",           // cuisine category
+  "vibe": "romantic",             // one-word vibe descriptor
+  "price_tier": "€€€",           // €, €€, €€€, or €€€€
+  "booking_meta": {
+    "preferred_platform": "opentable" | "resy" | "thefork",  // your best guess for the primary booking platform this restaurant uses
+    "confidence": "high" | "medium" | "low",                  // how confident you are this restaurant is on that platform
+    "search_query": "exact restaurant name city"               // the exact search string to use in booking platform URLs — optimise for finding the right restaurant, not the raw name
+  }
+}
+
 Rules:
 - Cover morning, afternoon, and evening for each day (one item per slot minimum, max two)${
     isMultiLeg
@@ -242,6 +272,7 @@ Rules:
 - Be specific to ${isMultiLeg ? "each leg" : destination} — no generic suggestions
 - Keep descriptions under 20 words
 - id must be unique across all days (e.g. "day1-morning-1")
+- For booking_meta.search_query: use the restaurant's commonly known name plus the city — this will be used to construct deep links, so accuracy matters more than matching the title field exactly`;
 - Within each time block, order items in the sequence they should happen. Place meals at the right time: breakfast before morning activities, lunch before afternoon sightseeing, dinner before evening leisure. The items array order IS the display order.`;
 
   // PHI-40: tag the log with rise_session_id so the cost-report script
@@ -275,6 +306,7 @@ Rules:
       feature: "itinerary-generate",
       model: MODEL,
       prompt,
+      input: { destination, departureDate, returnDate, travelCompany, travelerTypes, budgetTier },
       input: {
         destination,
         departureDate,

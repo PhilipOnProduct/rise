@@ -115,6 +115,8 @@ rise/
 │   │   ├── activity-chips/route.ts     # POST: generate rejection chips for an activity (Claude Haiku, tool_use)
 │   │   ├── activity-feedback/route.ts  # POST: log activity preview interactions (thumbs, chips, removals)
 │   │   ├── itinerary/
+│   │   │   ├── generate/route.ts # POST: AI day-by-day itinerary as JSON (includes booking_meta for restaurants)
+│   │   │   └── alternative/route.ts # POST: AI restaurant alternative (swap feature, persists to itinerary_items)
 │   │   │   ├── generate/route.ts # POST: AI day-by-day itinerary as JSON (receives hotel for prompt context)
 │   │   │   ├── edit/route.ts     # POST: AI swap/add for a single itinerary slot (tool_use)
 │   │   │   └── travel/
@@ -179,6 +181,8 @@ rise/
 | `prd_feedback` | Feedback on generated PRDs — conversation_id, feedback text |
 | `objectives` | PM 1-on-1 agreed objectives — title, description (1-sentence), prd (full PRD text), status (`backlog`/`refine`/`implement`/`done`), card_type (`objective`/`improvement`/`bug`), pm_summary (text), claude_code_result (text), discussions (jsonb array of {date, summary, transcript, prd}) |
 | `user_feedback` | Floating button + /feedback form submissions — page URL, feedback text |
+| `activity_feedback` | Activity preview interaction log — event type, activity name/category, chip label/type |
+| `itinerary_items` | Persisted restaurant alternatives from swap feature — item details, booking_meta, replaced_restaurant |
 | `activity_feedback` | Activity preview interaction log — event, activity name/category, chip label/type, chips_source (fallback/dynamic), first_chip_label |
 | `eval_test_cases` | Eval test scenarios — name, feature, inputs (jsonb), criteria (text[]). Pre-seeded with 7 family prompt scenarios |
 | `eval_results` | Eval run results — test_case_id (FK), model, prompt_used, ai_output, human_score (1-5), human_notes, llm_score (1-5), llm_reasoning |
@@ -236,6 +240,28 @@ create table user_feedback (
 );
 ```
 
+**Required SQL for `itinerary_items` table** (persists AI-generated restaurant alternatives):
+```sql
+create table itinerary_items (
+  id uuid primary key default gen_random_uuid(),
+  item_id text not null,
+  title text not null,
+  description text,
+  item_type text not null default 'restaurant',
+  time_block text not null,
+  status text not null default 'idea',
+  source text not null default 'ai_generated',
+  cuisine text,
+  vibe text,
+  price_tier text,
+  booking_meta jsonb,
+  date text not null,
+  day_number integer,
+  destination text not null,
+  replaced_restaurant text,
+  is_alternative boolean default false,
+  created_at timestamptz default now()
+);
 **Required SQL for eval tables:**
 ```sql
 create table eval_test_cases (
