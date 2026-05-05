@@ -1110,34 +1110,15 @@ export default function WelcomePage() {
 
   if (step === 0 && parserPhase !== "structured") {
     if (parserPhase === "confirming" && parsedIntent) {
-      // PHI-34: read-only confirmation chips. The PRD calls for editable
-      // chips with inline editors per field; v1 ships read-only confirmation
-      // and the user edits any field via the structured wizard after
-      // "Looks right →". Inline editors are a small follow-up.
+      // PHI-34 + Follow-up #1: confirmation chips with inline editors for
+      // the most-edited fields (destination, dates, adults). Other fields
+      // (style, budget, occasion, constraints) remain read-only — users
+      // can adjust those via the structured wizard after "Looks right →".
+      // The chip editors update parsedIntent so re-rendering reflects edits.
       const intent = parsedIntent;
-      const chips: { icon: string; label: string }[] = [];
-      intent.destinations.forEach((d) =>
-        chips.push({ icon: "📍", label: d.name + (d.kind ? ` (${d.kind})` : "") })
-      );
-      if (intent.dates.departure && intent.dates.return)
-        chips.push({ icon: "📅", label: `${intent.dates.departure} → ${intent.dates.return}` });
-      else if (intent.dates.durationNights)
-        chips.push({ icon: "📅", label: `${intent.dates.durationNights} nights` });
-      else if (intent.dates.season) chips.push({ icon: "📅", label: intent.dates.season });
-      if (intent.party.adults) chips.push({ icon: "👤", label: `${intent.party.adults} adult${intent.party.adults > 1 ? "s" : ""}` });
-      if (intent.party.children?.length)
-        chips.push({
-          icon: "👶",
-          label: `${intent.party.children.length} ${intent.party.children.length === 1 ? "child" : "children"}`,
-        });
-      if (intent.styleTags?.length) chips.push({ icon: "🎯", label: intent.styleTags.join(", ") });
-      if (intent.budgetTier) chips.push({ icon: "💼", label: intent.budgetTier });
-      if (intent.occasion) chips.push({ icon: "✨", label: intent.occasion });
-      if (intent.constraintTags?.length || intent.constraintText) {
-        const c =
-          [intent.constraintTags?.join(", "), intent.constraintText].filter(Boolean).join("; ");
-        chips.push({ icon: "⚠", label: c });
-      }
+      const updateIntent = (patch: Partial<TripIntent>) =>
+        setParsedIntent({ ...intent, ...patch });
+
       return (
         <main className="min-h-screen flex flex-col items-center justify-center px-6 py-10" style={{ backgroundColor: "#f8f6f1" }}>
           <div className="w-full max-w-xl animate-step" key={animKey}>
@@ -1146,19 +1127,166 @@ export default function WelcomePage() {
               Got it. Anything to fix?
             </h1>
             <p className="text-base text-[#4a6580] mb-6">
-              Here&apos;s what we picked up. You&apos;ll be able to tweak the
-              rest in the next steps.
+              Here&apos;s what we picked up. Tap any chip to fix it; we&apos;ll
+              walk through the rest after.
             </p>
             <div className="flex flex-wrap gap-2 mb-6" data-testid="confirm-chips">
-              {chips.map((c, i) => (
-                <span
-                  key={i}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-[#d4cfc5] bg-white px-3 py-1.5 text-sm text-[#0e2a47]"
+              {/* Destination(s) — editable */}
+              {intent.destinations.length === 0 ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = prompt("Where to?");
+                    if (next?.trim())
+                      updateIntent({
+                        destinations: [{ name: next.trim() }],
+                      });
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-dashed border-[#d4a94a]/60 bg-white px-3 py-1.5 text-sm text-[#0e2a47] hover:border-[#1a6b7f] transition-colors"
+                  aria-label="Add destination"
                 >
-                  <span>{c.icon}</span>
-                  <span className="font-medium">{c.label}</span>
+                  <span>📍</span>
+                  <span className="font-medium">Add a destination</span>
+                </button>
+              ) : (
+                intent.destinations.map((d, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => {
+                      const next = prompt("Edit destination", d.name);
+                      if (next?.trim()) {
+                        const arr = [...intent.destinations];
+                        arr[i] = { ...d, name: next.trim() };
+                        updateIntent({ destinations: arr });
+                      }
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-[#d4cfc5] bg-white px-3 py-1.5 text-sm text-[#0e2a47] hover:border-[#1a6b7f] transition-colors"
+                    aria-label={`Edit destination ${d.name}`}
+                  >
+                    <span>📍</span>
+                    <span className="font-medium">
+                      {d.name}
+                      {d.kind ? ` (${d.kind})` : ""}
+                    </span>
+                  </button>
+                ))
+              )}
+
+              {/* Dates — editable. Show current value or a prompt to set. */}
+              <button
+                type="button"
+                onClick={() => {
+                  const dep = prompt(
+                    "Departure date (YYYY-MM-DD), or leave blank for none",
+                    intent.dates.departure ?? ""
+                  );
+                  if (dep === null) return;
+                  const ret = prompt(
+                    "Return date (YYYY-MM-DD), or leave blank for none",
+                    intent.dates.return ?? ""
+                  );
+                  if (ret === null) return;
+                  updateIntent({
+                    dates: {
+                      ...intent.dates,
+                      departure: dep.trim() || undefined,
+                      return: ret.trim() || undefined,
+                    },
+                  });
+                }}
+                className={`inline-flex items-center gap-1.5 rounded-xl border bg-white px-3 py-1.5 text-sm text-[#0e2a47] hover:border-[#1a6b7f] transition-colors ${
+                  intent.dates.departure && intent.dates.return
+                    ? "border-[#d4cfc5]"
+                    : "border-dashed border-[#d4a94a]/60"
+                }`}
+                aria-label="Edit dates"
+              >
+                <span>📅</span>
+                <span className="font-medium">
+                  {intent.dates.departure && intent.dates.return
+                    ? `${intent.dates.departure} → ${intent.dates.return}`
+                    : intent.dates.durationNights
+                    ? `${intent.dates.durationNights} nights — set dates`
+                    : intent.dates.season
+                    ? `${intent.dates.season} — set dates`
+                    : "Set dates"}
                 </span>
-              ))}
+              </button>
+
+              {/* Adults — editable via prompt */}
+              <button
+                type="button"
+                onClick={() => {
+                  const next = prompt(
+                    "How many adults?",
+                    String(intent.party.adults ?? 1)
+                  );
+                  const n = Number(next);
+                  if (Number.isInteger(n) && n >= 1)
+                    updateIntent({
+                      party: { ...intent.party, adults: n },
+                    });
+                }}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-[#d4cfc5] bg-white px-3 py-1.5 text-sm text-[#0e2a47] hover:border-[#1a6b7f] transition-colors"
+                aria-label="Edit adult count"
+              >
+                <span>👤</span>
+                <span className="font-medium">
+                  {intent.party.adults ?? 1} adult
+                  {(intent.party.adults ?? 1) > 1 ? "s" : ""}
+                </span>
+              </button>
+
+              {/* Children — read-only display (count + ages) */}
+              {intent.party.children?.length ? (
+                <span className="inline-flex items-center gap-1.5 rounded-xl border border-[#d4cfc5] bg-white px-3 py-1.5 text-sm text-[#0e2a47]">
+                  <span>👶</span>
+                  <span className="font-medium">
+                    {intent.party.children.length}{" "}
+                    {intent.party.children.length === 1 ? "child" : "children"}
+                  </span>
+                </span>
+              ) : null}
+
+              {/* Style — read-only chip; user can edit in the wizard */}
+              {intent.styleTags?.length ? (
+                <span className="inline-flex items-center gap-1.5 rounded-xl border border-[#d4cfc5] bg-white px-3 py-1.5 text-sm text-[#0e2a47]">
+                  <span>🎯</span>
+                  <span className="font-medium">{intent.styleTags.join(", ")}</span>
+                </span>
+              ) : null}
+
+              {/* Budget — read-only */}
+              {intent.budgetTier && (
+                <span className="inline-flex items-center gap-1.5 rounded-xl border border-[#d4cfc5] bg-white px-3 py-1.5 text-sm text-[#0e2a47]">
+                  <span>💼</span>
+                  <span className="font-medium">{intent.budgetTier}</span>
+                </span>
+              )}
+
+              {/* Occasion — read-only */}
+              {intent.occasion && (
+                <span className="inline-flex items-center gap-1.5 rounded-xl border border-[#d4cfc5] bg-white px-3 py-1.5 text-sm text-[#0e2a47]">
+                  <span>✨</span>
+                  <span className="font-medium">{intent.occasion}</span>
+                </span>
+              )}
+
+              {/* Constraints — read-only with full text */}
+              {(intent.constraintTags?.length || intent.constraintText) && (
+                <span className="inline-flex items-center gap-1.5 rounded-xl border border-[#d4a94a]/40 bg-[#d4a94a]/5 px-3 py-1.5 text-sm text-[#0e2a47]">
+                  <span>⚠</span>
+                  <span className="font-medium">
+                    {[
+                      intent.constraintTags?.join(", "),
+                      intent.constraintText,
+                    ]
+                      .filter(Boolean)
+                      .join("; ")}
+                  </span>
+                </span>
+              )}
             </div>
             {intent.clarifications.length > 0 && (
               <div className="mb-6 rounded-2xl border border-[#d4a94a]/40 bg-[#d4a94a]/5 px-5 py-4">

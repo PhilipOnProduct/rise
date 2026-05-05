@@ -678,6 +678,7 @@ function DaySection({
 type StoredTraveler = {
   id?: string | null;
   name?: string;
+  email?: string; // followup #3: anon-session fallback synthesises this
   destination?: string;
   departureDate?: string;
   returnDate?: string;
@@ -685,8 +686,9 @@ type StoredTraveler = {
   travelCompany?: string;
   travelerTypes?: string[];
   budgetTier?: string;
-  travelerCount?: number;
+  travelerCount?: number | null;
   childrenAges?: string[] | null;
+  activities?: unknown[];
 };
 
 export default function ItineraryViewPage() {
@@ -741,27 +743,70 @@ export default function ItineraryViewPage() {
   // ── Load itinerary ───────────────────────────────────────────────────────
 
   useEffect(() => {
-    const raw = localStorage.getItem("rise_traveler");
-    if (!raw) {
-      router.replace("/welcome");
-      return;
+    let cancelled = false;
+
+    /**
+     * Follow-up #3 — anon-session fallback.
+     *
+     * If the user has signed up, rise_traveler is in localStorage and we
+     * use it directly. If they haven't (returning anon visitor inside the
+     * 14-day TTL window from PHI-31), fall back to /api/anonymous-session.
+     * The anon row shape carries the same fields we need; we synthesise a
+     * StoredTraveler from it so the rest of this page works unchanged.
+     *
+     * Only redirect to /welcome if both paths are empty — that's a true
+     * "no trip in progress" state.
+     */
+    async function resolveTraveler(): Promise<StoredTraveler | null> {
+      const raw = localStorage.getItem("rise_traveler");
+      if (raw) {
+        try {
+          return JSON.parse(raw) as StoredTraveler;
+        } catch {
+          // fall through to anon session
+        }
+      }
+      try {
+        const res = await fetch("/api/anonymous-session");
+        if (res.status === 204) return null;
+        if (!res.ok) return null;
+        const row = (await res.json()) as Record<string, unknown>;
+        // Extract trip context from legs JSONB if present, else fall back
+        // to the (deprecated but still on the row) flat fields.
+        const legs = (row.legs as Array<Record<string, unknown>>) ?? [];
+        const leg0 = legs[0] ?? {};
+        const place =
+          ((leg0 as Record<string, unknown>).place as Record<string, unknown>) ?? {};
+        const synthesised: StoredTraveler = {
+          id: null, // unsigned-up — no traveler row yet
+          name: "",
+          email: "",
+          destination: (place.name as string) ?? (row.destination as string) ?? "",
+          departureDate:
+            (leg0 as Record<string, unknown>).startDate as string ??
+            (row.departure_date as string) ??
+            "",
+          returnDate:
+            (leg0 as Record<string, unknown>).endDate as string ??
+            (row.return_date as string) ??
+            "",
+          hotel:
+            ((leg0 as Record<string, unknown>).hotel as string) ??
+            (row.hotel as string) ??
+            "",
+          travelCompany: (row.travel_company as string) ?? "",
+          travelerTypes: (row.style_tags as string[]) ?? [],
+          travelerCount: (row.traveler_count as number) ?? null,
+          childrenAges: (row.children_ages as string[]) ?? null,
+          activities: [],
+        };
+        return synthesised;
+      } catch {
+        return null;
+      }
     }
 
-    let traveler: StoredTraveler;
-    try {
-      traveler = JSON.parse(raw) as StoredTraveler;
-    } catch {
-      router.replace("/welcome");
-      return;
-    }
-
-    setDestination(traveler.destination ?? "");
-    setDepartureDate(traveler.departureDate ?? "");
-    setReturnDate(traveler.returnDate ?? "");
-    setHotel(traveler.hotel ?? "");
-    travelerRef.current = traveler;
-
-    async function load() {
+    async function load(traveler: StoredTraveler) {
       try {
         // 1. Try Supabase first if we have a traveler ID
         if (traveler.id) {
@@ -846,7 +891,25 @@ export default function ItineraryViewPage() {
       setLoading(false);
     }
 
-    void load();
+    void (async () => {
+      const traveler = await resolveTraveler();
+      if (cancelled) return;
+      if (!traveler || !traveler.destination) {
+        router.replace("/welcome");
+        return;
+      }
+
+      setDestination(traveler.destination ?? "");
+      setDepartureDate(traveler.departureDate ?? "");
+      setReturnDate(traveler.returnDate ?? "");
+      setHotel(traveler.hotel ?? "");
+      travelerRef.current = traveler;
+      void load(traveler);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [router]);
 
   // ── Load stored travel connectors ──────────────────────────────────────
