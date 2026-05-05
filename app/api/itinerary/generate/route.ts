@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { logAiInteraction } from "@/lib/ai-logger";
 import { logApiUsage, checkApiLimit } from "@/lib/log-api-usage";
 import { buildCompositionSegment } from "@/lib/composition";
+import type { TripLeg } from "@/lib/trip-schema";
 
 const client = new Anthropic();
 const MODEL = "claude-sonnet-4-6";
@@ -85,6 +86,10 @@ type ItineraryDay = {
   date: string;
   day_number: number;
   items: ItineraryItem[];
+  // PHI-37: multi-leg trips — index into legs[]. Absent on single-leg
+  // trips. `is_transition: true` flags a travel day between legs.
+  leg_index?: number;
+  is_transition?: boolean;
 };
 
 export async function POST(req: NextRequest) {
@@ -98,7 +103,24 @@ export async function POST(req: NextRequest) {
     activityFeedback,
     travelerCount,
     childrenAges,
-  } = await req.json();
+    // PHI-37: multi-leg support. When 2+ legs are provided, the prompt
+    // generates a day-by-day plan tagged with leg_index per day, with a
+    // single transition day between legs (is_transition: true). When
+    // legs is missing/length<=1 the existing single-destination prompt
+    // runs unchanged (backward compatible).
+    legs,
+  } = (await req.json()) as {
+    destination?: string;
+    departureDate?: string;
+    returnDate?: string;
+    hotel?: string;
+    travelCompany?: string;
+    travelerTypes?: string[];
+    activityFeedback?: ActivityFeedbackEntry[];
+    travelerCount?: number;
+    childrenAges?: string[];
+    legs?: TripLeg[];
+  };
 
   if (!destination || !departureDate || !returnDate) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -123,10 +145,59 @@ export async function POST(req: NextRequest) {
   const composition = buildCompositionSegment(travelerCount, childrenAges);
   const compositionStr = composition ? `\nTraveller composition: ${composition}` : "";
 
-  const prompt = `You are a trip planning AI. Generate a structured day-by-day itinerary for a ${days}-day trip to ${destination}.
+  // PHI-37: multi-leg block. When 2+ legs, the prompt generates a plan
+  // tagged with leg_index per day plus an explicit transition day between
+  // legs. The single-hotel decision (signed off 2026-05-05) means the
+  // prompt is told to anchor on the longest stay or skip hotel guidance
+  // for moves between cities.
+  const isMultiLeg = Array.isArray(legs) && legs.length >= 2;
+  const multiLegBlock = isMultiLeg
+    ? `
+
+This is a MULTI-LEG trip. Plan day-by-day across all legs in order.
+
+Legs (in order):
+${legs!
+  .map((leg, i) => {
+    const name = leg.place?.name ?? `Leg ${i + 1}`;
+    const legNights =
+      leg.startDate && leg.endDate
+        ? Math.round(
+            (new Date(leg.endDate).getTime() -
+              new Date(leg.startDate).getTime()) /
+              86_400_000
+          )
+        : null;
+    const nightsStr = legNights ? ` (${legNights} night${legNights === 1 ? "" : "s"})` : "";
+    const dateStr =
+      leg.startDate && leg.endDate
+        ? `, ${leg.startDate} → ${leg.endDate}`
+        : "";
+    return `- LEG ${i}: ${name}${nightsStr}${dateStr}`;
+  })
+  .join("\n")}
+
+Multi-leg rules:
+- Tag every day with "leg_index": <index>. The first leg is leg_index 0.
+- Bias toward fewer activities per day on short legs (≤2 nights). Travellers want lighter plans on later legs.
+- Stay in the previous leg's hotel when a leg is ≤2 nights AND day-trip distance is reasonable; suggest day-trip activities from the previous base.
+- Never recommend cross-leg activities (e.g. for "Spain + Portugal", no Lisbon-to-Madrid day trips).
+- Insert exactly ONE transition day between consecutive legs. A transition day:
+    * has "is_transition": true and "leg_index" set to the leg the user is travelling INTO
+    * contains a single transport item: { title: "Travel to <next leg name>", description: "<a brief note>", type: "transport", time_block: "morning" or "afternoon" }
+    * has NO other activities — travellers lose meals/naps/check-in time on transition days; do not over-plan.
+- Hotel guidance (single hotel field for v1): if the user provided a hotel name, treat it as the anchor for the longest-stay leg only. For other legs, skip hotel-proximity claims.
+`
+    : "";
+
+  const headline = isMultiLeg
+    ? `You are a trip planning AI. Generate a structured day-by-day itinerary for a ${days}-day multi-leg trip across ${legs!.map((l) => l.place?.name ?? "?").join(" → ")}.`
+    : `You are a trip planning AI. Generate a structured day-by-day itinerary for a ${days}-day trip to ${destination}.`;
+
+  const prompt = `${headline}
 ${companyStr}
 ${hotelStr}
-${styleStr}${compositionStr}${feedbackSegment}
+${styleStr}${compositionStr}${feedbackSegment}${multiLegBlock}
 
 Return ONLY a valid JSON array — no markdown, no explanation, no code fences. The array must have exactly ${days} elements, one per day.
 
@@ -134,7 +205,13 @@ Each day object:
 {
   "date": "YYYY-MM-DD",   // starting from ${departureDate}
   "day_number": 1,         // 1-indexed
-  "items": [...]
+  "items": [...]${
+    isMultiLeg
+      ? `,
+  "leg_index": 0,          // 0-indexed pointer into the Legs list above
+  "is_transition": false   // true on the day the traveller moves between legs`
+      : ""
+  }
 }
 
 Each item object:
@@ -149,11 +226,17 @@ Each item object:
 }
 
 Rules:
-- Cover morning, afternoon, and evening for each day (one item per slot minimum, max two)
-- Mix types: include at least one restaurant per day
+- Cover morning, afternoon, and evening for each day (one item per slot minimum, max two)${
+    isMultiLeg
+      ? " — EXCEPT transition days, which contain exactly one transport item"
+      : ""
+  }
+- Mix types: include at least one restaurant per day${
+    isMultiLeg ? " (skip on transition days)" : ""
+  }
 - Day 1 morning: arrival/orientation activity
 - Final day evening: something easy near ${hotel ? hotel : "the accommodation"}
-- Be specific to ${destination} — no generic suggestions
+- Be specific to ${isMultiLeg ? "each leg" : destination} — no generic suggestions
 - Keep descriptions under 20 words
 - id must be unique across all days (e.g. "day1-morning-1")
 - Within each time block, order items in the sequence they should happen. Place meals at the right time: breakfast before morning activities, lunch before afternoon sightseeing, dinner before evening leisure. The items array order IS the display order.`;
@@ -194,6 +277,7 @@ Rules:
         travelerTypes,
         travelerCount: travelerCount ?? null,
         childrenAges: childrenAges ?? null,
+        legs: isMultiLeg ? legs : null,
       },
       output: jsonStr,
       latency_ms: Date.now() - startTime,

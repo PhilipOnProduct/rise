@@ -20,6 +20,10 @@ export type ItineraryDay = {
   date: string;
   day_number: number;
   activities: Activity[];
+  /** PHI-37: index into the trip's legs[] (0-based). Absent on single-leg trips. */
+  leg_index?: number;
+  /** PHI-37: true on travel days between legs — rendered as a muted card. */
+  is_transition?: boolean;
 };
 
 export type Itinerary = {
