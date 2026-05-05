@@ -70,14 +70,3 @@ When Philip names a teammate ("ask Maya about this", "what would Luca say?", "le
 4. Luca confirms the shape and calls out constraints / opportunities
 5. Sarah writes the PRD via `product-management:write-spec`
 6. Card lands in Linear (Backlog) — see KANBAN.md
-
----
-
-## Build vs. Research mode
-
-Carried over from Rise. Default is **Build**.
-
-- **Build mode:** ship the smallest end-to-end version. Skip research gates and phased rollouts. Maya works from intuition + heuristics, Luca picks the boring-but-fast path. Use when the cost of being wrong is low and we'll learn more from shipping than from asking.
-- **Research mode:** apply standard discovery practice. Maya proposes user research; Sarah delays committing to a solution until evidence is in; Luca scopes a spike before the build.
-
-Philip toggles by saying "build mode" or "research mode" at the start of a discussion. If unset, assume Build.
