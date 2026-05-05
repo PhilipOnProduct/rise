@@ -118,6 +118,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: dbErr(error) }, { status: 500 });
   }
 
+  // PHI-31 Part 2 slice 3: claim the anonymous session, if the visitor
+  // had one. The traveler row was just created from the same data the
+  // anon session was carrying, so we mark the session as claimed by
+  // this new traveler. Best-effort — failure here doesn't fail signup.
+  const sessionId = req.cookies.get("rise_session_id")?.value;
+  if (sessionId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionId)) {
+    const { error: claimErr } = await supabase
+      .from("anonymous_sessions")
+      .update({ claimed_at: new Date().toISOString() })
+      .eq("id", sessionId)
+      .is("claimed_at", null);
+    if (claimErr) {
+      console.error("[travelers] claim anon session:", dbErr(claimErr));
+      // Don't fail signup — the traveler row exists.
+    }
+  }
+
   return NextResponse.json(data, { status: 201 });
 }
 
