@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import PlacesAutocomplete from "@/app/components/PlacesAutocomplete";
+import type { TripIntent } from "@/lib/trip-intent";
 
 const TOTAL_WIZARD_STEPS = 5; // steps 1–5
 
@@ -446,6 +447,17 @@ export default function WelcomePage() {
   const [itineraryPreviewError, setItineraryPreviewError] = useState<string | null>(null);
   const itineraryAbortRef = useRef<AbortController | null>(null);
   const itineraryViewedFiredRef = useRef(false);
+
+  // PHI-34 UI: parser-mode landing. Per Sarah's PRD, the dual-CTA hero is
+  // the default first impression — free-form textarea is primary, the
+  // structured form is the fallback. parserPhase drives which view step 0
+  // renders; once we leave step 0 the existing structured wizard runs.
+  const [parserPhase, setParserPhase] = useState<
+    "landing" | "parsing" | "confirming" | "structured"
+  >("landing");
+  const [parserText, setParserText] = useState("");
+  const [parsedIntent, setParsedIntent] = useState<TripIntent | null>(null);
+  const [parserError, setParserError] = useState<string | null>(null);
 
   // Activity cards + feedback
   const [parsedActivities, setParsedActivities] = useState<ParsedActivity[]>([]);
@@ -1021,6 +1033,232 @@ export default function WelcomePage() {
   }
 
   // ── Step 0: Full-screen landing ────────────────────────────────────────────
+
+  // ── PHI-34 UI: dual-CTA landing ────────────────────────────────────────
+  // Default first impression. Free-form textarea → /api/parse-trip → chips
+  // confirmation → pre-fill state and advance. Structured form remains
+  // available via the "Or step by step →" link.
+  async function submitFreeForm() {
+    if (!parserText.trim()) return;
+    setParserPhase("parsing");
+    setParserError(null);
+    logOnboardingEvent("freeform_initiated", { length: parserText.length });
+    try {
+      const res = await fetch("/api/parse-trip", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: parserText }),
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        setParserError(err || "Couldn't read that — try the structured form below.");
+        setParserPhase("landing");
+        return;
+      }
+      const data = (await res.json()) as { intent: TripIntent };
+      setParsedIntent(data.intent);
+      setParserPhase("confirming");
+      logOnboardingEvent(
+        data.intent.clarifications.length > 0
+          ? "freeform_required_clarification"
+          : "freeform_parsed_clean",
+        { clarifications: data.intent.clarifications.length }
+      );
+    } catch (e: unknown) {
+      setParserError(e instanceof Error ? e.message : "Network error.");
+      setParserPhase("landing");
+    }
+  }
+
+  function applyParsedIntentAndAdvance() {
+    if (!parsedIntent) return;
+    // Pre-fill structured state from the parsed intent. The user already
+    // approved the chips, so we trust the parse output going forward.
+    const first = parsedIntent.destinations[0];
+    if (first?.name) {
+      setDestination(first.name);
+      setDestinationVerified(true);
+    }
+    if (parsedIntent.dates.departure) setDepartureDate(parsedIntent.dates.departure);
+    if (parsedIntent.dates.return) setReturnDate(parsedIntent.dates.return);
+    if (parsedIntent.party.adults) setAdultCount(parsedIntent.party.adults);
+    if (parsedIntent.party.children?.length) {
+      setChildrenAges(
+        parsedIntent.party.children
+          .map((c) => c.ageRange ?? "")
+          .filter((a, i, arr) => arr[i] || true) // keep all, even empties
+      );
+    }
+    if (parsedIntent.styleTags?.length)
+      setTravelerTypes(parsedIntent.styleTags.slice(0, MAX_STYLE_SELECTIONS));
+    if (parsedIntent.budgetTier) setBudgetTier(parsedIntent.budgetTier);
+    if (parsedIntent.constraintTags?.length) setConstraintTags(parsedIntent.constraintTags);
+    if (parsedIntent.constraintText) setConstraintText(parsedIntent.constraintText);
+
+    logOnboardingEvent("freeform_completed", {
+      destinationCount: parsedIntent.destinations.length,
+      hadConstraints:
+        parsedIntent.constraintTags.length + (parsedIntent.constraintText ? 1 : 0),
+    });
+
+    // Skip to step 1 (dates) — destination is now pre-filled. The user
+    // walks the rest of the flow, but skipping step 0 means the parsed
+    // text gave us the foundational input.
+    setParserPhase("structured");
+    goTo(1);
+  }
+
+  if (step === 0 && parserPhase !== "structured") {
+    if (parserPhase === "confirming" && parsedIntent) {
+      // PHI-34: read-only confirmation chips. The PRD calls for editable
+      // chips with inline editors per field; v1 ships read-only confirmation
+      // and the user edits any field via the structured wizard after
+      // "Looks right →". Inline editors are a small follow-up.
+      const intent = parsedIntent;
+      const chips: { icon: string; label: string }[] = [];
+      intent.destinations.forEach((d) =>
+        chips.push({ icon: "📍", label: d.name + (d.kind ? ` (${d.kind})` : "") })
+      );
+      if (intent.dates.departure && intent.dates.return)
+        chips.push({ icon: "📅", label: `${intent.dates.departure} → ${intent.dates.return}` });
+      else if (intent.dates.durationNights)
+        chips.push({ icon: "📅", label: `${intent.dates.durationNights} nights` });
+      else if (intent.dates.season) chips.push({ icon: "📅", label: intent.dates.season });
+      if (intent.party.adults) chips.push({ icon: "👤", label: `${intent.party.adults} adult${intent.party.adults > 1 ? "s" : ""}` });
+      if (intent.party.children?.length)
+        chips.push({
+          icon: "👶",
+          label: `${intent.party.children.length} ${intent.party.children.length === 1 ? "child" : "children"}`,
+        });
+      if (intent.styleTags?.length) chips.push({ icon: "🎯", label: intent.styleTags.join(", ") });
+      if (intent.budgetTier) chips.push({ icon: "💼", label: intent.budgetTier });
+      if (intent.occasion) chips.push({ icon: "✨", label: intent.occasion });
+      if (intent.constraintTags?.length || intent.constraintText) {
+        const c =
+          [intent.constraintTags?.join(", "), intent.constraintText].filter(Boolean).join("; ");
+        chips.push({ icon: "⚠", label: c });
+      }
+      return (
+        <main className="min-h-screen flex flex-col items-center justify-center px-6 py-10" style={{ backgroundColor: "#f8f6f1" }}>
+          <div className="w-full max-w-xl animate-step" key={animKey}>
+            <p className="font-extrabold text-xl tracking-tight mb-10" style={{ color: "#0e2a47" }}>Rise</p>
+            <h1 className="text-3xl md:text-4xl font-extrabold text-[#0e2a47] mb-3">
+              Got it. Anything to fix?
+            </h1>
+            <p className="text-base text-[#4a6580] mb-6">
+              Here&apos;s what we picked up. You&apos;ll be able to tweak the
+              rest in the next steps.
+            </p>
+            <div className="flex flex-wrap gap-2 mb-6" data-testid="confirm-chips">
+              {chips.map((c, i) => (
+                <span
+                  key={i}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-[#d4cfc5] bg-white px-3 py-1.5 text-sm text-[#0e2a47]"
+                >
+                  <span>{c.icon}</span>
+                  <span className="font-medium">{c.label}</span>
+                </span>
+              ))}
+            </div>
+            {intent.clarifications.length > 0 && (
+              <div className="mb-6 rounded-2xl border border-[#d4a94a]/40 bg-[#d4a94a]/5 px-5 py-4">
+                <p className="text-xs font-bold text-[#0e2a47] uppercase tracking-widest mb-2">
+                  A few things we&apos;ll ask in the next steps
+                </p>
+                <ul className="text-sm text-[#4a6580] flex flex-col gap-1.5">
+                  {intent.clarifications.map((c, i) => (
+                    <li key={i}>· {c}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <button
+              onClick={applyParsedIntentAndAdvance}
+              className="w-full rounded-2xl bg-[#1a6b7f] text-white font-bold text-base py-4 hover:bg-[#155a6b] transition-colors mb-3"
+            >
+              Looks right — keep going →
+            </button>
+            <button
+              onClick={() => {
+                setParserPhase("landing");
+                setParsedIntent(null);
+              }}
+              className="w-full text-sm text-[#6a7f8f] hover:text-[#4a6580] underline-offset-4 hover:underline transition-colors"
+            >
+              Start over
+            </button>
+          </div>
+        </main>
+      );
+    }
+
+    // parserPhase === "landing" or "parsing": dual-CTA landing
+    return (
+      <main className="min-h-screen flex flex-col items-center justify-center px-6 py-10" style={{ backgroundColor: "#f8f6f1" }}>
+        <div className="w-full max-w-xl animate-step" key={animKey}>
+          <p className="font-extrabold text-xl tracking-tight mb-12" style={{ color: "#0e2a47" }}>Rise</p>
+          <h1
+            className="text-4xl md:text-5xl tracking-tight leading-tight mb-4"
+            style={{ color: "#0e2a47", fontWeight: 300, letterSpacing: "-1px" }}
+          >
+            Tell us about your trip.
+          </h1>
+          <p className="text-base mb-6" style={{ color: "#4a6580" }}>
+            Describe it the way you&apos;d tell a friend. We&apos;ll handle the rest.
+          </p>
+          <textarea
+            value={parserText}
+            onChange={(e) => setParserText(e.target.value)}
+            disabled={parserPhase === "parsing"}
+            placeholder="e.g. Two of us, Portugal and Spain for two weeks in June, love food and history, no hiking, my wife has a knee issue."
+            rows={4}
+            className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-2xl px-5 py-4 text-base text-[#0e2a47] placeholder-[#9ca3af] transition-colors mb-4"
+            data-testid="parser-textarea"
+            autoFocus
+          />
+          <div className="flex flex-wrap gap-2 mb-6">
+            {[
+              "4 nights solo in Lisbon, food-led, mid-budget",
+              "Family Portugal trip, kids 7 and 11, beach + culture",
+              "Two weeks Italy honeymoon, anniversary, no hiking",
+            ].map((sample) => (
+              <button
+                key={sample}
+                type="button"
+                onClick={() => setParserText(sample)}
+                disabled={parserPhase === "parsing"}
+                className="text-xs text-[#1a6b7f] hover:text-[#0e2a47] underline-offset-4 hover:underline transition-colors disabled:opacity-40"
+              >
+                · {sample}
+              </button>
+            ))}
+          </div>
+          {parserError && (
+            <p className="text-sm text-red-500 mb-4" role="alert">
+              {parserError}
+            </p>
+          )}
+          <button
+            onClick={submitFreeForm}
+            disabled={parserPhase === "parsing" || !parserText.trim()}
+            className="w-full text-white font-semibold text-lg py-5 hover:opacity-90 transition-opacity disabled:opacity-30 disabled:cursor-not-allowed mb-3"
+            style={{ backgroundColor: "#1a6b7f", borderRadius: 50 }}
+            data-testid="parser-submit"
+          >
+            {parserPhase === "parsing" ? "Reading your trip…" : "Plan my trip →"}
+          </button>
+          <button
+            onClick={() => setParserPhase("structured")}
+            disabled={parserPhase === "parsing"}
+            className="w-full text-sm text-[#6a7f8f] hover:text-[#4a6580] underline-offset-4 hover:underline transition-colors py-2"
+            data-testid="use-structured-form"
+          >
+            Or step by step →
+          </button>
+        </div>
+      </main>
+    );
+  }
 
   if (step === 0) {
     return (

@@ -149,6 +149,9 @@ test("welcome step 0 gates Start planning on verified destination", async ({
   page,
 }) => {
   await page.goto("/welcome");
+  // PHI-34: dual-CTA landing now shows the free-form parser by default.
+  // Drop into the structured form for tests that walk the wizard.
+  await page.getByTestId("use-structured-form").click();
 
   const input = page.getByPlaceholder("e.g. Tokyo, Japan");
   const startBtn = page.getByRole("button", { name: /Start planning/i });
@@ -194,6 +197,8 @@ test("welcome step 3 shows persistent trip-type label across compositions", asyn
   page,
 }) => {
   await page.goto("/welcome");
+  // PHI-34: dual-CTA landing — drop into structured form for the wizard walk.
+  await page.getByTestId("use-structured-form").click();
 
   // Walk to step 3
   await page.getByPlaceholder("e.g. Tokyo, Japan").fill("Lisbon");
@@ -259,6 +264,8 @@ test("welcome step 3 supports teen ages and gates Continue on age picks", async 
   page,
 }) => {
   await page.goto("/welcome");
+  // PHI-34: dual-CTA landing — drop into structured form for the wizard walk.
+  await page.getByTestId("use-structured-form").click();
 
   // Walk to step 3
   await page.getByPlaceholder("e.g. Tokyo, Japan").fill("Lisbon");
@@ -307,6 +314,8 @@ test("welcome step 3 supports teen ages and gates Continue on age picks", async 
  */
 test("welcome step 4 supports Skip as a distinct rating signal", async ({ page }) => {
   await page.goto("/welcome");
+  // PHI-34: dual-CTA landing — drop into structured form for the wizard walk.
+  await page.getByTestId("use-structured-form").click();
 
   // Walk to step 4
   await page.getByPlaceholder("e.g. Tokyo, Japan").fill("Lisbon");
@@ -374,6 +383,8 @@ test("welcome step 3 captures constraints (chips + free text) and forwards them"
   });
 
   await page.goto("/welcome");
+  // PHI-34: dual-CTA landing — drop into structured form for the wizard walk.
+  await page.getByTestId("use-structured-form").click();
 
   // Walk to step 3
   await page.getByPlaceholder("e.g. Tokyo, Japan").fill("Lisbon");
@@ -422,6 +433,8 @@ test("welcome step 3 captures constraints (chips + free text) and forwards them"
  */
 test("welcome step 4 cards show expandable Why this rationale", async ({ page }) => {
   await page.goto("/welcome");
+  // PHI-34: dual-CTA landing — drop into structured form for the wizard walk.
+  await page.getByTestId("use-structured-form").click();
 
   // Walk to step 4
   await page.getByPlaceholder("e.g. Tokyo, Japan").fill("Lisbon");
@@ -472,6 +485,8 @@ test("welcome step 4 cards show expandable Why this rationale", async ({ page })
  */
 test("welcome step 5 shows itinerary preview before signup form", async ({ page }) => {
   await page.goto("/welcome");
+  // PHI-34: dual-CTA landing — drop into structured form for the wizard walk.
+  await page.getByTestId("use-structured-form").click();
 
   // Walk to step 5 with the standard happy path
   const destinationInput = page.getByPlaceholder("e.g. Tokyo, Japan");
@@ -509,8 +524,69 @@ test("welcome step 5 shows itinerary preview before signup form", async ({ page 
   await expect(page.getByPlaceholder("you@example.com")).toBeVisible();
 });
 
+/**
+ * PHI-34 UI — dual-CTA landing + free-form parse + confirmation chips.
+ */
+test("welcome dual-CTA: free-form input parses and pre-fills the wizard", async ({
+  page,
+}) => {
+  // Mock /api/parse-trip so we don't hit Anthropic in tests.
+  await page.route("**/api/parse-trip", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        intent: {
+          destinations: [{ name: "Lisbon", kind: "place" }],
+          dates: { durationNights: 4 },
+          party: { adults: 1 },
+          styleTags: ["Food-led"],
+          budgetTier: "comfortable",
+          constraintTags: [],
+          constraintText: "no nightlife",
+          clarifications: ["What dates work for the 4 nights?"],
+        },
+        tokensIn: 500,
+        tokensOut: 200,
+      }),
+    });
+  });
+
+  await page.goto("/welcome");
+
+  // Dual-CTA landing is the default
+  const textarea = page.getByTestId("parser-textarea");
+  await expect(textarea).toBeVisible();
+  await expect(page.getByTestId("parser-submit")).toBeDisabled();
+  await expect(page.getByTestId("use-structured-form")).toBeVisible();
+
+  // Type and submit
+  await textarea.fill("Solo trip, Lisbon, 4 nights, food-led, no nightlife");
+  await expect(page.getByTestId("parser-submit")).toBeEnabled();
+  await page.getByTestId("parser-submit").click();
+
+  // Confirmation chips appear
+  const chips = page.getByTestId("confirm-chips");
+  await expect(chips).toBeVisible();
+  await expect(chips).toContainText("Lisbon");
+  await expect(chips).toContainText("4 nights");
+  await expect(chips).toContainText("Food-led");
+
+  // Clarification surfaces in its own block
+  await expect(page.getByText(/What dates work for the 4 nights/i)).toBeVisible();
+
+  // Looks right → advances into the structured wizard
+  await page.getByRole("button", { name: /Looks right/i }).click();
+  // Now on step 1 (dates) with destination pre-filled
+  await expect(page.getByText("Great choice. Now let's lock in the dates")).toBeVisible({
+    timeout: 5_000,
+  });
+});
+
 test("welcome step 5 renders with description shown exactly once", async ({ page }) => {
   await page.goto("/welcome");
+  // PHI-34: dual-CTA landing — drop into structured form for the wizard walk.
+  await page.getByTestId("use-structured-form").click();
 
   // ── Step 0: Landing — type destination, press Enter ────────────────────
   const destinationInput = page.getByPlaceholder("e.g. Tokyo, Japan");
