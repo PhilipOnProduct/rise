@@ -1,64 +1,92 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { logAiInteraction } from "@/lib/ai-logger";
+import { logApiUsage, checkApiLimit } from "@/lib/log-api-usage";
+import type { TripLeg } from "@/lib/trip-schema";
+// PHI-43: prompt + user-message builder live in lib/ as the single
+// source of truth. Edit there, not here. The eval harness imports the
+// same module so they stay in sync.
+import {
+  ACTIVITY_GEN_SYSTEM,
+  buildActivityGenUserMessage,
+} from "@/lib/activity-gen-prompt";
 
 const client = new Anthropic();
 const MODEL = "claude-sonnet-4-6";
 
 export async function POST(req: NextRequest) {
-  const { destination, departureDate, returnDate, travelCompany, styleTags, budgetTier } =
-    await req.json();
-
-  const nights =
-    departureDate && returnDate
-      ? Math.round(
-          (new Date(returnDate).getTime() - new Date(departureDate).getTime()) /
-            86_400_000
-        )
-      : null;
-  const duration = nights ? `${nights}-night trip` : "trip";
-
-  // Build constraint block from preferences
-  const companyLabel: Record<string, string> = {
-    solo: "solo traveller",
-    couple: "couple",
-    family: "family with children",
-    friends: "group of friends",
+  const {
+    destination,
+    departureDate,
+    returnDate,
+    travelCompany,
+    styleTags,
+    budgetTier,
+    travelerCount,
+    childrenAges,
+    // PHI-35: high-stakes constraints — mobility, dietary, religious,
+    // allergies. Treated as MUST respect in the prompt below.
+    constraintTags,
+    constraintText,
+    // PHI-37: multi-leg trip support. When 2+ legs are provided, the
+    // prompt switches to multi-leg mode and the streamed output carries
+    // LEG: <index> markers so the client can group cards by leg. When
+    // legs is missing or has length <=1, the existing single-leg path
+    // runs unchanged (backward compatible).
+    legs,
+  } = (await req.json()) as {
+    destination?: string;
+    departureDate?: string;
+    returnDate?: string;
+    travelCompany?: string;
+    styleTags?: string[];
+    budgetTier?: string;
+    travelerCount?: number;
+    childrenAges?: string[];
+    constraintTags?: string[];
+    constraintText?: string;
+    legs?: TripLeg[];
   };
-  const budgetLabel: Record<string, string> = {
-    budget: "savvy (budget-conscious)",
-    comfortable: "comfortable (mid-range spend)",
-    luxury: "flexible (willing to spend more for quality)",
-  };
 
-  const constraintLines: string[] = [];
-  if (travelCompany) constraintLines.push(`- Travelling as: ${companyLabel[travelCompany] ?? travelCompany}`);
-  if (styleTags && styleTags.length > 0) constraintLines.push(`- Travel style: ${styleTags.join(", ")}`);
-  if (budgetTier) constraintLines.push(`- Budget: ${budgetLabel[budgetTier] ?? budgetTier}`);
+  // Hard limit check
+  const limit = await checkApiLimit("anthropic");
+  if (!limit.allowed) {
+    return NextResponse.json({ error: "API limit exceeded", provider: "anthropic", spentUsd: limit.spentUsd, limitUsd: limit.limitUsd }, { status: 429 });
+  }
 
-  const constraintBlock =
-    constraintLines.length > 0
-      ? `\n\nTraveller profile (treat these as hard constraints — every suggestion must fit):\n${constraintLines.join("\n")}\n`
-      : "";
+  // PHI-43: SYSTEM and the user-message construction live in
+  // lib/activity-gen-prompt.ts so the eval harness uses identical text.
+  const userMessage = buildActivityGenUserMessage({
+    destination,
+    departureDate,
+    returnDate,
+    travelCompany,
+    styleTags,
+    budgetTier,
+    travelerCount,
+    childrenAges,
+    constraintTags,
+    constraintText,
+    legs,
+  });
+  const isMultiLeg = Array.isArray(legs) && legs.length >= 2;
 
-  const prompt = `You are an expert travel planner. Suggest 5–6 must-do activities for a ${duration} to ${destination}.${constraintBlock}
-Every suggestion must genuinely suit the traveller profile above — not generic activities that any visitor might do. A solo food-led traveller should get different suggestions than a family on an adventure trip.
-
-For each activity provide its name, a one-sentence description, and a brief note on when in the trip it works best.
-
-Format each as:
-
-**[Activity Name]** — [Category]
-[One-sentence description]
-*When: [timing or day suggestion]*
-
-Be specific to ${destination} — avoid generic suggestions. Keep each entry concise.`;
+  // PHI-40: tag the log with rise_session_id so the cost-report script
+  // can attribute calls to a trip. Cookie set by middleware on first visit.
+  const sessionId = req.cookies.get("rise_session_id")?.value ?? null;
 
   const startTime = Date.now();
   const stream = client.messages.stream({
     model: MODEL,
     max_tokens: 1024,
-    messages: [{ role: "user", content: prompt }],
+    system: [
+      {
+        type: "text",
+        text: ACTIVITY_GEN_SYSTEM,
+        cache_control: { type: "ephemeral" },
+      },
+    ],
+    messages: [{ role: "user", content: userMessage }],
   });
 
   const encoder = new TextEncoder();
@@ -81,12 +109,27 @@ Be specific to ${destination} — avoid generic suggestions. Keep each entry con
         await logAiInteraction({
           feature: "activities-stream",
           model: MODEL,
-          prompt,
-          input: { destination, departureDate, returnDate, travelCompany, styleTags, budgetTier },
+          prompt: `${ACTIVITY_GEN_SYSTEM}\n\n---\n\n${userMessage}`,
+          input: {
+            destination,
+            departureDate,
+            returnDate,
+            travelCompany,
+            styleTags,
+            budgetTier,
+            travelerCount: travelerCount ?? null,
+            childrenAges: childrenAges ?? null,
+            legs: isMultiLeg ? legs : null,
+          },
           output,
           latency_ms: Date.now() - startTime,
           input_tokens: final.usage.input_tokens,
           output_tokens: final.usage.output_tokens,
+          session_id: sessionId,
+        });
+        await logApiUsage({
+          provider: "anthropic", apiType: "activity-stream", feature: "onboarding",
+          model: MODEL, inputTokens: final.usage.input_tokens, outputTokens: final.usage.output_tokens,
         });
       } catch (err) {
         console.error("[activities-stream] Logging failed:", err);

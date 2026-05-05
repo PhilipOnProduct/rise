@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-type AgentId = "sarah" | "alex" | "maya" | "luca";
+type AgentId = "sarah" | "alex" | "maya" | "luca" | "elena";
 type Phase = "idle" | "framing" | "specialists" | "synthesis" | "done" | "prd";
 type CoachMessage = { role: "user" | "assistant"; content: string };
 type TeamMessages = {
@@ -14,6 +14,7 @@ type TeamMessages = {
   alex: string;
   maya: string;
   luca: string;
+  elena: string;
   synthesis: string;
 };
 
@@ -26,11 +27,25 @@ type ConversationRow = {
   created_at: string;
 };
 
-type ObjectiveStatus = "active" | "completed" | "paused";
+type ObjectiveStatus = "backlog" | "refine" | "implement" | "done";
+type CardType = "objective" | "improvement" | "bug";
+type Discussion = {
+  date: string;
+  summary: string;
+  transcript: TeamMessages;
+  prd: string | null;
+};
+
 type Objective = {
   id: string;
   title: string;
+  description: string | null;
   status: ObjectiveStatus;
+  prd: string | null;
+  card_type: CardType;
+  pm_summary: string | null;
+  claude_code_result: string | null;
+  discussions: Discussion[];
   created_at: string;
 };
 
@@ -41,199 +56,6 @@ type PrdFeedback = {
   created_at: string;
 };
 
-// ── OST Types ──────────────────────────────────────────────────────────────────
-
-type OSTAssumption = { id: string; text: string };
-type OSTSolution = { id: string; text: string; assumptions: OSTAssumption[] };
-type OSTSubOpportunity = { id: string; text: string; solutions: OSTSolution[] };
-type OSTOpportunity = { id: string; text: string; sub_opportunities: OSTSubOpportunity[]; solutions: OSTSolution[] };
-type OSTTree = { outcome: string; opportunities: OSTOpportunity[] };
-
-type LayoutNode = {
-  id: string;
-  text: string;
-  kind: "outcome" | "opportunity" | "solution" | "assumption";
-  children: LayoutNode[];
-  x: number;
-  y: number;
-  subtreeW: number;
-};
-
-// ── OST Constants ──────────────────────────────────────────────────────────────
-
-const OST_W = 130, OST_H = 46, OST_VGAP = 68, OST_HGAP = 18, OST_PAD = 40;
-
-const OST_COLORS: Record<LayoutNode["kind"], { fill: string; stroke: string; text: string }> = {
-  outcome:     { fill: "#00D64F", stroke: "#00b340", text: "#000000" },
-  opportunity: { fill: "#1a6b3c", stroke: "#00D64F", text: "#ffffff" },
-  solution:    { fill: "#1e1e1e", stroke: "#444444", text: "#cccccc" },
-  assumption:  { fill: "#2a1a00", stroke: "#7a5000", text: "#ffb84d" },
-};
-
-const OST_SYSTEM =
-  "You are a product researcher building an Opportunity Solution Tree for Rise, a travel assistant app. " +
-  "Rise: onboarding wizard, AI activity suggestions, airport-hotel transport, local guides with points, day-view itinerary. " +
-  "Business model: commission on bookings. Early MVP. " +
-  "Return ONLY valid JSON, no markdown: " +
-  "{\"outcome\":\"...\",\"opportunities\":[{\"id\":\"opp1\",\"text\":\"...\",\"sub_opportunities\":[{\"id\":\"sub1\",\"text\":\"...\",\"solutions\":[{\"id\":\"sol1\",\"text\":\"...\",\"assumptions\":[{\"id\":\"ass1\",\"text\":\"...\"}]}]}],\"solutions\":[{\"id\":\"sol2\",\"text\":\"...\",\"assumptions\":[]}]}]}. " +
-  "Max 8 words per node. Opportunities are unmet user needs, not features. Max 3 top-level opportunities. Max 2 sub-opportunities each. Max 2 solutions per opportunity.";
-
-const OST_DEFAULT: OSTTree = {
-  outcome: "Increase traveler engagement and bookings",
-  opportunities: [
-    {
-      id: "opp1", text: "Users lack trip structure after onboarding",
-      sub_opportunities: [
-        {
-          id: "sub1", text: "No clear next step post-wizard",
-          solutions: [
-            { id: "sol1", text: "Day-view itinerary on dashboard", assumptions: [{ id: "ass1", text: "Users want structured plans" }] },
-          ],
-        },
-      ],
-      solutions: [
-        { id: "sol2", text: "AI pre-populates itinerary on load", assumptions: [{ id: "ass2", text: "AI suggestions are accurate enough" }] },
-      ],
-    },
-    {
-      id: "opp2", text: "Local tips feel disconnected from trip",
-      sub_opportunities: [
-        {
-          id: "sub2", text: "Tips not tied to travel dates",
-          solutions: [
-            { id: "sol3", text: "Add tips to itinerary time slots", assumptions: [{ id: "ass3", text: "Guides update tips regularly" }] },
-          ],
-        },
-      ],
-      solutions: [],
-    },
-    {
-      id: "opp3", text: "Users lose momentum post-onboarding",
-      sub_opportunities: [],
-      solutions: [
-        { id: "sol4", text: "Push notifications for trip milestones", assumptions: [{ id: "ass4", text: "Users allow notifications" }] },
-        { id: "sol5", text: "Email drip with local tips", assumptions: [] },
-      ],
-    },
-  ],
-};
-
-// ── OST Layout & Drawing helpers ───────────────────────────────────────────────
-
-function ostBuild(tree: OSTTree): LayoutNode {
-  const makeSol = (s: OSTSolution): LayoutNode => ({
-    id: s.id, text: s.text, kind: "solution",
-    children: s.assumptions.map(a => ({ id: a.id, text: a.text, kind: "assumption" as const, children: [], x: 0, y: 0, subtreeW: 0 })),
-    x: 0, y: 0, subtreeW: 0,
-  });
-  return {
-    id: "outcome", text: tree.outcome, kind: "outcome",
-    children: tree.opportunities.map(opp => ({
-      id: opp.id, text: opp.text, kind: "opportunity" as const,
-      children: [
-        ...opp.sub_opportunities.map(sub => ({
-          id: sub.id, text: sub.text, kind: "opportunity" as const,
-          children: sub.solutions.map(makeSol),
-          x: 0, y: 0, subtreeW: 0,
-        })),
-        ...opp.solutions.map(makeSol),
-      ],
-      x: 0, y: 0, subtreeW: 0,
-    })),
-    x: 0, y: 0, subtreeW: 0,
-  };
-}
-
-function ostComputeWidth(n: LayoutNode): void {
-  n.children.forEach(ostComputeWidth);
-  const total = n.children.reduce((s, c) => s + c.subtreeW, 0);
-  n.subtreeW = Math.max(OST_W + OST_HGAP, total);
-}
-
-function ostMaxDepth(n: LayoutNode): number {
-  return n.children.length ? 1 + Math.max(...n.children.map(ostMaxDepth)) : 1;
-}
-
-function ostAssignPos(n: LayoutNode, left: number, depth = 0): void {
-  n.y = OST_PAD + depth * (OST_H + OST_VGAP) + OST_H / 2;
-  n.x = left + n.subtreeW / 2;
-  let cl = left;
-  for (const c of n.children) { ostAssignPos(c, cl, depth + 1); cl += c.subtreeW; }
-}
-
-function ostFind(n: LayoutNode, px: number, py: number): LayoutNode | null {
-  if (((px - n.x) / (OST_W / 2)) ** 2 + ((py - n.y) / (OST_H / 2)) ** 2 <= 1) return n;
-  for (const c of n.children) { const f = ostFind(c, px, py); if (f) return f; }
-  return null;
-}
-
-function ostWrap(ctx: CanvasRenderingContext2D, text: string, cx: number, cy: number) {
-  const maxW = OST_W - 18, lineH = 13;
-  const words = text.split(" ");
-  const lines: string[] = [];
-  let cur = "";
-  for (const w of words) {
-    const t = cur ? `${cur} ${w}` : w;
-    if (ctx.measureText(t).width > maxW && cur) { lines.push(cur); cur = w; } else cur = t;
-  }
-  if (cur) lines.push(cur);
-  const totalH = (lines.length - 1) * lineH;
-  lines.forEach((l, i) => ctx.fillText(l, cx, cy - totalH / 2 + i * lineH));
-}
-
-function ostDrawNode(ctx: CanvasRenderingContext2D, n: LayoutNode, hovered: boolean) {
-  const c = OST_COLORS[n.kind];
-  ctx.save();
-  if (hovered) { ctx.shadowColor = "#00D64F"; ctx.shadowBlur = 14; }
-  ctx.beginPath();
-  ctx.ellipse(n.x, n.y, OST_W / 2, OST_H / 2, 0, 0, Math.PI * 2);
-  ctx.fillStyle = c.fill;
-  ctx.fill();
-  ctx.strokeStyle = hovered ? "#00D64F" : c.stroke;
-  ctx.lineWidth = hovered ? 2.5 : 1.5;
-  ctx.stroke();
-  ctx.restore();
-  ctx.fillStyle = c.text;
-  ctx.font = "bold 10px 'DM Sans', Arial, sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ostWrap(ctx, n.text, n.x, n.y);
-}
-
-function ostDrawEdge(ctx: CanvasRenderingContext2D, p: LayoutNode, c: LayoutNode) {
-  const py = p.y + OST_H / 2, cy = c.y - OST_H / 2, my = (py + cy) / 2;
-  ctx.beginPath();
-  ctx.moveTo(p.x, py);
-  ctx.bezierCurveTo(p.x, my, c.x, my, c.x, cy);
-  ctx.strokeStyle = "#333333";
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
-}
-
-function ostDraw(ctx: CanvasRenderingContext2D, root: LayoutNode, hovId: string | null) {
-  const edges = (n: LayoutNode) => { n.children.forEach(c => { ostDrawEdge(ctx, n, c); edges(c); }); };
-  const nodes = (n: LayoutNode) => { ostDrawNode(ctx, n, n.id === hovId); n.children.forEach(nodes); };
-  edges(root);
-  nodes(root);
-}
-
-function ostUpdateText(tree: OSTTree, id: string, text: string): OSTTree {
-  if (id === "outcome") return { ...tree, outcome: text };
-  const updateSols = (sols: OSTSolution[]): OSTSolution[] =>
-    sols.map(s => s.id === id ? { ...s, text } : { ...s, assumptions: s.assumptions.map(a => a.id === id ? { ...a, text } : a) });
-  return {
-    ...tree,
-    opportunities: tree.opportunities.map(opp =>
-      opp.id === id ? { ...opp, text } : {
-        ...opp,
-        sub_opportunities: opp.sub_opportunities.map(sub =>
-          sub.id === id ? { ...sub, text } : { ...sub, solutions: updateSols(sub.solutions) }
-        ),
-        solutions: updateSols(opp.solutions),
-      }
-    ),
-  };
-}
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -251,41 +73,49 @@ const PM_SYSTEM =
   "You are Sarah, the Product Manager for Rise, a travel assistant app. " +
   "You are having a 1-on-1 conversation with Philip, the founder. " +
   "Your role is to help him clarify thinking, discuss ideas and issues, and agree on clear objectives to work on. " +
-  "When Philip and you agree on an objective together, confirm it explicitly and tell him you'll save it. " +
+  "When you and Philip agree on an objective, summarize it clearly in one sentence and ask if he'd like to add it to the kanban board. Use a phrase like 'Shall we save that as an objective?' or 'Want me to add that to the kanban?' to signal agreement. " +
   "Keep responses concise and conversational — this is a 1-on-1, not a formal meeting. " +
   "Be direct, ask good questions, and push back when needed.";
 
 const AGENTS: Record<
   AgentId,
-  { name: string; role: string; initial: string; badge: string; system: string }
+  { name: string; role: string; initial: string; badge: string; bgColor?: string; system: string }
 > = {
   sarah: {
     name: "Sarah",
     role: "PM",
     initial: "S",
-    badge: "bg-[#00D64F] text-black",
+    badge: "bg-[#1a6b7f] text-white",
     system: `You are Sarah, the Product Manager at Rise — a travel assistant app. ${RISE_CONTEXT}\nFrame problems clearly, identify the core user need, and make decisive product recommendations. Be concise and strategic. Use short paragraphs.`,
   },
   alex: {
     name: "Alex",
     role: "Researcher",
     initial: "A",
-    badge: "bg-blue-600 text-white",
-    system: `You are Alex, the User Researcher at Rise — a travel assistant app. ${RISE_CONTEXT}\nAnalyze user behavior, identify research gaps, suggest validation methods. Be evidence-based and specific. Use short paragraphs.`,
+    badge: "bg-blue-600 text-[#0e2a47]",
+    system: `You are Alex, a User Researcher for Rise. ${RISE_CONTEXT}\nYour role is to identify the core user assumption embedded in this objective — what must be true about how users think or behave for this feature to work. Flag the single biggest assumption risk clearly and concisely. One paragraph. No research methodology, no validation recommendations.`,
   },
   maya: {
     name: "Maya",
     role: "Designer",
     initial: "M",
-    badge: "bg-purple-600 text-white",
-    system: `You are Maya, the Product Designer at Rise — a travel assistant app with a dark Uber-inspired design (#0a0a0a background, #00D64F green accent, DM Sans font, rounded-2xl cards). ${RISE_CONTEXT}\nFocus on UX flows, user journeys, visual hierarchy, and interaction patterns. Be specific about design decisions. Use short paragraphs.`,
+    badge: "bg-purple-600 text-[#0e2a47]",
+    system: `You are Maya, a Product Designer for Rise. ${RISE_CONTEXT} Rise uses a light warm design: #f8f6f1 background, #1a6b7f teal accent, DM Sans font.\nYour role is to identify usability risk — where will users get confused, misunderstand the interaction, or fail to complete the intended action? Focus on the moment of highest friction in the proposed feature. What is the one thing most likely to go wrong in the user's hands?\nNo interaction design specs. No component suggestions. No visual design details. One to two paragraphs.`,
   },
   luca: {
     name: "Luca",
     role: "Tech Lead",
     initial: "L",
-    badge: "bg-orange-500 text-white",
-    system: `You are Luca, the Tech Lead at Rise — a travel assistant app. ${RISE_CONTEXT} Architecture: Next.js App Router, API routes for AI calls, Supabase Postgres, Vercel edge.\nAssess feasibility, flag complexity, suggest the simplest viable approach. Use short paragraphs.`,
+    badge: "bg-orange-500 text-[#0e2a47]",
+    system: `You are Luca, the Tech Lead for Rise. ${RISE_CONTEXT}\nYour role in every product discussion is exactly two things:\n1. Feasibility risk — what is the single biggest technical risk that could prevent this from working or make it significantly harder than expected? Be specific about why it's a risk for Rise specifically, not in general.\n2. What's newly possible — what does current technology (AI, APIs, browser capabilities, Supabase features) make possible that's directly relevant to this objective and that the team might not be aware of?\nNo implementation details. No architecture suggestions. No function names. No data structures. Two paragraphs maximum.\nImportant: your observations are input for Sarah to consider — not decisions for the team to adopt. Explicitly frame your 'what's newly possible' point as an option worth exploring, not a recommendation to implement.`,
+  },
+  elena: {
+    name: "Elena",
+    role: "Travel Expert",
+    initial: "ET",
+    badge: "text-[#0e2a47]",
+    bgColor: "#185fa5",
+    system: `You are Elena, a Senior Travel Planner with 15 years experience creating personalised trips. ${RISE_CONTEXT}\nYour role is to flag mismatches between the product assumption and how real travellers actually think and behave. What in this objective contradicts real travel psychology, real traveller behaviour, or how trips actually get planned and experienced? Be specific and direct. One to two paragraphs maximum. No design suggestions, no technical input, no product strategy.`,
   },
 };
 
@@ -297,6 +127,84 @@ const COACH_SYSTEM =
   `Shreyas Doshi, and Teresa Torres. I expect you to ask me questions when warranted, fill in important missing ` +
   `information, and challenge my assumptions. I am seeking learning and truth, not affirmation.\n\n` +
   `Rise context: ${RISE_CONTEXT}`;
+
+const BUILD_MODE_INSTRUCTION =
+  "IMPORTANT: This product team is in Build mode. The founder is a solo developer learning by building. Always recommend building features completely and fully. Do not suggest research prerequisites, validation gates, phased rollouts, or deferring features pending user research. Ship complete features.";
+
+const RESEARCH_MODE_INSTRUCTION =
+  "IMPORTANT: This product team is in Research mode. Apply standard product discovery practices: recommend validation before building, suggest research gates where appropriate, use phased rollouts and MVT thinking.";
+
+function getModeInstruction(buildMode: boolean): string {
+  return buildMode ? BUILD_MODE_INSTRUCTION : RESEARCH_MODE_INSTRUCTION;
+}
+
+const CARD_TYPE_STYLES: Record<CardType, { label: string; className: string }> = {
+  objective:   { label: "Objective",    className: "bg-[#e8f4f6] text-[#1a6b7f]" },
+  improvement: { label: "Improvement",  className: "bg-[#fef3e2] text-[#ba7517]" },
+  bug:         { label: "Bug",          className: "bg-[#fde8e8] text-[#c0392b]" },
+};
+
+const STATUS_LABELS: Record<ObjectiveStatus, string> = {
+  backlog: "Backlog",
+  refine: "Refine",
+  implement: "Implement",
+  done: "Done",
+};
+
+const NEXT_STATUS: Partial<Record<ObjectiveStatus, ObjectiveStatus>> = {
+  backlog: "refine",
+  refine: "implement",
+  implement: "done",
+};
+
+// ── Markdown renderer ─────────────────────────────────────────────────────────
+// Lightweight inline markdown → React for agent/coach/PM chat bubbles.
+
+function MarkdownText({ text, className }: { text: string; className?: string }) {
+  const lines = text.split("\n");
+  const elements: React.ReactNode[] = [];
+
+  function inlineBold(line: string, key: string): React.ReactNode {
+    const parts = line.split(/\*\*(.+?)\*\*/g);
+    if (parts.length === 1) return line;
+    return (
+      <span key={key}>
+        {parts.map((part, j) =>
+          j % 2 === 1 ? <strong key={j}>{part}</strong> : part
+        )}
+      </span>
+    );
+  }
+
+  let i = 0;
+  for (const line of lines) {
+    const k = String(i++);
+    if (line.match(/^---+\s*$/)) {
+      elements.push(<hr key={k} className="border-t border-[#d4cfc5] my-3" />);
+    } else if (line.startsWith("### ")) {
+      elements.push(<p key={k} className="font-semibold text-[#0e2a47] text-sm mt-3 mb-1">{inlineBold(line.slice(4), k)}</p>);
+    } else if (line.startsWith("## ")) {
+      elements.push(<p key={k} className="font-bold text-[#0e2a47] text-sm mt-4 mb-1">{inlineBold(line.slice(3), k)}</p>);
+    } else if (line.startsWith("# ")) {
+      elements.push(<p key={k} className="font-bold text-[#0e2a47] text-base mt-4 mb-1">{inlineBold(line.slice(2), k)}</p>);
+    } else if (line.startsWith("- ") || line.startsWith("* ")) {
+      elements.push(<p key={k} className="ml-4 before:content-['•'] before:mr-2 before:text-[#6a7f8f]">{inlineBold(line.slice(2), k)}</p>);
+    } else if (line.match(/^\d+\.\s/)) {
+      const match = line.match(/^(\d+\.)\s(.*)$/);
+      if (match) {
+        elements.push(<p key={k} className="ml-4"><span className="text-[#6a7f8f] mr-2">{match[1]}</span>{inlineBold(match[2], k)}</p>);
+      } else {
+        elements.push(<p key={k}>{inlineBold(line, k)}</p>);
+      }
+    } else if (line.trim() === "") {
+      elements.push(<br key={k} />);
+    } else {
+      elements.push(<p key={k}>{inlineBold(line, k)}</p>);
+    }
+  }
+
+  return <div className={className ?? "text-sm text-[#0e2a47] leading-relaxed"}>{elements}</div>;
+}
 
 // ── Supabase error serializer ──────────────────────────────────────────────────
 // Supabase PostgrestError has non-enumerable properties, so `console.error(err)`
@@ -345,6 +253,8 @@ async function streamChat(
 }
 
 // ── Supabase helpers ───────────────────────────────────────────────────────────
+
+const OBJECTIVE_COLUMNS = "id, title, description, status, prd, card_type, pm_summary, claude_code_result, discussions, created_at";
 
 async function saveTeamConversation(problem: string, msgs: TeamMessages): Promise<string | null> {
   const { data, error } = await supabase
@@ -408,20 +318,38 @@ async function upsertPMConversation(
 async function loadObjectives(): Promise<Objective[]> {
   const { data, error } = await supabase
     .from("objectives")
-    .select("id, title, status, created_at")
+    .select(OBJECTIVE_COLUMNS)
     .order("created_at", { ascending: false });
   if (error) { console.error("[objectives] load error", dbErr(error)); return []; }
-  return data as Objective[];
+  return (data ?? []).map((row) => ({
+    ...row,
+    card_type: row.card_type ?? "objective",
+    discussions: row.discussions ?? [],
+  })) as Objective[];
 }
 
-async function saveObjective(title: string): Promise<Objective | null> {
+async function saveObjectiveWithDetails(
+  title: string,
+  description: string | null,
+  status: ObjectiveStatus,
+  prd?: string | null,
+  cardType?: CardType,
+  pmSummary?: string | null,
+): Promise<Objective | null> {
   const { data, error } = await supabase
     .from("objectives")
-    .insert({ title, status: "active" })
-    .select("id, title, status, created_at")
+    .insert({
+      title,
+      description: description ?? null,
+      status,
+      prd: prd ?? null,
+      card_type: cardType ?? "objective",
+      pm_summary: pmSummary ?? null,
+    })
+    .select(OBJECTIVE_COLUMNS)
     .single();
   if (error) { console.error("[objectives] save error", dbErr(error)); return null; }
-  return data as Objective;
+  return { ...data, card_type: data.card_type ?? "objective", discussions: data.discussions ?? [] } as Objective;
 }
 
 async function updateObjectiveStatus(id: string, status: ObjectiveStatus): Promise<void> {
@@ -429,25 +357,26 @@ async function updateObjectiveStatus(id: string, status: ObjectiveStatus): Promi
   if (error) console.error("[objectives] update error", dbErr(error));
 }
 
-async function loadLatestOstSnapshot(): Promise<OSTTree | null> {
-  const { data, error } = await supabase
-    .from("ost_snapshots")
-    .select("tree")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .single();
-  if (error || !data) return null;
-  return data.tree as OSTTree;
-}
-
-async function saveOstSnapshot(tree: OSTTree, objectiveId: string): Promise<void> {
+async function updateObjectivePrd(id: string, prd: string): Promise<void> {
   const { error } = await supabase
-    .from("ost_snapshots")
-    .insert({ tree, objective_id: objectiveId });
-  if (error) console.error("[ost_snapshots] save error", dbErr(error));
+    .from("objectives")
+    .update({ prd, status: "refine" })
+    .eq("id", id);
+  if (error) console.error("[objectives] prd update error", dbErr(error));
 }
 
-async function loadConversations(type: "team" | "coach"): Promise<ConversationRow[]> {
+async function updateObjectiveField(id: string, fields: Partial<Record<string, unknown>>): Promise<void> {
+  const { error } = await supabase.from("objectives").update(fields).eq("id", id);
+  if (error) console.error("[objectives] field update error", dbErr(error));
+}
+
+async function deleteObjective(id: string): Promise<void> {
+  const { error } = await supabase.from("objectives").delete().eq("id", id);
+  if (error) console.error("[objectives] delete error", dbErr(error));
+}
+
+
+async function loadConversations(type: "team" | "coach" | "pm"): Promise<ConversationRow[]> {
   const { data, error } = await supabase
     .from("team_conversations")
     .select("id, type, title, messages, prd, created_at")
@@ -493,6 +422,11 @@ async function loadPrdFeedback(conversationId: string): Promise<PrdFeedback[]> {
   return data as PrdFeedback[];
 }
 
+async function deleteConversation(id: string): Promise<void> {
+  const { error } = await supabase.from("team_conversations").delete().eq("id", id);
+  if (error) console.error("[conversations] delete error", dbErr(error));
+}
+
 // ── Download PRD ───────────────────────────────────────────────────────────────
 
 async function fetchPrdSlug(problem: string, prdContent: string): Promise<string> {
@@ -521,26 +455,129 @@ async function fetchPrdSlug(problem: string, prdContent: string): Promise<string
   }
 }
 
-function downloadPrdFile(problem: string, prdContent: string, slug: string): void {
+
+function downloadConversationFile(
+  problem: string,
+  agents: typeof AGENTS,
+  buildMode: boolean,
+  sarahMemory: string,
+  sarahFrame: string,
+  alexContent: string,
+  mayaContent: string,
+  lucaContent: string,
+  elenaContent: string,
+  synthesis: string,
+  prd: string,
+): void {
   const date = new Date().toISOString().slice(0, 10);
-  const md = [
+  const slug = problem.trim().split(/\s+/).slice(0, 5).join("-").toLowerCase().replace(/[^a-z0-9-]/g, "");
+  const mode = getModeInstruction(buildMode);
+
+  const sarahSystem = sarahMemory
+    ? `${agents.sarah.system}\n\n${mode}\n\nHere is your memory of past product discussions for Rise:\n${sarahMemory}\n\nUse this to inform your framing — reference relevant past decisions, avoid repeating ground already covered, and build on what the team has already learned.`
+    : `${agents.sarah.system}\n\n${mode}`;
+
+  const specialistInput = `Problem: ${problem}\n\nSarah's framing: ${sarahFrame}\n\nShare your expert perspective.`;
+  const synthesisInput =
+    `Problem: ${problem}\n\nYour framing:\n${sarahFrame}\n\n` +
+    `Team input:\nAlex (Research): ${alexContent}\nMaya (Design): ${mayaContent}\nLuca (Tech): ${lucaContent}\nElena (Travel Expert): ${elenaContent}\n\n` +
+    `Synthesize the key insights and give a clear product recommendation.`;
+  const prdInput =
+    `Based on this product discussion, write a structured PRD.\n\nProblem: ${problem}\nFraming: ${sarahFrame}\n` +
+    `Research (Alex): ${alexContent}\nDesign (Maya): ${mayaContent}\nTech (Luca): ${lucaContent}\nTravel Expert (Elena): ${elenaContent}\n` +
+    `Synthesis: ${synthesis}`;
+
+  function section(name: string, role: string, system: string, input: string, response: string) {
+    return [
+      `## ${name} — ${role}`,
+      ``,
+      `<details>`,
+      `<summary>System prompt</summary>`,
+      ``,
+      system,
+      ``,
+      `</details>`,
+      ``,
+      `**Input**`,
+      ``,
+      input,
+      ``,
+      `**Response**`,
+      ``,
+      response,
+    ].join("\n");
+  }
+
+  const parts = [
     `# ${problem}`,
     ``,
-    `_Generated by Rise Product Agents · ${date}_`,
-    ``,
-    `**Contributors:** Sarah (PM), Alex (Researcher), Maya (Designer), Luca (Tech Lead)`,
+    `_${date} · Contributors: Sarah (PM)${alexContent ? ", Alex (Researcher)" : ""}, Maya (Designer), Luca (Tech Lead), Elena (Travel Expert)_`,
     ``,
     `---`,
     ``,
-    prdContent,
-  ].join("\n");
-  const blob = new Blob([md], { type: "text/markdown" });
+    section("Sarah", "Framing", sarahSystem, `Frame this problem for the product team:\n\n${problem}`, sarahFrame),
+    ...(alexContent ? [``, `---`, ``, section("Alex", "Research", `${agents.alex.system}\n\n${mode}`, specialistInput, alexContent)] : []),
+    ``, `---`, ``,
+    section("Maya", "Design", `${agents.maya.system}\n\n${mode}`, specialistInput, mayaContent),
+    ``, `---`, ``,
+    section("Luca", "Tech", `${agents.luca.system}\n\n${mode}`, specialistInput, lucaContent),
+    ``, `---`, ``,
+    section("Elena", "Travel Expert", `${agents.elena.system}\n\n${mode}`, specialistInput, elenaContent),
+    ``, `---`, ``,
+    section("Sarah", "Synthesis", sarahSystem, synthesisInput, synthesis),
+  ];
+
+  if (prd) {
+    parts.push(``, `---`, ``, section("Sarah", "PRD", sarahSystem, prdInput, prd));
+  }
+
+  const blob = new Blob([parts.join("\n")], { type: "text/markdown" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = `${date}-${slug}.md`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+async function fetchKanbanTitle(problem: string, prdContent: string): Promise<string> {
+  const fallback = problem.trim().split(/\s+/).slice(0, 6).join(" ");
+  try {
+    let title = "";
+    await streamChat(
+      TEAM_MODEL,
+      "You generate concise kanban card titles. Reply with ONLY the title — no quotes, no punctuation at end.",
+      [{
+        role: "user",
+        content:
+          `Summarize this product feature in max 8 words as a kanban card title.\n\n` +
+          `Problem: ${problem}\n\nPRD summary (first 300 chars): ${prdContent.slice(0, 300)}`,
+      }],
+      20,
+      (chunk) => { title += chunk; }
+    );
+    const clean = title.trim().replace(/^["']|["']$/g, "").replace(/\.$/g, "");
+    return clean.length >= 3 ? clean : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+// ── Card context builder (for injecting into agent prompts) ─────────────────
+
+function buildCardContext(obj: Objective): string {
+  const parts = [`Card: ${obj.title} (${CARD_TYPE_STYLES[obj.card_type].label})`];
+  if (obj.description) parts.push(`Description: ${obj.description}`);
+  if (obj.pm_summary) parts.push(`PM conversation summary: ${obj.pm_summary}`);
+  if (obj.discussions.length > 0) {
+    parts.push("Previous discussions:");
+    obj.discussions.forEach((d, i) => {
+      parts.push(`  Discussion ${i + 1} (${d.date}): ${d.summary}`);
+    });
+  }
+  if (obj.prd) parts.push(`Existing PRD:\n${obj.prd}`);
+  if (obj.claude_code_result) parts.push(`Claude Code result:\n${obj.claude_code_result}`);
+  return parts.join("\n");
 }
 
 // ── Shared sub-components ──────────────────────────────────────────────────────
@@ -551,11 +588,45 @@ function ThinkingDots() {
       {[0, 1, 2].map((i) => (
         <span
           key={i}
-          className="w-1.5 h-1.5 rounded-full bg-[#00D64F] animate-pulse"
+          className="w-1.5 h-1.5 rounded-full bg-[#1a6b7f] animate-pulse"
           style={{ animationDelay: `${i * 150}ms` }}
         />
       ))}
     </span>
+  );
+}
+
+function CardTypeBadge({ type }: { type: CardType }) {
+  const style = CARD_TYPE_STYLES[type];
+  return (
+    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${style.className}`}>
+      {style.label}
+    </span>
+  );
+}
+
+function CardTypeSelector({ value, onChange }: { value: CardType; onChange: (v: CardType) => void }) {
+  const types: CardType[] = ["objective", "improvement", "bug"];
+  return (
+    <div className="flex gap-2">
+      {types.map((t) => {
+        const style = CARD_TYPE_STYLES[t];
+        const isActive = value === t;
+        return (
+          <button
+            key={t}
+            onClick={() => onChange(t)}
+            className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors ${
+              isActive
+                ? `${style.className} border-current`
+                : "bg-white text-[#6a7f8f] border-[#d4cfc5] hover:border-[#b8b3a9]"
+            }`}
+          >
+            {style.label}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -575,22 +646,25 @@ function AgentBubble({
 
   return (
     <div className="flex gap-4">
-      <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${agent.badge}`}>
+      <div
+        className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${agent.badge}`}
+        style={agent.bgColor ? { backgroundColor: agent.bgColor } : undefined}
+      >
         {agent.initial}
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-2">
-          <span className="text-sm font-bold text-white">{agent.name}</span>
-          <span className="text-xs text-gray-600 bg-[#1a1a1a] px-2 py-0.5 rounded-full">
+          <span className="text-sm font-bold text-[#0e2a47]">{agent.name}</span>
+          <span className="text-xs text-[#6a7f8f] bg-[#f0ede8] px-2 py-0.5 rounded-full">
             {roleOverride ?? agent.role}
           </span>
           {thinking && <ThinkingDots />}
         </div>
         {content && (
-          <div className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap">{content}</div>
+          <MarkdownText text={content} />
         )}
         {!content && thinking && (
-          <div className="text-sm text-gray-600 italic">Thinking…</div>
+          <div className="text-sm text-[#6a7f8f] italic">Thinking…</div>
         )}
       </div>
     </div>
@@ -600,9 +674,9 @@ function AgentBubble({
 function SectionDivider({ label }: { label: string }) {
   return (
     <div className="flex items-center gap-3">
-      <div className="flex-1 h-px bg-[#1e1e1e]" />
-      <span className="text-xs font-bold text-gray-600 uppercase tracking-widest">{label}</span>
-      <div className="flex-1 h-px bg-[#1e1e1e]" />
+      <div className="flex-1 h-px bg-[#d4cfc5]" />
+      <span className="text-xs font-bold text-[#4a6580] uppercase tracking-widest">{label}</span>
+      <div className="flex-1 h-px bg-[#d4cfc5]" />
     </div>
   );
 }
@@ -610,7 +684,7 @@ function SectionDivider({ label }: { label: string }) {
 function PrdLine({ line, i }: { line: string; i: number }) {
   if (line.startsWith("## ")) {
     return (
-      <h3 key={i} className="text-xs font-bold text-gray-500 uppercase tracking-widest mt-6 mb-2 first:mt-0">
+      <h3 key={i} className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mt-6 mb-2 first:mt-0">
         {line.slice(3)}
       </h3>
     );
@@ -618,10 +692,10 @@ function PrdLine({ line, i }: { line: string; i: number }) {
   if (line.trim() === "") return <div key={i} className="h-1" />;
   const parts = line.split(/(\*\*[^*]+\*\*)/g);
   return (
-    <p key={i} className="text-sm text-gray-300 leading-relaxed">
+    <p key={i} className="text-sm text-[#0e2a47] leading-relaxed">
       {parts.map((part, j) =>
         part.startsWith("**") && part.endsWith("**")
-          ? <strong key={j} className="text-white font-semibold">{part.slice(2, -2)}</strong>
+          ? <strong key={j} className="text-[#0e2a47] font-semibold">{part.slice(2, -2)}</strong>
           : part
       )}
     </p>
@@ -633,9 +707,11 @@ function PrdLine({ line, i }: { line: string; i: number }) {
 function PastConversations({
   type,
   onLoad,
+  activeConversationId,
 }: {
-  type: "team" | "coach";
+  type: "team" | "coach" | "pm";
   onLoad: (row: ConversationRow) => void;
+  activeConversationId?: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const [rows, setRows] = useState<ConversationRow[]>([]);
@@ -645,6 +721,9 @@ function PastConversations({
   const [draftMap, setDraftMap] = useState<Record<string, string>>({});
   const [openFeedbackId, setOpenFeedbackId] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
+  // Delete state
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -675,11 +754,19 @@ function PastConversations({
     setSavingId(null);
   }
 
+  async function handleDelete(rowId: string) {
+    setDeletingId(rowId);
+    await deleteConversation(rowId);
+    setRows((prev) => prev.filter((r) => r.id !== rowId));
+    setConfirmDeleteId(null);
+    setDeletingId(null);
+  }
+
   if (!open) {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="self-start text-xs text-gray-600 hover:text-gray-300 transition-colors"
+        className="self-start text-xs text-[#6a7f8f] hover:text-[#0e2a47] transition-colors"
       >
         Past discussions →
       </button>
@@ -687,16 +774,16 @@ function PastConversations({
   }
 
   return (
-    <div className="bg-[#111] border border-[#1e1e1e] rounded-2xl p-4">
+    <div className="bg-white border border-[#e8e4de] rounded-2xl p-4">
       <div className="flex items-center justify-between mb-3">
-        <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">Past discussions</span>
-        <button onClick={() => setOpen(false)} className="text-xs text-gray-600 hover:text-gray-300 transition-colors">
+        <span className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest">Past discussions</span>
+        <button onClick={() => setOpen(false)} className="text-xs text-[#6a7f8f] hover:text-[#0e2a47] transition-colors">
           Close
         </button>
       </div>
-      {loading && <p className="text-xs text-gray-600 py-2">Loading…</p>}
+      {loading && <p className="text-xs text-[#6a7f8f] py-2">Loading…</p>}
       {!loading && rows.length === 0 && (
-        <p className="text-xs text-gray-600 py-2">No past conversations yet.</p>
+        <p className="text-xs text-[#6a7f8f] py-2">No past conversations yet.</p>
       )}
       {!loading && rows.length > 0 && (
         <div className="flex flex-col gap-1">
@@ -706,19 +793,55 @@ function PastConversations({
             const isOpenFeedback = openFeedbackId === row.id;
             const draft = draftMap[row.id] ?? "";
 
+            const isActive = activeConversationId === row.id;
+            const isConfirmingDelete = confirmDeleteId === row.id;
+            const isDeleting = deletingId === row.id;
+
             return (
               <div key={row.id}>
-                {/* Title row — click to load */}
-                <button
-                  onClick={() => { onLoad(row); setOpen(false); }}
-                  className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-[#1a1a1a] transition-colors group"
-                >
-                  <p className="text-sm text-gray-300 group-hover:text-white break-words">{row.title}</p>
-                  <p className="text-xs text-gray-600 mt-0.5">
-                    {new Date(row.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
-                    {hasPrd && <span className="ml-2 text-[#00D64F]">· PRD</span>}
-                  </p>
-                </button>
+                {/* Title row — click to load + delete button */}
+                <div className="flex items-start gap-1 group/row rounded-xl hover:bg-[#f0ede8] transition-colors">
+                  <button
+                    onClick={() => { onLoad(row); setOpen(false); }}
+                    className="flex-1 text-left px-3 py-2.5 min-w-0"
+                  >
+                    <p className="text-sm text-[#0e2a47] group-hover/row:text-[#0e2a47] break-words">{row.title}</p>
+                    <p className="text-xs text-[#6a7f8f] mt-0.5">
+                      {new Date(row.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                      {hasPrd && <span className="ml-2 text-[#1a6b7f]">· PRD</span>}
+                      {isActive && <span className="ml-2 text-[#6a7f8f]">· Active</span>}
+                    </p>
+                  </button>
+                  {!isActive && (
+                    <button
+                      onClick={() => setConfirmDeleteId(isConfirmingDelete ? null : row.id)}
+                      className="shrink-0 mt-2 mr-2 p-1.5 text-[#6a7f8f] hover:text-red-400 transition-colors opacity-0 group-hover/row:opacity-100"
+                      title="Delete"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+
+                {/* Inline delete confirmation */}
+                {isConfirmingDelete && (
+                  <div className="flex items-center gap-2 px-3 pb-2">
+                    <span className="text-xs text-[#6a7f8f]">Delete this conversation?</span>
+                    <button
+                      onClick={() => handleDelete(row.id)}
+                      disabled={isDeleting}
+                      className="text-xs font-semibold text-red-400 hover:text-red-300 disabled:opacity-40"
+                    >
+                      {isDeleting ? "Deleting…" : "Yes"}
+                    </button>
+                    <button
+                      onClick={() => setConfirmDeleteId(null)}
+                      className="text-xs text-[#6a7f8f] hover:text-[#4a6580]"
+                    >
+                      No
+                    </button>
+                  </div>
+                )}
 
                 {/* Feedback section — team rows with PRD only */}
                 {hasPrd && (
@@ -727,9 +850,9 @@ function PastConversations({
                     {existingFeedback.length > 0 && (
                       <div className="flex flex-col gap-2 mb-2">
                         {existingFeedback.map((fb, i) => (
-                          <div key={i} className="border-l-2 border-[#00D64F] pl-3 py-0.5">
-                            <p className="text-xs font-semibold text-gray-600 uppercase tracking-widest mb-1">Your feedback</p>
-                            <p className="text-xs text-gray-400 leading-relaxed whitespace-pre-wrap">{fb}</p>
+                          <div key={i} className="border-l-2 border-[#1a6b7f] pl-3 py-0.5">
+                            <p className="text-xs font-semibold text-[#6a7f8f] uppercase tracking-widest mb-1">Your feedback</p>
+                            <p className="text-xs text-[#4a6580] leading-relaxed whitespace-pre-wrap">{fb}</p>
                           </div>
                         ))}
                       </div>
@@ -744,19 +867,19 @@ function PastConversations({
                           value={draft}
                           onChange={(e) => setDraftMap((prev) => ({ ...prev, [row.id]: e.target.value }))}
                           placeholder="What would you improve or change about this PRD?"
-                          className="w-full bg-[#0a0a0a] border border-[#2a2a2a] focus:border-[#00D64F] outline-none rounded-xl px-4 py-3 text-white placeholder-[#444] transition-colors text-xs resize-none"
+                          className="w-full bg-[#f8f6f1] border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-[#0e2a47] placeholder-[#9ca3af] transition-colors text-xs resize-none"
                         />
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => handleSaveFeedback(row.id)}
                             disabled={!draft.trim() || savingId === row.id}
-                            className="text-xs font-semibold bg-[#00D64F] text-black rounded-xl px-4 py-2 hover:bg-[#00c248] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                            className="text-xs font-semibold bg-[#1a6b7f] text-white rounded-xl px-4 py-2 hover:bg-[#155a6b] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                           >
                             {savingId === row.id ? "Saving…" : "Save feedback"}
                           </button>
                           <button
                             onClick={() => { setOpenFeedbackId(null); setDraftMap((prev) => ({ ...prev, [row.id]: "" })); }}
-                            className="text-xs text-gray-600 hover:text-gray-300 transition-colors"
+                            className="text-xs text-[#6a7f8f] hover:text-[#0e2a47] transition-colors"
                           >
                             Cancel
                           </button>
@@ -765,7 +888,7 @@ function PastConversations({
                     ) : (
                       <button
                         onClick={() => setOpenFeedbackId(row.id)}
-                        className="text-xs text-gray-600 hover:text-[#00D64F] transition-colors"
+                        className="text-xs text-[#6a7f8f] hover:text-[#1a6b7f] transition-colors"
                       >
                         + Add feedback
                       </button>
@@ -781,9 +904,344 @@ function PastConversations({
   );
 }
 
+// ── Card Detail Panel ─────────────────────────────────────────────────────────
+
+function CardDetailPanel({
+  obj,
+  onClose,
+  onUpdate,
+  onDiscussionSaved,
+  buildMode,
+}: {
+  obj: Objective;
+  onClose: () => void;
+  onUpdate: (updated: Objective) => void;
+  onDiscussionSaved: (objectiveId: string, discussion: Discussion, prd: string | null) => void;
+  buildMode: boolean;
+}) {
+  const [showDiscussionModal, setShowDiscussionModal] = useState(false);
+  const [codeResult, setCodeResult] = useState(obj.claude_code_result ?? "");
+  const [savingResult, setSavingResult] = useState(false);
+  const [resultSaved, setResultSaved] = useState(false);
+  const [expandedDiscIdx, setExpandedDiscIdx] = useState<number | null>(null);
+  const [prdOpen, setPrdOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmNoDisc, setConfirmNoDisc] = useState(false);
+
+  const implPrompt = obj.prd ? extractImplementationPrompt(obj.prd) : "";
+  const nextStatus = NEXT_STATUS[obj.status];
+  const cleanTitle = obj.title.replace(/\*+/g, "");
+
+  function handleCopy() {
+    navigator.clipboard.writeText(implPrompt);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  async function handleSaveResult() {
+    setSavingResult(true);
+    await updateObjectiveField(obj.id, { claude_code_result: codeResult || null });
+    onUpdate({ ...obj, claude_code_result: codeResult || null });
+    setSavingResult(false);
+    setResultSaved(true);
+    setTimeout(() => setResultSaved(false), 2000);
+  }
+
+  async function handleMoveToNext(force?: boolean) {
+    if (!nextStatus) return;
+    // Warn when moving refine → implement without any discussions
+    if (obj.status === "refine" && nextStatus === "implement" && obj.discussions.length === 0 && !force) {
+      setConfirmNoDisc(true);
+      return;
+    }
+    setConfirmNoDisc(false);
+    await updateObjectiveStatus(obj.id, nextStatus);
+    onUpdate({ ...obj, status: nextStatus });
+  }
+
+  async function handleDelete() {
+    await deleteObjective(obj.id);
+    onUpdate({ ...obj, status: "done", id: "__deleted__" });
+    onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/20" onClick={onClose} />
+
+      {/* Panel */}
+      <div className="relative w-full max-w-xl bg-[#f8f6f1] border-l border-[#d4cfc5] overflow-y-auto shadow-xl">
+        <div className="p-6 flex flex-col gap-6">
+
+          {/* Header */}
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-2 flex-wrap">
+                <CardTypeBadge type={obj.card_type} />
+                <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${STATUS_STYLES[obj.status]}`}>
+                  {STATUS_LABELS[obj.status]}
+                </span>
+              </div>
+              <h2 className="text-lg font-bold text-[#0e2a47] leading-snug">{cleanTitle}</h2>
+              <p className="text-xs text-[#6a7f8f] mt-1">
+                {new Date(obj.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+              </p>
+            </div>
+            <button onClick={onClose} className="text-[#6a7f8f] hover:text-[#0e2a47] text-lg shrink-0 p-1">×</button>
+          </div>
+
+          {/* Description */}
+          {obj.description && (
+            <div>
+              <p className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-2">Description</p>
+              <p className="text-sm text-[#0e2a47] leading-relaxed">{obj.description}</p>
+            </div>
+          )}
+
+          {/* PM summary */}
+          {obj.pm_summary && (
+            <div>
+              <p className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-2">PM conversation summary</p>
+              <p className="text-sm text-[#4a6580] leading-relaxed">{obj.pm_summary}</p>
+            </div>
+          )}
+
+          {/* Discussions */}
+          {obj.discussions.length > 0 && (
+            <div>
+              <p className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-2">
+                Team discussions ({obj.discussions.length})
+              </p>
+              <div className="flex flex-col gap-2">
+                {obj.discussions.map((disc, idx) => (
+                  <div key={idx} className="bg-white border border-[#e8e4de] rounded-xl p-3">
+                    <button
+                      onClick={() => setExpandedDiscIdx(expandedDiscIdx === idx ? null : idx)}
+                      className="w-full text-left"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-[#6a7f8f]">{disc.date}</span>
+                        <span className="text-xs text-[#6a7f8f]">{expandedDiscIdx === idx ? "▲" : "▼"}</span>
+                      </div>
+                      <p className="text-sm text-[#0e2a47] mt-1 leading-relaxed">{disc.summary}</p>
+                    </button>
+                    {expandedDiscIdx === idx && (
+                      <div className="mt-3 pt-3 border-t border-[#e8e4de] flex flex-col gap-3">
+                        {disc.transcript.framing && (
+                          <div>
+                            <p className="text-xs font-semibold text-[#4a6580] mb-1">Sarah (Framing)</p>
+                            <p className="text-xs text-[#6a7f8f] leading-relaxed whitespace-pre-wrap">{disc.transcript.framing}</p>
+                          </div>
+                        )}
+                        {disc.transcript.alex && (
+                          <div>
+                            <p className="text-xs font-semibold text-[#4a6580] mb-1">Alex (Research)</p>
+                            <p className="text-xs text-[#6a7f8f] leading-relaxed whitespace-pre-wrap">{disc.transcript.alex}</p>
+                          </div>
+                        )}
+                        {disc.transcript.maya && (
+                          <div>
+                            <p className="text-xs font-semibold text-[#4a6580] mb-1">Maya (Design)</p>
+                            <p className="text-xs text-[#6a7f8f] leading-relaxed whitespace-pre-wrap">{disc.transcript.maya}</p>
+                          </div>
+                        )}
+                        {disc.transcript.luca && (
+                          <div>
+                            <p className="text-xs font-semibold text-[#4a6580] mb-1">Luca (Tech)</p>
+                            <p className="text-xs text-[#6a7f8f] leading-relaxed whitespace-pre-wrap">{disc.transcript.luca}</p>
+                          </div>
+                        )}
+                        {disc.transcript.elena && (
+                          <div>
+                            <p className="text-xs font-semibold text-[#4a6580] mb-1">Elena (Travel Expert)</p>
+                            <p className="text-xs text-[#6a7f8f] leading-relaxed whitespace-pre-wrap">{disc.transcript.elena}</p>
+                          </div>
+                        )}
+                        {disc.transcript.synthesis && (
+                          <div>
+                            <p className="text-xs font-semibold text-[#4a6580] mb-1">Sarah (Synthesis)</p>
+                            <p className="text-xs text-[#6a7f8f] leading-relaxed whitespace-pre-wrap">{disc.transcript.synthesis}</p>
+                          </div>
+                        )}
+                        {disc.prd && (
+                          <div>
+                            <p className="text-xs font-semibold text-[#4a6580] mb-1">PRD</p>
+                            <p className="text-xs text-[#6a7f8f] leading-relaxed whitespace-pre-wrap max-h-48 overflow-y-auto">{disc.prd}</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Start team discussion — visible for refine cards */}
+          {obj.status === "refine" && (
+            <button
+              onClick={() => setShowDiscussionModal(true)}
+              className="rounded-2xl bg-[#1a6b7f] text-white font-bold px-6 py-3 hover:bg-[#155a6b] transition-colors text-sm w-fit"
+            >
+              Start team discussion →
+            </button>
+          )}
+
+          {/* Full-screen discussion modal */}
+          {showDiscussionModal && (
+            <div className="fixed inset-0 z-[60] bg-[#f8f6f1] overflow-y-auto">
+              <div className="max-w-3xl mx-auto px-6 py-8">
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-lg font-bold text-[#0e2a47]">Team discussion: {cleanTitle}</h2>
+                  <button
+                    onClick={() => setShowDiscussionModal(false)}
+                    className="text-[#6a7f8f] hover:text-[#0e2a47] text-xl p-1"
+                  >×</button>
+                </div>
+                <ProductTeamTab
+                  pendingObjective={{ id: obj.id, problem: obj.title + (obj.description ? `\n\n${obj.description}` : "") }}
+                  cardContext={obj}
+                  onObjectiveSaved={() => {}}
+                  onDiscussionSaved={(objId, disc, prd) => {
+                    onDiscussionSaved(objId, disc, prd);
+                    setShowDiscussionModal(false);
+                    // Refresh the card with new discussion
+                    const updated = { ...obj, discussions: [...obj.discussions, disc], prd: prd || obj.prd };
+                    onUpdate(updated);
+                  }}
+                  buildMode={buildMode}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* PRD */}
+          {obj.prd && (
+            <div>
+              <button
+                onClick={() => setPrdOpen(!prdOpen)}
+                className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-2 hover:text-[#4a6580] transition-colors"
+              >
+                {prdOpen ? "Hide PRD ▲" : "View PRD ▼"}
+              </button>
+              {prdOpen && (
+                <div className="bg-white border border-[#e8e4de] rounded-xl p-4 max-h-80 overflow-y-auto">
+                  <div className="flex flex-col gap-1">
+                    {obj.prd.split("\n").map((line, i) => <PrdLine key={i} line={line} i={i} />)}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Claude Code prompt */}
+          {implPrompt && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest">Claude Code Prompt</p>
+                <button onClick={handleCopy} className="text-xs font-semibold text-[#1a6b7f] hover:underline">
+                  {copied ? "Copied!" : "Copy prompt"}
+                </button>
+              </div>
+              <div className="bg-white border border-[#e8e4de] rounded-xl p-4">
+                <p className="text-xs text-[#0e2a47] leading-relaxed whitespace-pre-wrap">{implPrompt}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Claude Code result — only on implement/done */}
+          {(obj.status === "implement" || obj.status === "done") && (
+            <div>
+              <p className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-2">Claude Code Result</p>
+              <textarea
+                rows={5}
+                value={codeResult}
+                onChange={(e) => { setCodeResult(e.target.value); setResultSaved(false); }}
+                placeholder="Paste Claude Code output here…"
+                className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-[#0e2a47] placeholder-[#9ca3af] transition-colors text-xs resize-none"
+              />
+              <div className="flex items-center gap-2 mt-2">
+                <button
+                  onClick={handleSaveResult}
+                  disabled={savingResult}
+                  className="text-xs font-semibold bg-[#1a6b7f] text-white rounded-xl px-4 py-2 hover:bg-[#155a6b] transition-colors disabled:opacity-40"
+                >
+                  {savingResult ? "Saving…" : "Save result"}
+                </button>
+                {resultSaved && <span className="text-xs text-[#1a6b7f]">Saved</span>}
+              </div>
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex flex-col gap-3 pt-2 border-t border-[#d4cfc5]">
+            <div className="flex items-center gap-3 flex-wrap">
+            {nextStatus && (
+              <button
+                onClick={() => handleMoveToNext()}
+                className="rounded-2xl bg-[#1a6b7f] text-white font-bold px-6 py-3 hover:bg-[#155a6b] transition-colors text-sm"
+              >
+                Move to {STATUS_LABELS[nextStatus]} →
+              </button>
+            )}
+            {obj.status !== "done" && (
+              confirmDelete ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-[#6a7f8f]">Delete?</span>
+                  <button onClick={handleDelete} className="text-xs font-semibold text-red-400 hover:text-red-300">Yes</button>
+                  <button onClick={() => setConfirmDelete(false)} className="text-xs text-[#6a7f8f] hover:text-[#4a6580]">No</button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setConfirmDelete(true)}
+                  className="text-xs text-[#6a7f8f] hover:text-red-400 transition-colors"
+                >
+                  Delete card
+                </button>
+              )
+            )}
+            </div>
+            {confirmNoDisc && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+                <p className="text-xs text-amber-700">No team discussion has been run for this card. Move to Implement anyway?</p>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button onClick={() => handleMoveToNext(true)} className="text-xs font-semibold text-amber-700 hover:text-amber-900">Yes</button>
+                  <button onClick={() => setConfirmNoDisc(false)} className="text-xs text-[#6a7f8f] hover:text-[#4a6580]">No</button>
+                </div>
+              </div>
+            )}
+          </div>
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function extractImplementationPrompt(prd: string): string {
+  const marker = "## Claude Code Implementation Prompt";
+  const idx = prd.indexOf(marker);
+  if (idx === -1) return "";
+  return prd.slice(idx + marker.length).trim();
+}
+
 // ── Product Team Tab ───────────────────────────────────────────────────────────
 
-function ProductTeamTab() {
+function ProductTeamTab({
+  pendingObjective,
+  cardContext,
+  onObjectiveSaved,
+  onDiscussionSaved,
+  buildMode,
+}: {
+  pendingObjective?: { id: string; problem: string } | null;
+  cardContext?: Objective | null;
+  onObjectiveSaved?: () => void;
+  onDiscussionSaved?: (objectiveId: string, discussion: Discussion, prd: string | null) => void;
+  buildMode: boolean;
+}) {
   const [problem, setProblem] = useState("");
   const [phase, setPhase] = useState<Phase>("idle");
   const [thinking, setThinking] = useState<Partial<Record<AgentId, boolean>>>({});
@@ -791,15 +1249,22 @@ function ProductTeamTab() {
   const [alexContent, setAlexContent] = useState("");
   const [mayaContent, setMayaContent] = useState("");
   const [lucaContent, setLucaContent] = useState("");
+  const [elenaContent, setElenaContent] = useState("");
   const [synthesis, setSynthesis] = useState("");
   const [prd, setPrd] = useState("");
   const [teamError, setTeamError] = useState("");
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [prdSlug, setPrdSlug] = useState("");
-  const [prdDownloaded, setPrdDownloaded] = useState(false);
+
   const [sarahMemory, setSarahMemory] = useState("");
   const [memoryLoading, setMemoryLoading] = useState(true);
   const [updatingMemory, setUpdatingMemory] = useState(false);
+  const [activeObjectiveId, setActiveObjectiveId] = useState<string | null>(null);
+  const [savingToKanban, setSavingToKanban] = useState(false);
+  const [kanbanSaved, setKanbanSaved] = useState(false);
+  const [scopeAdditions, setScopeAdditions] = useState("");
+  const [savingToCard, setSavingToCard] = useState(false);
+  const [savedToCard, setSavedToCard] = useState(false);
 
   useEffect(() => {
     loadSarahMemory().then((mem) => {
@@ -807,6 +1272,16 @@ function ProductTeamTab() {
       setMemoryLoading(false);
     });
   }, []);
+
+  useEffect(() => {
+    if (!pendingObjective) return;
+    setProblem(pendingObjective.problem);
+    setActiveObjectiveId(pendingObjective.id);
+    setSarahFrame(""); setAlexContent(""); setMayaContent("");
+    setLucaContent(""); setElenaContent(""); setSynthesis(""); setPrd("");
+    setPhase("idle"); setTeamError(""); setPrdSlug("");
+    setKanbanSaved(false); setSavedToCard(false);
+  }, [pendingObjective]);
 
   const isRunning = phase !== "idle" && phase !== "done";
 
@@ -817,108 +1292,190 @@ function ProductTeamTab() {
     setAlexContent(msgs.alex ?? "");
     setMayaContent(msgs.maya ?? "");
     setLucaContent(msgs.luca ?? "");
+    setElenaContent(msgs.elena ?? "");
     setSynthesis(msgs.synthesis ?? "");
     setPrd(row.prd ?? "");
     setConversationId(row.id);
     setPhase("done");
     setTeamError("");
     setPrdSlug("");
-    setPrdDownloaded(false);
+    setActiveObjectiveId(null);
+    setKanbanSaved(false);
+    setSavedToCard(false);
   }
 
   async function runDiscussion() {
     if (!problem.trim() || isRunning) return;
 
     setSarahFrame(""); setAlexContent(""); setMayaContent("");
-    setLucaContent(""); setSynthesis(""); setPrd("");
-    setTeamError(""); setConversationId(null); setPrdSlug(""); setPrdDownloaded(false);
+    setLucaContent(""); setElenaContent(""); setSynthesis(""); setPrd("");
+    setTeamError(""); setConversationId(null); setPrdSlug("");
+    setKanbanSaved(false); setSavedToCard(false);
+
+    // Build card context injection if available
+    const cardCtx = cardContext ? `\n\nCard context:\n${buildCardContext(cardContext)}` : "";
 
     try {
       // ── Step 1: Sarah frames (with memory) ───────────────────────────────
       setPhase("framing");
       setThinking({ sarah: true });
+      const modeInstruction = getModeInstruction(buildMode);
       const sarahSystemWithMemory = sarahMemory
-        ? `${AGENTS.sarah.system}\n\nHere is your memory of past product discussions for Rise:\n${sarahMemory}\n\nUse this to inform your framing — reference relevant past decisions, avoid repeating ground already covered, and build on what the team has already learned.`
-        : AGENTS.sarah.system;
+        ? `${AGENTS.sarah.system}\n\n${modeInstruction}\n\nHere is your memory of past product discussions for Rise:\n${sarahMemory}\n\nUse this to inform your framing — reference relevant past decisions, avoid repeating ground already covered, and build on what the team has already learned.`
+        : `${AGENTS.sarah.system}\n\n${modeInstruction}`;
       let frameText = "";
       await streamChat(
         TEAM_MODEL, sarahSystemWithMemory,
-        [{ role: "user", content: `Frame this problem for the product team:\n\n${problem}` }],
-        512, (chunk) => { frameText += chunk; setSarahFrame(frameText); }
+        [{ role: "user", content: `Frame this problem for the product team:\n\n${problem}${cardCtx}` }],
+        2048, (chunk) => { frameText += chunk; setSarahFrame(frameText); }
       );
       setThinking({});
 
-      // ── Step 2: Specialists in parallel ──────────────────────────────────
+      // ── Step 2: Specialists in parallel (Alex excluded in Build mode) ──
+      const includeAlex = !buildMode;
       setPhase("specialists");
-      setThinking({ alex: true, maya: true, luca: true });
-      const specialistPrompt = `Problem: ${problem}\n\nSarah's framing: ${frameText}\n\nShare your expert perspective.`;
-      let alexText = "", mayaText = "", lucaText = "";
+      setThinking({ ...(includeAlex ? { alex: true } : {}), maya: true, luca: true, elena: true });
+      const specialistPrompt = `Problem: ${problem}\n\nSarah's framing: ${frameText}\n\nShare your expert perspective.${cardCtx}`;
+      let alexText = "", mayaText = "", lucaText = "", elenaText = "";
 
-      await Promise.all([
-        streamChat(TEAM_MODEL, AGENTS.alex.system,
-          [{ role: "user", content: specialistPrompt }], 512,
-          (chunk) => { alexText += chunk; setAlexContent(alexText); }
-        ).then(() => setThinking((p) => { const n = { ...p }; delete n.alex; return n; })),
-
-        streamChat(TEAM_MODEL, AGENTS.maya.system,
-          [{ role: "user", content: specialistPrompt }], 512,
+      const specialistCalls: Promise<void>[] = [
+        streamChat(TEAM_MODEL, `${AGENTS.maya.system}\n\n${modeInstruction}`,
+          [{ role: "user", content: specialistPrompt }], 2048,
           (chunk) => { mayaText += chunk; setMayaContent(mayaText); }
         ).then(() => setThinking((p) => { const n = { ...p }; delete n.maya; return n; })),
 
-        streamChat(TEAM_MODEL, AGENTS.luca.system,
-          [{ role: "user", content: specialistPrompt }], 512,
+        streamChat(TEAM_MODEL, `${AGENTS.luca.system}\n\n${modeInstruction}`,
+          [{ role: "user", content: specialistPrompt }], 2048,
           (chunk) => { lucaText += chunk; setLucaContent(lucaText); }
         ).then(() => setThinking((p) => { const n = { ...p }; delete n.luca; return n; })),
-      ]);
+
+        streamChat(TEAM_MODEL, `${AGENTS.elena.system}\n\n${modeInstruction}`,
+          [{ role: "user", content: specialistPrompt }], 2048,
+          (chunk) => { elenaText += chunk; setElenaContent(elenaText); }
+        ).then(() => setThinking((p) => { const n = { ...p }; delete n.elena; return n; })),
+      ];
+
+      if (includeAlex) {
+        specialistCalls.push(
+          streamChat(TEAM_MODEL, `${AGENTS.alex.system}\n\n${modeInstruction}`,
+            [{ role: "user", content: specialistPrompt }], 2048,
+            (chunk) => { alexText += chunk; setAlexContent(alexText); }
+          ).then(() => setThinking((p) => { const n = { ...p }; delete n.alex; return n; }))
+        );
+      }
+
+      await Promise.all(specialistCalls);
 
       // ── Step 3: Sarah synthesizes ─────────────────────────────────────────
       setPhase("synthesis");
       setThinking({ sarah: true });
       let synthesisText = "";
       await streamChat(
-        TEAM_MODEL, AGENTS.sarah.system,
+        TEAM_MODEL, sarahSystemWithMemory,
         [{
           role: "user",
-          content: `Problem: ${problem}\n\nYour framing:\n${frameText}\n\nTeam input:\nAlex (Research): ${alexText}\nMaya (Design): ${mayaText}\nLuca (Tech): ${lucaText}\n\nSynthesize the key insights and give a clear product recommendation.`,
+          content: `Problem: ${problem}\n\nYour framing:\n${frameText}\n\nTeam input:\n${includeAlex ? `Alex (Research): ${alexText}\n` : ""}Maya (Design): ${mayaText}\nLuca (Tech): ${lucaText}\nElena (Travel Expert): ${elenaText}\n\nSynthesize the key insights and give a clear product recommendation.`,
         }],
-        768, (chunk) => { synthesisText += chunk; setSynthesis(synthesisText); }
+        4096, (chunk) => { synthesisText += chunk; setSynthesis(synthesisText); }
       );
       setThinking({});
 
       // ── Save to Supabase ──────────────────────────────────────────────────
       const id = await saveTeamConversation(problem, {
         problem, framing: frameText, alex: alexText, maya: mayaText,
-        luca: lucaText, synthesis: synthesisText,
+        luca: lucaText, elena: elenaText, synthesis: synthesisText,
       });
       setConversationId(id);
-      setPhase("done");
 
-      // ── Update Sarah's memory (non-blocking) ─────────────────────────────
-      setUpdatingMemory(true);
+      // ── Update Sarah's memory (fire-and-forget) ───────────────────────────
+      void (async () => {
+        setUpdatingMemory(true);
+        try {
+          let newMemory = "";
+          await streamChat(
+            TEAM_MODEL, AGENTS.sarah.system,
+            [{
+              role: "user",
+              content:
+                `Based on this discussion, update your memory document.\n\n` +
+                `Your current memory is:\n${sarahMemory || "(empty — this is your first discussion)"}\n\n` +
+                `The discussion was about: ${problem}\n\n` +
+                `Key decisions and insights:\n${synthesisText}\n\n` +
+                `Update the memory to include this discussion — keep it concise, max 500 words, running summary format.`,
+            }],
+            2000,
+            (chunk) => { newMemory += chunk; }
+          );
+          if (newMemory.trim()) {
+            await saveSarahMemory(newMemory.trim());
+            setSarahMemory(newMemory.trim());
+          }
+        } catch (memErr) {
+          console.error("[memory] update error", memErr);
+        }
+        setUpdatingMemory(false);
+      })();
+
+      // ── Step 4: Auto-generate PRD ─────────────────────────────────────────
+      setPhase("prd");
+      setThinking({ sarah: true });
+      setScopeAdditions("");
+
+      let prdText = "";
       try {
-        let newMemory = "";
         await streamChat(
-          TEAM_MODEL, AGENTS.sarah.system,
+          TEAM_MODEL, sarahSystemWithMemory,
           [{
             role: "user",
             content:
-              `Based on this discussion, update your memory document.\n\n` +
-              `Your current memory is:\n${sarahMemory || "(empty — this is your first discussion)"}\n\n` +
-              `The discussion was about: ${problem}\n\n` +
-              `Key decisions and insights:\n${synthesisText}\n\n` +
-              `Update the memory to include this discussion — keep it concise, max 500 words, running summary format.`,
+              `Based on this product discussion, write a structured PRD.\n\n` +
+              `Problem: ${problem}\nFraming: ${frameText}\n` +
+              `${includeAlex ? `Research (Alex): ${alexText}\n` : ""}Design (Maya): ${mayaText}\nTech (Luca): ${lucaText}\nTravel Expert (Elena): ${elenaText}\n` +
+              `Synthesis: ${synthesisText}\n\n` +
+              `Use these sections exactly:\n` +
+              `## Overview\n## Problem Statement\n## User Need\n## Proposed Solution\n` +
+              `## User Stories\n## Success Metrics\n## Technical Considerations (strategic only — no implementation details)\n## Risks & Open Questions\n## Claude Code Implementation Prompt\n\n` +
+              `For the Claude Code Implementation Prompt section: write a prompt the way a senior PM would brief a capable engineer verbally. Describe what to build and why it matters in plain language. Mention any hard constraints that affect how it must work. Do not describe how to implement it — no function names, no data structures, no component names, no step-by-step instructions. Write it the way you would explain the feature to someone who will figure out the implementation themselves. Do not include manual testing instructions, QA steps, or scenario-based testing requirements — Claude Code cannot run these. Quality validation is the founder's responsibility after the build is complete.`,
           }],
-          700,
-          (chunk) => { newMemory += chunk; }
+          8000, (chunk) => { prdText += chunk; setPrd(prdText); }
         );
-        if (newMemory.trim()) {
-          await saveSarahMemory(newMemory.trim());
-          setSarahMemory(newMemory.trim());
+        if (id) await updateTeamPrd(id, prdText);
+        const slug = await fetchPrdSlug(problem, prdText);
+        setPrdSlug(slug);
+
+        // Scope delta — non-blocking
+        try {
+          let additions = "";
+          await streamChat(
+            TEAM_MODEL,
+            "You are a concise scope analyst. Respond in plain text only — no markdown, no bullet symbols, no headers.",
+            [{
+              role: "user",
+              content:
+                `Original problem statement: "${problem}"\n\n` +
+                `PRD proposed solution:\n${prdText}\n\n` +
+                `List only the items in the proposed solution that go beyond the original problem statement — scope that the team added during discussion. ` +
+                `If nothing meaningful was added, respond with exactly: "No scope additions."\n` +
+                `Be specific and brief. Three items maximum, one sentence each.`,
+            }],
+            300,
+            (chunk) => { additions += chunk; }
+          );
+          setScopeAdditions(additions.trim());
+        } catch { /* non-critical */ }
+
+        // Save PRD back to the active Kanban card if one was pre-loaded
+        if (activeObjectiveId) {
+          await updateObjectivePrd(activeObjectiveId, prdText);
+          setKanbanSaved(true);
+          onObjectiveSaved?.();
         }
-      } catch (memErr) {
-        console.error("[memory] update error", memErr);
+      } catch (prdErr) {
+        console.error("PRD error:", prdErr);
+        setTeamError(errorMessage(prdErr));
       }
-      setUpdatingMemory(false);
+      setThinking({});
+      setPhase("done");
 
     } catch (err) {
       console.error("Discussion error:", err);
@@ -928,22 +1485,26 @@ function ProductTeamTab() {
     }
   }
 
-  async function generatePrd() {
+  async function regeneratePrd() {
     if (phase !== "done") return;
+    const modeInstruction = getModeInstruction(buildMode);
+    const sarahSystem = sarahMemory
+      ? `${AGENTS.sarah.system}\n\n${modeInstruction}\n\nHere is your memory of past product discussions for Rise:\n${sarahMemory}\n\nUse this to inform your framing — reference relevant past decisions, avoid repeating ground already covered, and build on what the team has already learned.`
+      : `${AGENTS.sarah.system}\n\n${modeInstruction}`;
     setPhase("prd");
     setThinking({ sarah: true });
     setTeamError("");
-    setPrdDownloaded(false);
+    setScopeAdditions("");
     let prdText = "";
     try {
       await streamChat(
-        TEAM_MODEL, AGENTS.sarah.system,
+        TEAM_MODEL, sarahSystem,
         [{
           role: "user",
           content:
             `Based on this product discussion, write a structured PRD.\n\n` +
             `Problem: ${problem}\nFraming: ${sarahFrame}\n` +
-            `Research (Alex): ${alexContent}\nDesign (Maya): ${mayaContent}\nTech (Luca): ${lucaContent}\n` +
+            `Research (Alex): ${alexContent}\nDesign (Maya): ${mayaContent}\nTech (Luca): ${lucaContent}\nTravel Expert (Elena): ${elenaContent}\n` +
             `Synthesis: ${synthesis}\n\n` +
             `Use these sections exactly:\n` +
             `## Overview\n## Problem Statement\n## User Need\n## Proposed Solution\n` +
@@ -954,10 +1515,19 @@ function ProductTeamTab() {
             `Format it as a plain code block (\`\`\`). Start with the verb "Implement" and list numbered steps with bold headings.`,
         }],
         5000, (chunk) => { prdText += chunk; setPrd(prdText); }
+            `## User Stories\n## Success Metrics\n## Technical Considerations (strategic only — no implementation details)\n## Risks & Open Questions\n## Claude Code Implementation Prompt\n\n` +
+            `For the Claude Code Implementation Prompt section: write a prompt the way a senior PM would brief a capable engineer verbally. Describe what to build and why it matters in plain language. Mention any hard constraints that affect how it must work. Do not describe how to implement it — no function names, no data structures, no component names, no step-by-step instructions. Write it the way you would explain the feature to someone who will figure out the implementation themselves. Do not include manual testing instructions, QA steps, or scenario-based testing requirements — Claude Code cannot run these. Quality validation is the founder's responsibility after the build is complete.`,
+        }],
+        8000, (chunk) => { prdText += chunk; setPrd(prdText); }
       );
       if (conversationId) await updateTeamPrd(conversationId, prdText);
       const slug = await fetchPrdSlug(problem, prdText);
       setPrdSlug(slug);
+      if (activeObjectiveId) {
+        await updateObjectivePrd(activeObjectiveId, prdText);
+        setKanbanSaved(true);
+        onObjectiveSaved?.();
+      }
     } catch (err) {
       console.error("PRD error:", err);
       setTeamError(errorMessage(err));
@@ -966,45 +1536,107 @@ function ProductTeamTab() {
     setPhase("done");
   }
 
-  async function handleDownloadPrd() {
-    const slug = prdSlug || await fetchPrdSlug(problem, prd);
-    if (!prdSlug) setPrdSlug(slug);
-    downloadPrdFile(problem, prd, slug);
-    setPrdDownloaded(true);
+  async function handleSaveToKanban() {
+    setSavingToKanban(true);
+    const title = await fetchKanbanTitle(problem, prd);
+    const obj = await saveObjectiveWithDetails(title, null, "refine", prd);
+    if (obj) {
+      setActiveObjectiveId(obj.id);
+      setKanbanSaved(true);
+      onObjectiveSaved?.();
+    }
+    setSavingToKanban(false);
   }
+
+  async function handleSaveToCard() {
+    if (!cardContext || !onDiscussionSaved) return;
+    setSavingToCard(true);
+
+    // Generate a 3-5 sentence summary from Sarah
+    let summaryText = "";
+    try {
+      await streamChat(
+        TEAM_MODEL,
+        "You write concise discussion summaries. Reply with ONLY the summary — 3-5 sentences.",
+        [{
+          role: "user",
+          content:
+            `Summarize this product team discussion in 3-5 sentences.\n\n` +
+            `Problem: ${problem}\nFraming: ${sarahFrame}\nSynthesis: ${synthesis}\n` +
+            `PRD available: ${prd ? "yes" : "no"}`,
+        }],
+        200,
+        (chunk) => { summaryText += chunk; }
+      );
+    } catch {
+      summaryText = `Discussion about: ${problem.slice(0, 200)}`;
+    }
+
+    const discussion: Discussion = {
+      date: new Date().toISOString().slice(0, 10),
+      summary: summaryText.trim(),
+      transcript: {
+        problem,
+        framing: sarahFrame,
+        alex: alexContent,
+        maya: mayaContent,
+        luca: lucaContent,
+        elena: elenaContent,
+        synthesis,
+      },
+      prd: prd || null,
+    };
+
+    onDiscussionSaved(cardContext.id, discussion, prd || null);
+    setSavingToCard(false);
+    setSavedToCard(true);
+  }
+
 
   return (
     <div className="flex flex-col gap-8">
 
       {/* Past conversations */}
-      <PastConversations type="team" onLoad={loadPastConversation} />
+      <PastConversations type="team" onLoad={loadPastConversation} activeConversationId={conversationId} />
 
       {/* Team roster + memory status */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex gap-3 flex-wrap">
-          {(Object.entries(AGENTS) as [AgentId, typeof AGENTS[AgentId]][]).map(([id, a]) => (
-            <div key={id} className="flex items-center gap-2 bg-[#111] border border-[#1e1e1e] rounded-xl px-3 py-2">
-              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${a.badge}`}>
+          {(Object.entries(AGENTS) as [AgentId, typeof AGENTS[AgentId]][]).filter(([id]) => id !== "alex" || !buildMode).map(([id, a]) => (
+            <div key={id} className="flex items-center gap-2 bg-white border border-[#e8e4de] rounded-xl px-3 py-2">
+              <div
+                className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${a.badge}`}
+                style={a.bgColor ? { backgroundColor: a.bgColor } : undefined}
+              >
                 {a.initial}
               </div>
               <div>
-                <p className="text-xs font-semibold text-white leading-none">{a.name}</p>
-                <p className="text-xs text-gray-600 mt-0.5">{a.role}</p>
+                <p className="text-xs font-semibold text-[#0e2a47] leading-none">{a.name}</p>
+                <p className="text-xs text-[#6a7f8f] mt-0.5">{a.role}</p>
               </div>
             </div>
           ))}
         </div>
         {memoryLoading && (
-          <p className="text-xs text-gray-600 italic">Sarah is remembering…</p>
+          <p className="text-xs text-[#6a7f8f] italic">Sarah is remembering…</p>
         )}
         {updatingMemory && (
-          <p className="text-xs text-gray-600 italic">Updating Sarah's memory…</p>
+          <p className="text-xs text-[#6a7f8f] italic">Updating Sarah's memory…</p>
         )}
       </div>
 
+      {/* Card context banner */}
+      {cardContext && (
+        <div className="bg-[#e8f4f6] border border-[#1a6b7f]/20 rounded-xl px-4 py-3">
+          <p className="text-xs font-bold text-[#1a6b7f] uppercase tracking-widest mb-1">Discussing card</p>
+          <p className="text-sm text-[#0e2a47] font-semibold">{cardContext.title.replace(/\*+/g, "")}</p>
+          {cardContext.description && <p className="text-xs text-[#4a6580] mt-1">{cardContext.description}</p>}
+        </div>
+      )}
+
       {/* Input */}
       <div>
-        <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">
+        <label className="block text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-3">
           Describe the problem
         </label>
         <textarea
@@ -1013,20 +1645,20 @@ function ProductTeamTab() {
           onChange={(e) => setProblem(e.target.value)}
           placeholder="e.g. Users drop off at step 3 of the onboarding flow. We don't know why."
           disabled={isRunning}
-          className="w-full bg-[#111] border border-[#2a2a2a] focus:border-[#00D64F] outline-none rounded-xl px-5 py-4 text-white placeholder-[#444] transition-colors text-sm resize-none disabled:opacity-50"
+          className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-5 py-4 text-[#0e2a47] placeholder-[#9ca3af] transition-colors text-sm resize-none disabled:opacity-50"
         />
         <div className="mt-3 flex items-center gap-3">
           <button
             onClick={runDiscussion}
             disabled={!problem.trim() || isRunning}
-            className="rounded-2xl bg-[#00D64F] text-black font-bold px-8 py-4 hover:bg-[#00c248] transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm"
+            className="rounded-2xl bg-[#1a6b7f] text-white font-bold px-8 py-4 hover:bg-[#155a6b] transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm"
           >
             {isRunning ? "Discussing…" : "Start discussion →"}
           </button>
           {teamError && !isRunning && (
             <button
               onClick={runDiscussion}
-              className="rounded-2xl border border-[#333] text-gray-400 hover:text-white hover:border-[#555] font-semibold px-6 py-4 transition-colors text-sm"
+              className="rounded-2xl border border-[#333] text-[#4a6580] hover:text-[#0e2a47] hover:border-[#555] font-semibold px-6 py-4 transition-colors text-sm"
             >
               Retry →
             </button>
@@ -1044,12 +1676,13 @@ function ProductTeamTab() {
           <SectionDivider label="Problem framing" />
           <AgentBubble agentId="sarah" content={sarahFrame} thinking={!!thinking.sarah && phase === "framing"} roleOverride="Framing" />
 
-          {(alexContent || mayaContent || lucaContent || phase === "specialists") && (
+          {(alexContent || mayaContent || lucaContent || elenaContent || phase === "specialists") && (
             <>
               <SectionDivider label="Team response" />
-              <AgentBubble agentId="alex" content={alexContent} thinking={!!thinking.alex} />
+              {(alexContent || thinking.alex) && <AgentBubble agentId="alex" content={alexContent} thinking={!!thinking.alex} />}
               <AgentBubble agentId="maya" content={mayaContent} thinking={!!thinking.maya} />
               <AgentBubble agentId="luca" content={lucaContent} thinking={!!thinking.luca} />
+              <AgentBubble agentId="elena" content={elenaContent} thinking={!!thinking.elena} />
             </>
           )}
 
@@ -1064,24 +1697,49 @@ function ProductTeamTab() {
             <div className="flex flex-col gap-3">
               <div className="flex items-center gap-3 flex-wrap">
                 <button
-                  onClick={generatePrd}
-                  className="rounded-2xl border border-[#00D64F] text-[#00D64F] font-bold px-6 py-3 hover:bg-[#00D64F]/10 transition-colors text-sm"
+                  onClick={() => downloadConversationFile(problem, AGENTS, buildMode, sarahMemory, sarahFrame, alexContent, mayaContent, lucaContent, elenaContent, synthesis, prd)}
+                  className="rounded-2xl border border-[#d4cfc5] text-[#0e2a47] hover:text-[#0e2a47] hover:border-[#b8b3a9] font-semibold px-6 py-3 transition-colors text-sm"
                 >
-                  {prd ? "Regenerate PRD →" : "Generate PRD →"}
+                  Download conversation ↓
                 </button>
                 {prd && (
                   <button
-                    onClick={handleDownloadPrd}
-                    className="rounded-2xl border border-[#2a2a2a] text-gray-300 hover:text-white hover:border-[#444] font-semibold px-6 py-3 transition-colors text-sm"
+                    onClick={regeneratePrd}
+                    className="rounded-2xl border border-[#d4cfc5] text-[#0e2a47] hover:text-[#0e2a47] hover:border-[#b8b3a9] font-semibold px-6 py-3 transition-colors text-sm"
                   >
-                    Download PRD ↓
+                    Regenerate PRD →
+                  </button>
+                )}
+                {prd && !kanbanSaved && !cardContext && (
+                  <button
+                    onClick={handleSaveToKanban}
+                    disabled={savingToKanban}
+                    className="rounded-2xl border border-[#d4cfc5] text-[#0e2a47] hover:text-[#0e2a47] hover:border-[#b8b3a9] font-semibold px-6 py-3 transition-colors text-sm disabled:opacity-40"
+                  >
+                    {savingToKanban ? "Saving…" : "Save to Kanban →"}
+                  </button>
+                )}
+                {cardContext && !savedToCard && (
+                  <button
+                    onClick={handleSaveToCard}
+                    disabled={savingToCard}
+                    className="rounded-2xl bg-[#1a6b7f] text-white font-bold px-6 py-3 hover:bg-[#155a6b] transition-colors text-sm disabled:opacity-40"
+                  >
+                    {savingToCard ? "Saving…" : "Save to card →"}
                   </button>
                 )}
               </div>
-              {prdDownloaded && (
-                <p className="text-xs text-[#00D64F]">
-                  PRD saved — move it to docs/prds/ and commit to GitHub
-                </p>
+              {scopeAdditions && scopeAdditions !== "No scope additions." && !kanbanSaved && (
+                <div className="bg-amber-500/5 border border-amber-500/15 rounded-xl px-4 py-3">
+                  <p className="text-xs font-bold text-amber-500/60 uppercase tracking-widest mb-1.5">Team additions</p>
+                  <p className="text-xs text-[#6a7f8f] leading-relaxed whitespace-pre-wrap">{scopeAdditions}</p>
+                </div>
+              )}
+              {kanbanSaved && (
+                <p className="text-xs text-[#1a6b7f]">{activeObjectiveId ? "PRD saved to Kanban card" : "Saved to Kanban"}</p>
+              )}
+              {savedToCard && (
+                <p className="text-xs text-[#1a6b7f]">Discussion saved to card</p>
               )}
             </div>
           )}
@@ -1093,9 +1751,9 @@ function ProductTeamTab() {
                 <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${AGENTS.sarah.badge}`}>
                   {AGENTS.sarah.initial}
                 </div>
-                <div className="flex-1 bg-[#111] border border-[#1e1e1e] rounded-2xl p-6">
+                <div className="flex-1 bg-white border border-[#e8e4de] rounded-2xl p-6">
                   {phase === "prd" && thinking.sarah && !prd && (
-                    <div className="flex items-center gap-2 text-sm text-gray-600 italic">
+                    <div className="flex items-center gap-2 text-sm text-[#6a7f8f] italic">
                       <ThinkingDots /> Writing PRD…
                     </div>
                   )}
@@ -1140,13 +1798,14 @@ function ProductTeamTab() {
 
 // ── Product Coach Tab ──────────────────────────────────────────────────────────
 
-function ProductCoachTab() {
+function ProductCoachTab({ buildMode }: { buildMode: boolean }) {
   const [messages, setMessages] = useState<CoachMessage[]>([]);
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   const [coachError, setCoachError] = useState("");
   const lastUserMessageRef = useRef<string>("");
   const conversationIdRef = useRef<string | null>(null);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -1157,6 +1816,7 @@ function ProductCoachTab() {
     const msgs = row.messages as { history: CoachMessage[] };
     setMessages(msgs.history ?? []);
     conversationIdRef.current = row.id;
+    setConversationId(row.id);
     setCoachError("");
   }
 
@@ -1169,7 +1829,7 @@ function ProductCoachTab() {
     try {
       await streamChat(
         COACH_MODEL,
-        COACH_SYSTEM,
+        `${COACH_SYSTEM}\n\n${getModeInstruction(buildMode)}`,
         history,
         2048,
         (chunk) => {
@@ -1182,7 +1842,7 @@ function ProductCoachTab() {
       const allMessages: CoachMessage[] = [...history, { role: "assistant", content: assistantText }];
       const firstUserMsg = allMessages.find((m) => m.role === "user")?.content ?? "Coach session";
       const id = await upsertCoachConversation(conversationIdRef.current, firstUserMsg, allMessages);
-      if (id) conversationIdRef.current = id;
+      if (id) { conversationIdRef.current = id; setConversationId(id); }
 
     } catch (err) {
       console.error("Coach error:", err);
@@ -1221,20 +1881,20 @@ function ProductCoachTab() {
     <div className="flex flex-col gap-4">
 
       {/* Past conversations */}
-      <PastConversations type="coach" onLoad={loadPastConversation} />
+      <PastConversations type="coach" onLoad={loadPastConversation} activeConversationId={conversationId} />
 
       {/* Intro */}
       {messages.length === 0 && (
-        <div className="bg-[#111] border border-[#1e1e1e] rounded-2xl p-6">
+        <div className="bg-white border border-[#e8e4de] rounded-2xl p-6">
           <div className="flex items-center gap-3 mb-3">
-            <div className="w-9 h-9 rounded-full bg-[#00D64F] flex items-center justify-center text-black font-bold text-sm">C</div>
+            <div className="w-9 h-9 rounded-full bg-[#1a6b7f] flex items-center justify-center text-white font-bold text-sm">C</div>
             <div>
-              <p className="text-sm font-bold text-white">Product Coach</p>
-              <p className="text-xs text-gray-600">Powered by Claude Opus 4</p>
+              <p className="text-sm font-bold text-[#0e2a47]">Product Coach</p>
+              <p className="text-xs text-[#6a7f8f]">Powered by Claude Opus 4</p>
             </div>
           </div>
-          <p className="text-sm text-gray-400 leading-relaxed">
-            Ask me anything about product management — strategy, prioritisation, discovery, metrics, stakeholders. I'll challenge your thinking and help you grow. Try: <em className="text-gray-300">"How should I think about prioritising our roadmap as an early MVP?"</em>
+          <p className="text-sm text-[#4a6580] leading-relaxed">
+            Ask me anything about product management — strategy, prioritisation, discovery, metrics, stakeholders. I'll challenge your thinking and help you grow. Try: <em className="text-[#0e2a47]">"How should I think about prioritising our roadmap as an early MVP?"</em>
           </p>
         </div>
       )}
@@ -1245,22 +1905,22 @@ function ProductCoachTab() {
           {messages.map((msg, i) => (
             msg.role === "user" ? (
               <div key={i} className="flex justify-end">
-                <div className="bg-[#00D64F]/10 border border-[#00D64F]/20 rounded-2xl rounded-tr-sm px-5 py-3.5 max-w-xl">
-                  <p className="text-sm text-white leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                <div className="bg-[#1a6b7f]/10 border border-[#1a6b7f]/20 rounded-2xl rounded-tr-sm px-5 py-3.5 max-w-xl">
+                  <p className="text-sm text-[#0e2a47] leading-relaxed whitespace-pre-wrap">{msg.content}</p>
                 </div>
               </div>
             ) : (
               <div key={i} className="flex gap-4">
-                <div className="w-9 h-9 rounded-full bg-[#00D64F] flex items-center justify-center text-black font-bold text-sm flex-shrink-0">C</div>
+                <div className="w-9 h-9 rounded-full bg-[#1a6b7f] flex items-center justify-center text-white font-bold text-sm flex-shrink-0">C</div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-2">
-                    <span className="text-sm font-bold text-white">Coach</span>
+                    <span className="text-sm font-bold text-[#0e2a47]">Coach</span>
                     {thinking && i === messages.length - 1 && !msg.content && <ThinkingDots />}
                   </div>
                   {msg.content ? (
-                    <div className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap">{msg.content}</div>
+                    <MarkdownText text={msg.content} />
                   ) : (
-                    <div className="text-sm text-gray-600 italic">Thinking…</div>
+                    <div className="text-sm text-[#6a7f8f] italic">Thinking…</div>
                   )}
                 </div>
               </div>
@@ -1271,14 +1931,14 @@ function ProductCoachTab() {
       )}
 
       {/* Input */}
-      <div className="flex flex-col gap-2 sticky bottom-0 bg-[#0a0a0a] pt-2 pb-4">
+      <div className="flex flex-col gap-2 sticky bottom-0 bg-[#f8f6f1] pt-2 pb-4">
         {coachError && (
           <div className="flex items-center justify-between gap-4 bg-red-950/40 border border-red-800/40 rounded-xl px-4 py-3">
             <p className="text-sm text-red-400">{coachError}</p>
             <button
               onClick={retry}
               disabled={thinking}
-              className="text-sm font-semibold text-red-300 hover:text-white transition-colors flex-shrink-0 disabled:opacity-50"
+              className="text-sm font-semibold text-red-300 hover:text-[#0e2a47] transition-colors flex-shrink-0 disabled:opacity-50"
             >
               Retry →
             </button>
@@ -1292,12 +1952,12 @@ function ProductCoachTab() {
             onKeyDown={handleKeyDown}
             placeholder="Ask your coach… (Enter to send, Shift+Enter for newline)"
             disabled={thinking}
-            className="flex-1 bg-[#111] border border-[#2a2a2a] focus:border-[#00D64F] outline-none rounded-xl px-5 py-4 text-white placeholder-[#444] transition-colors text-sm resize-none disabled:opacity-50"
+            className="flex-1 bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-5 py-4 text-[#0e2a47] placeholder-[#9ca3af] transition-colors text-sm resize-none disabled:opacity-50"
           />
           <button
             onClick={send}
             disabled={!input.trim() || thinking}
-            className="rounded-2xl bg-[#00D64F] text-black font-bold px-6 py-4 hover:bg-[#00c248] transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm flex-shrink-0"
+            className="rounded-2xl bg-[#1a6b7f] text-white font-bold px-6 py-4 hover:bg-[#155a6b] transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm flex-shrink-0"
           >
             {thinking ? "…" : "Send →"}
           </button>
@@ -1308,32 +1968,282 @@ function ProductCoachTab() {
   );
 }
 
-// ── PM 1-on-1 Tab ─────────────────────────────────────────────────────────────
-
-const STATUS_CYCLE: Record<ObjectiveStatus, ObjectiveStatus> = {
-  active: "completed",
-  completed: "paused",
-  paused: "active",
-};
+// ── Kanban constants & helpers ─────────────────────────────────────────────────
 
 const STATUS_STYLES: Record<ObjectiveStatus, string> = {
-  active:    "bg-[#00D64F]/15 text-[#00D64F] border border-[#00D64F]/30",
-  completed: "bg-gray-500/10 text-gray-400 border border-gray-700",
-  paused:    "bg-yellow-500/10 text-yellow-400 border border-yellow-700/40",
+  backlog:    "bg-[#e8f0f4] text-[#1a6b7f] border border-[#1a6b7f]/20",
+  refine:     "bg-[#e8f0fb] text-[#185fa5] border border-[#185fa5]/20",
+  implement:  "bg-[#fef3e2] text-[#ba7517] border border-[#ba7517]/20",
+  done:       "bg-[#eaf4ee] text-[#2d7a4f] border border-[#2d7a4f]/20",
 };
 
-function PMTab() {
+const KANBAN_COLUMNS: Array<{
+  status: ObjectiveStatus;
+  label: string;
+  borderClass: string;
+  textClass: string;
+}> = [
+  { status: "backlog",    label: "Backlog",    borderClass: "border-[#c8c3bb]",  textClass: "text-[#4a6580]" },
+  { status: "refine",     label: "Refine",     borderClass: "border-[#c8c3bb]",  textClass: "text-[#4a6580]" },
+  { status: "implement",  label: "Implement",  borderClass: "border-[#c8c3bb]",  textClass: "text-[#4a6580]" },
+  { status: "done",       label: "Done",       borderClass: "border-[#c8c3bb]",  textClass: "text-[#4a6580]" },
+];
+
+// ── Kanban Card ────────────────────────────────────────────────────────────────
+
+function KanbanCard({
+  obj,
+  col,
+  onClick,
+  onDelete,
+  onDragStart,
+}: {
+  obj: Objective;
+  col: typeof KANBAN_COLUMNS[number];
+  onClick: () => void;
+  onDelete: (id: string) => void;
+  onDragStart: (id: string, fromStatus: ObjectiveStatus) => void;
+}) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const isDone = obj.status === "done";
+  const cleanTitle = obj.title.replace(/\*+/g, "");
+
+  return (
+    <div
+      draggable={!isDone}
+      onDragStart={isDone ? undefined : () => onDragStart(obj.id, obj.status)}
+      onClick={onClick}
+      className={`bg-white border ${col.borderClass} rounded-2xl p-4 flex flex-col gap-2 cursor-pointer hover:shadow-sm transition-shadow ${!isDone ? "active:cursor-grabbing" : ""}`}
+    >
+      {/* Type badge + title */}
+      <div className="flex items-start gap-2">
+        <CardTypeBadge type={obj.card_type} />
+        <p className="text-sm font-bold text-[#0e2a47] leading-snug line-clamp-2 flex-1" title={cleanTitle}>{cleanTitle}</p>
+      </div>
+      {obj.description && (
+        <p className="text-xs text-[#6a7f8f] leading-relaxed line-clamp-2 overflow-hidden">{obj.description}</p>
+      )}
+
+      {/* Bottom row */}
+      <div className="flex items-center justify-between mt-1" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2">
+          {obj.prd && <span className="text-xs text-[#1a6b7f]">PRD</span>}
+          {obj.discussions.length > 0 && (
+            <span className="text-xs text-[#6a7f8f]">{obj.discussions.length} disc.</span>
+          )}
+        </div>
+        {!isDone && (
+          confirmDelete ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-[#6a7f8f]">Delete?</span>
+              <button onClick={() => onDelete(obj.id)} className="text-xs font-semibold text-red-400 hover:text-red-300">Yes</button>
+              <button onClick={() => setConfirmDelete(false)} className="text-xs text-[#6a7f8f] hover:text-[#4a6580]">No</button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              className="text-xs text-[#6a7f8f] hover:text-red-400 transition-colors"
+              title="Delete"
+            >
+              🗑
+            </button>
+          )
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Kanban Tab ─────────────────────────────────────────────────────────────────
+
+function KanbanTab({
+  onCardClick,
+  refreshKey,
+}: {
+  onCardClick: (obj: Objective) => void;
+  refreshKey: number;
+}) {
+  const [objectives, setObjectives] = useState<Objective[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dragging, setDragging] = useState<{ id: string; fromStatus: ObjectiveStatus } | null>(null);
+  const [dragOverCol, setDragOverCol] = useState<ObjectiveStatus | null>(null);
+  const [showNewCard, setShowNewCard] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
+  const [newDesc, setNewDesc] = useState("");
+  const [newType, setNewType] = useState<CardType>("objective");
+  const [savingNew, setSavingNew] = useState(false);
+
+  useEffect(() => {
+    loadObjectives().then((data) => { setObjectives(data); setLoading(false); });
+  }, [refreshKey]);
+
+  async function handleDelete(id: string) {
+    await deleteObjective(id);
+    setObjectives((prev) => prev.filter((o) => o.id !== id));
+  }
+
+  function handleDragStart(id: string, fromStatus: ObjectiveStatus) {
+    setDragging({ id, fromStatus });
+  }
+
+  function handleDragOver(e: React.DragEvent, colStatus: ObjectiveStatus) {
+    e.preventDefault();
+    setDragOverCol(colStatus);
+  }
+
+  function handleDragLeave() {
+    setDragOverCol(null);
+  }
+
+  async function handleDrop(e: React.DragEvent, toStatus: ObjectiveStatus) {
+    e.preventDefault();
+    setDragOverCol(null);
+    if (!dragging || dragging.fromStatus === toStatus) { setDragging(null); return; }
+    const { id } = dragging;
+    setDragging(null);
+    setObjectives((prev) => prev.map((o) => o.id === id ? { ...o, status: toStatus } : o));
+    await updateObjectiveStatus(id, toStatus);
+  }
+
+  async function handleCreateCard() {
+    if (!newTitle.trim()) return;
+    setSavingNew(true);
+    const obj = await saveObjectiveWithDetails(newTitle.trim(), newDesc.trim() || null, "backlog", null, newType);
+    if (obj) {
+      setObjectives((prev) => [obj, ...prev]);
+      setNewTitle(""); setNewDesc(""); setNewType("objective"); setShowNewCard(false);
+    }
+    setSavingNew(false);
+  }
+
+  if (loading) return <p className="text-sm text-[#6a7f8f] py-4">Loading…</p>;
+
+  const newCardForm = showNewCard ? (
+    <div className="bg-white border border-[#e8e4de] rounded-2xl p-5 mb-4 flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest">New card</span>
+        <button onClick={() => setShowNewCard(false)} className="text-[#6a7f8f] hover:text-[#0e2a47] text-sm">×</button>
+      </div>
+      <CardTypeSelector value={newType} onChange={setNewType} />
+      <input
+        type="text"
+        value={newTitle}
+        onChange={(e) => setNewTitle(e.target.value)}
+        placeholder="Card title…"
+        autoFocus
+        className="w-full bg-[#f8f6f1] border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-[#0e2a47] placeholder-[#9ca3af] transition-colors text-sm"
+      />
+      <textarea
+        rows={2}
+        value={newDesc}
+        onChange={(e) => setNewDesc(e.target.value)}
+        placeholder="Description (optional)…"
+        className="w-full bg-[#f8f6f1] border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-[#0e2a47] placeholder-[#9ca3af] transition-colors text-xs resize-none"
+      />
+      <button
+        onClick={handleCreateCard}
+        disabled={!newTitle.trim() || savingNew}
+        className="rounded-2xl bg-[#1a6b7f] text-white font-bold px-6 py-3 hover:bg-[#155a6b] transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm w-fit"
+      >
+        {savingNew ? "Creating…" : "Create card →"}
+      </button>
+    </div>
+  ) : (
+    <div className="mb-4">
+      <button
+        onClick={() => setShowNewCard(true)}
+        className="text-sm font-semibold text-[#1a6b7f] hover:underline"
+      >
+        + New card
+      </button>
+    </div>
+  );
+
+  if (objectives.length === 0) {
+    return (
+      <div>
+        {newCardForm}
+        <div className="border border-dashed border-[#d4cfc5] rounded-2xl p-10 text-center">
+          <p className="text-sm text-[#6a7f8f]">No cards yet — save objectives from the PM tab or create one above.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+    {newCardForm}
+    <div className="grid grid-cols-4 gap-3 pb-4">
+      {KANBAN_COLUMNS.map((col) => {
+        const cards = objectives.filter((o) => o.status === col.status);
+        const isDoneCol = col.status === "done";
+        const isOver = dragOverCol === col.status && dragging?.fromStatus !== col.status && !isDoneCol;
+        return (
+          <div
+            key={col.status}
+            className="flex flex-col gap-3 min-w-0"
+            onDragOver={isDoneCol ? undefined : (e) => handleDragOver(e, col.status)}
+            onDragLeave={isDoneCol ? undefined : handleDragLeave}
+            onDrop={isDoneCol ? undefined : (e) => handleDrop(e, col.status)}
+          >
+            <div className="flex items-center justify-between px-1">
+              <span className={`text-xs font-bold uppercase tracking-widest ${col.textClass}`}>{col.label}</span>
+              <span className="text-xs text-[#6a7f8f]">{cards.length}</span>
+            </div>
+            <div
+              className={`flex flex-col gap-3 min-h-[80px] rounded-2xl transition-colors ${
+                isOver ? "bg-[#1a6b7f]/5 ring-1 ring-[#1a6b7f]/20" : ""
+              }`}
+            >
+              {cards.length === 0 ? (
+                <div className={`border ${col.borderClass} rounded-2xl p-4 text-xs text-[#6a7f8f] text-center`}>
+                  Empty
+                </div>
+              ) : (
+                cards.map((obj) => (
+                  <KanbanCard
+                    key={obj.id}
+                    obj={obj}
+                    col={col}
+                    onClick={() => onCardClick(obj)}
+                    onDelete={handleDelete}
+                    onDragStart={handleDragStart}
+                  />
+                ))
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+    </div>
+  );
+}
+
+// ── PM 1-on-1 Tab ─────────────────────────────────────────────────────────────
+
+// Detect if Sarah's last message suggests saving an objective
+function detectObjectiveAgreed(content: string): boolean {
+  const lower = content.toLowerCase();
+  const patterns = [
+    "shall we save", "want me to add", "add that to the kanban", "save that as an objective",
+    "add it to the board", "shall we add", "want to save that", "lock that in",
+    "add this to the kanban", "save this as", "shall i add", "want to add that",
+  ];
+  return patterns.some((p) => lower.includes(p));
+}
+
+function PMTab({ onSwitchToKanban, onObjectiveSaved, buildMode }: { onSwitchToKanban: () => void; onObjectiveSaved: () => void; buildMode: boolean }) {
   const [messages, setMessages] = useState<CoachMessage[]>([]);
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   const [pmError, setPmError] = useState("");
   const [objectives, setObjectives] = useState<Objective[]>([]);
-  const [objInput, setObjInput] = useState("");
   const [savingObj, setSavingObj] = useState(false);
-  const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [savedObj, setSavedObj] = useState(false);
   const [riseContext, setRiseContext] = useState("");
-  const [ostNotification, setOstNotification] = useState("");
   const conversationIdRef = useRef<string | null>(null);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const lastUserMessageRef = useRef<string>("");
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -1356,8 +2266,8 @@ function PMTab() {
     setMessages([...history, { role: "assistant", content: "" }]);
 
     const pmSystem = riseContext
-      ? `${PM_SYSTEM}\n\nFull Rise product context (CLAUDE.md):\n${riseContext}`
-      : PM_SYSTEM;
+      ? `${PM_SYSTEM}\n\n${getModeInstruction(buildMode)}\n\nFull Rise product context (CLAUDE.md):\n${riseContext}`
+      : `${PM_SYSTEM}\n\n${getModeInstruction(buildMode)}`;
 
     try {
       await streamChat(
@@ -1374,7 +2284,7 @@ function PMTab() {
       const allMessages: CoachMessage[] = [...history, { role: "assistant", content: assistantText }];
       const firstUserMsg = allMessages.find((m) => m.role === "user")?.content ?? "PM session";
       const id = await upsertPMConversation(conversationIdRef.current, firstUserMsg, allMessages);
-      if (id) conversationIdRef.current = id;
+      if (id) { conversationIdRef.current = id; setConversationId(id); }
 
     } catch (err) {
       console.error("PM error:", err);
@@ -1406,107 +2316,104 @@ function PMTab() {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
   }
 
-  async function updateOstFromObjective(title: string, objectiveId: string) {
-    try {
-      // 1. Fetch last 10 feedback entries
-      const feedbackRes = await fetch("/api/feedback");
-      const feedbackData = await feedbackRes.json();
-      const feedbackText = Array.isArray(feedbackData)
-        ? feedbackData.map((f: { page: string; feedback: string }) => `- [${f.page}] ${f.feedback}`).join("\n")
-        : "(no feedback available)";
-
-      // 2. Get current OST
-      const currentOst = await loadLatestOstSnapshot() ?? OST_DEFAULT;
-
-      // 3. Ask Claude to update the OST
-      const prompt = `You are updating an Opportunity Solution Tree (OST) for a product team.
-
-New objective just saved: "${title}"
-
-Recent user feedback:
-${feedbackText}
-
-Current OST (JSON):
-${JSON.stringify(currentOst, null, 2)}
-
-Update the OST to reflect the new objective and any relevant insights from the feedback. Return ONLY valid JSON matching the OSTTree structure (outcome string, opportunities array with label/sub array with label/solutions array with label/assumptions array with label). No markdown, no explanation.`;
-
-      const res = await fetch("/api/team/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-6",
-          system: "You are a product strategy assistant. Return only valid JSON.",
-          messages: [{ role: "user", content: prompt }],
-          max_tokens: 4000,
-        }),
-      });
-
-      if (!res.ok) return;
-      const raw: string = await res.json();
-      let updated: OSTTree | null = null;
-      try {
-        const clean = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
-        updated = JSON.parse(clean);
-      } catch {
-        const start = raw.indexOf("{");
-        const end = raw.lastIndexOf("}");
-        if (start !== -1 && end !== -1) {
-          try { updated = JSON.parse(raw.slice(start, end + 1)); } catch { /* give up */ }
-        }
-      }
-
-      if (updated) {
-        await saveOstSnapshot(updated, objectiveId);
-        setOstNotification("OST updated based on new objective");
-        setTimeout(() => setOstNotification(""), 5000);
-      }
-    } catch (err) {
-      console.error("[ost] update error", err);
-    }
-  }
-
-  async function handleSaveObjective() {
-    const title = objInput.trim();
-    if (!title) return;
+  async function handleAddToKanban() {
     setSavingObj(true);
-    const obj = await saveObjective(title);
+    setSavedObj(false);
+
+    const convoSlice = messages.slice(-10).map((m) => `${m.role === "user" ? "Philip" : "Sarah"}: ${m.content}`).join("\n\n");
+
+    // Extract title and description from the conversation
+    let title = "";
+    let description: string | null = null;
+    try {
+      let extracted = "";
+      await streamChat(
+        PM_MODEL,
+        "You extract objective titles. Reply with ONLY the title — max 8 words, no quotes, no punctuation at end.",
+        [{
+          role: "user",
+          content: `Extract the agreed objective from this PM conversation as a concise kanban card title (max 8 words).\n\n${convoSlice}`,
+        }],
+        30,
+        (chunk) => { extracted += chunk; }
+      );
+      title = extracted.trim().replace(/^["']|["']$/g, "").replace(/\.$/g, "");
+    } catch {
+      title = "New objective";
+    }
+
+    try {
+      let desc = "";
+      await streamChat(
+        PM_MODEL,
+        "You extract concise one-sentence descriptions. Reply with ONLY the sentence — no extra text.",
+        [{
+          role: "user",
+          content: `Write a one-sentence description for the agreed objective from this conversation.\n\n${convoSlice}`,
+        }],
+        80,
+        (chunk) => { desc += chunk; }
+      );
+      const clean = desc.trim().replace(/^["']|["']$/g, "").replace(/\.+$/, "") + ".";
+      if (clean.length > 5) description = clean;
+    } catch { /* non-fatal */ }
+
+    // Generate PM summary
+    let pmSummary: string | null = null;
+    try {
+      let summary = "";
+      await streamChat(
+        PM_MODEL,
+        "You write concise conversation summaries. Reply with ONLY the summary — 3-5 sentences.",
+        [{
+          role: "user",
+          content: `Summarize this PM conversation in 3-5 sentences. Focus on the key decisions and reasoning.\n\n${convoSlice}`,
+        }],
+        200,
+        (chunk) => { summary += chunk; }
+      );
+      if (summary.trim().length > 10) pmSummary = summary.trim();
+    } catch { /* non-fatal */ }
+
+    const obj = await saveObjectiveWithDetails(title, description, "backlog", null, "objective", pmSummary);
     if (obj) {
-      setObjectives((prev) => [obj, ...prev]);
-      setObjInput("");
-      // Fire-and-forget OST update
-      updateOstFromObjective(title, obj.id);
+      loadObjectives().then(setObjectives);
+      setSavedObj(true);
+      onObjectiveSaved();
     }
     setSavingObj(false);
   }
 
-  async function handleToggleStatus(obj: Objective) {
-    const next = STATUS_CYCLE[obj.status];
-    setTogglingId(obj.id);
-    await updateObjectiveStatus(obj.id, next);
-    setObjectives((prev) => prev.map((o) => o.id === obj.id ? { ...o, status: next } : o));
-    setTogglingId(null);
+  function loadPastConversation(row: ConversationRow) {
+    const msgs = row.messages as { history: CoachMessage[] };
+    setMessages(msgs.history ?? []);
+    conversationIdRef.current = row.id;
+    setConversationId(row.id);
+    setPmError("");
   }
 
   return (
     <div className="flex flex-col gap-8">
+
+      {/* Past conversations */}
+      <PastConversations type="pm" onLoad={loadPastConversation} activeConversationId={conversationId} />
 
       {/* Chat */}
       <div className="flex flex-col gap-4">
 
         {/* Intro */}
         {messages.length === 0 && (
-          <div className="bg-[#111] border border-[#1e1e1e] rounded-2xl p-6">
+          <div className="bg-white border border-[#e8e4de] rounded-2xl p-6">
             <div className="flex items-center gap-3 mb-3">
-              <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0" style={{ background: "#5a4fcf" }}>
+              <div className="w-9 h-9 rounded-full flex items-center justify-center text-[#0e2a47] font-bold text-sm flex-shrink-0" style={{ background: "#5a4fcf" }}>
                 SM
               </div>
               <div>
-                <p className="text-sm font-bold text-white">Sarah · PM</p>
-                <p className="text-xs text-gray-600">1-on-1 with Philip</p>
+                <p className="text-sm font-bold text-[#0e2a47]">Sarah · PM</p>
+                <p className="text-xs text-[#6a7f8f]">1-on-1 with Philip</p>
               </div>
             </div>
-            <p className="text-sm text-gray-400 leading-relaxed">
+            <p className="text-sm text-[#4a6580] leading-relaxed">
               Hey Philip — what's on your mind? We can work through a problem, align on priorities, or agree on what to focus on next.
             </p>
           </div>
@@ -1518,25 +2425,25 @@ Update the OST to reflect the new objective and any relevant insights from the f
             {messages.map((msg, i) =>
               msg.role === "user" ? (
                 <div key={i} className="flex justify-end">
-                  <div className="bg-[#00D64F]/10 border border-[#00D64F]/20 rounded-2xl rounded-tr-sm px-5 py-3.5 max-w-xl">
-                    <p className="text-sm text-white leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                  <div className="bg-[#1a6b7f]/10 border border-[#1a6b7f]/20 rounded-2xl rounded-tr-sm px-5 py-3.5 max-w-xl">
+                    <p className="text-sm text-[#0e2a47] leading-relaxed whitespace-pre-wrap">{msg.content}</p>
                   </div>
                 </div>
               ) : (
                 <div key={i} className="flex gap-4">
-                  <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs flex-shrink-0" style={{ background: "#5a4fcf" }}>
+                  <div className="w-9 h-9 rounded-full flex items-center justify-center text-[#0e2a47] font-bold text-xs flex-shrink-0" style={{ background: "#5a4fcf" }}>
                     SM
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-2">
-                      <span className="text-sm font-bold text-white">Sarah</span>
-                      <span className="text-xs text-gray-600 bg-[#1a1a1a] px-2 py-0.5 rounded-full">PM</span>
+                      <span className="text-sm font-bold text-[#0e2a47]">Sarah</span>
+                      <span className="text-xs text-[#6a7f8f] bg-[#f0ede8] px-2 py-0.5 rounded-full">PM</span>
                       {thinking && i === messages.length - 1 && !msg.content && <ThinkingDots />}
                     </div>
                     {msg.content ? (
-                      <div className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap">{msg.content}</div>
+                      <MarkdownText text={msg.content} />
                     ) : (
-                      <div className="text-sm text-gray-600 italic">Thinking…</div>
+                      <div className="text-sm text-[#6a7f8f] italic">Thinking…</div>
                     )}
                   </div>
                 </div>
@@ -1547,14 +2454,14 @@ Update the OST to reflect the new objective and any relevant insights from the f
         )}
 
         {/* Input */}
-        <div className="flex flex-col gap-2 sticky bottom-0 bg-[#0a0a0a] pt-2 pb-4">
+        <div className="flex flex-col gap-2 sticky bottom-0 bg-[#f8f6f1] pt-2 pb-4">
           {pmError && (
             <div className="flex items-center justify-between gap-4 bg-red-950/40 border border-red-800/40 rounded-xl px-4 py-3">
               <p className="text-sm text-red-400">{pmError}</p>
               <button
                 onClick={retry}
                 disabled={thinking}
-                className="text-sm font-semibold text-red-300 hover:text-white transition-colors flex-shrink-0 disabled:opacity-50"
+                className="text-sm font-semibold text-red-300 hover:text-[#0e2a47] transition-colors flex-shrink-0 disabled:opacity-50"
               >
                 Retry →
               </button>
@@ -1568,12 +2475,12 @@ Update the OST to reflect the new objective and any relevant insights from the f
               onKeyDown={handleKeyDown}
               placeholder="Message Sarah… (Enter to send, Shift+Enter for newline)"
               disabled={thinking}
-              className="flex-1 bg-[#111] border border-[#2a2a2a] focus:border-[#00D64F] outline-none rounded-xl px-5 py-4 text-white placeholder-[#444] transition-colors text-sm resize-none disabled:opacity-50"
+              className="flex-1 bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-5 py-4 text-[#0e2a47] placeholder-[#9ca3af] transition-colors text-sm resize-none disabled:opacity-50"
             />
             <button
               onClick={send}
               disabled={!input.trim() || thinking}
-              className="rounded-2xl bg-[#00D64F] text-black font-bold px-6 py-4 hover:bg-[#00c248] transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm flex-shrink-0"
+              className="rounded-2xl bg-[#1a6b7f] text-white font-bold px-6 py-4 hover:bg-[#155a6b] transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm flex-shrink-0"
             >
               {thinking ? "…" : "Send →"}
             </button>
@@ -1582,59 +2489,63 @@ Update the OST to reflect the new objective and any relevant insights from the f
       </div>
 
       {/* Objectives */}
-      <div className="border-t border-[#1a1a1a] pt-8 flex flex-col gap-5">
+      <div className="border-t border-[#d4cfc5] pt-8 flex flex-col gap-5">
 
-        <div>
-          <h2 className="text-base font-bold text-white mb-1">Agreed objectives</h2>
-          <p className="text-xs text-gray-600">Objectives you and Sarah have agreed on. Click a status badge to cycle it.</p>
-        </div>
-
-        {ostNotification && (
-          <div className="flex items-center gap-2 bg-[#00D64F]/10 border border-[#00D64F]/25 rounded-xl px-4 py-2.5">
-            <span className="text-xs text-[#00D64F]">✓</span>
-            <p className="text-xs text-[#00D64F]">{ostNotification}</p>
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h2 className="text-base font-bold text-[#0e2a47] mb-1">Agreed objectives</h2>
+            <p className="text-xs text-[#6a7f8f]">Objectives saved to the Kanban board as backlog cards.</p>
           </div>
-        )}
-
-        {/* Save input */}
-        <div className="flex gap-3 items-end">
-          <input
-            type="text"
-            value={objInput}
-            onChange={(e) => setObjInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") handleSaveObjective(); }}
-            placeholder="Add an agreed objective…"
-            className="flex-1 bg-[#111] border border-[#2a2a2a] focus:border-[#00D64F] outline-none rounded-xl px-5 py-3.5 text-white placeholder-[#444] transition-colors text-sm"
-          />
           <button
-            onClick={handleSaveObjective}
-            disabled={!objInput.trim() || savingObj}
-            className="rounded-2xl bg-[#00D64F] text-black font-bold px-5 py-3.5 hover:bg-[#00c248] transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm flex-shrink-0"
+            onClick={onSwitchToKanban}
+            className="text-sm text-[#1a6b7f] hover:opacity-75 transition-opacity whitespace-nowrap shrink-0"
           >
-            {savingObj ? "Saving…" : "Save objective"}
+            View Kanban →
           </button>
         </div>
 
+        {/* Add to Kanban button — shown when Sarah suggests saving an objective */}
+        {messages.length >= 2 && !thinking && !savedObj && (() => {
+          const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+          return lastAssistant && detectObjectiveAgreed(lastAssistant.content);
+        })() && (
+          <div className="bg-[#e8f4f6] border border-[#1a6b7f]/20 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+            <p className="text-sm text-[#0e2a47]">Sarah suggested saving an objective from this conversation.</p>
+            <button
+              onClick={handleAddToKanban}
+              disabled={savingObj}
+              className="rounded-2xl bg-[#1a6b7f] text-white font-bold px-5 py-3 hover:bg-[#155a6b] transition-colors disabled:opacity-40 text-sm flex-shrink-0 whitespace-nowrap"
+            >
+              {savingObj ? "Saving…" : "Add to Kanban as Objective →"}
+            </button>
+          </div>
+        )}
+        {savedObj && (
+          <p className="text-xs text-[#1a6b7f]">Objective added to Kanban board</p>
+        )}
+
         {/* List */}
         {objectives.length === 0 ? (
-          <p className="text-sm text-gray-600">No objectives saved yet.</p>
+          <p className="text-sm text-[#6a7f8f]">No objectives saved yet.</p>
         ) : (
           <div className="flex flex-col gap-2">
             {objectives.map((obj) => (
-              <div key={obj.id} className="bg-[#111] border border-[#1e1e1e] rounded-2xl px-5 py-4 flex items-start justify-between gap-4">
+              <div key={obj.id} className="bg-white border border-[#e8e4de] rounded-2xl px-5 py-4 flex items-start justify-between gap-4">
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm text-white leading-relaxed">{obj.title}</p>
-                  <p className="text-xs text-gray-600 mt-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <CardTypeBadge type={obj.card_type} />
+                    <p className="text-sm text-[#0e2a47] leading-relaxed">{obj.title}</p>
+                  </div>
+                  {obj.description && (
+                    <p className="text-xs text-[#6a7f8f] mt-0.5 leading-relaxed">{obj.description}</p>
+                  )}
+                  <p className="text-xs text-[#6a7f8f] mt-1">
                     {new Date(obj.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
                   </p>
                 </div>
-                <button
-                  onClick={() => handleToggleStatus(obj)}
-                  disabled={togglingId === obj.id}
-                  className={`shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full capitalize transition-opacity disabled:opacity-50 ${STATUS_STYLES[obj.status]}`}
-                >
-                  {obj.status}
-                </button>
+                <span className={`shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full capitalize ${STATUS_STYLES[obj.status]}`}>
+                  {STATUS_LABELS[obj.status]}
+                </span>
               </div>
             ))}
           </div>
@@ -1645,245 +2556,98 @@ Update the OST to reflect the new objective and any relevant insights from the f
   );
 }
 
-// ── Opportunity Solution Tree Tab ──────────────────────────────────────────────
-
-function OSTTab() {
-  const [tree, setTree] = useState<OSTTree>(OST_DEFAULT);
-  const [feedback, setFeedback] = useState("");
-  const [generating, setGenerating] = useState(false);
-  const [status, setStatus] = useState("Showing example tree — paste user feedback to generate.");
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const layoutRef = useRef<LayoutNode | null>(null);
-  const sizeRef = useRef<{ w: number; h: number; dpr: number } | null>(null);
-
-  // Load latest OST snapshot on mount
-  useEffect(() => {
-    loadLatestOstSnapshot().then((snapshot) => {
-      if (snapshot) {
-        setTree(snapshot);
-        setStatus("Loaded latest OST snapshot.");
-      }
-    });
-  }, []);
-
-  // Recompute layout + resize canvas when tree changes
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const root = ostBuild(tree);
-    ostComputeWidth(root);
-    ostAssignPos(root, OST_PAD);
-    const depth = ostMaxDepth(root);
-    const w = root.subtreeW + OST_PAD * 2;
-    const h = depth * (OST_H + OST_VGAP) + OST_PAD * 2;
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = Math.round(w * dpr);
-    canvas.height = Math.round(h * dpr);
-    canvas.style.width = `${w}px`;
-    canvas.style.height = `${h}px`;
-    layoutRef.current = root;
-    sizeRef.current = { w, h, dpr };
-  }, [tree]);
-
-  // Redraw on tree or hoveredId change
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    const root = layoutRef.current;
-    const size = sizeRef.current;
-    if (!canvas || !root || !size) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.setTransform(size.dpr, 0, 0, size.dpr, 0, 0);
-    ctx.fillStyle = "#0a0a0a";
-    ctx.fillRect(0, 0, size.w, size.h);
-    ostDraw(ctx, root, hoveredId);
-  }, [tree, hoveredId]);
-
-  function handleMouseMove(e: React.MouseEvent<HTMLCanvasElement>) {
-    const canvas = canvasRef.current;
-    const root = layoutRef.current;
-    if (!canvas || !root) return;
-    const rect = canvas.getBoundingClientRect();
-    const node = ostFind(root, e.clientX - rect.left, e.clientY - rect.top);
-    const id = node?.id ?? null;
-    if (id !== hoveredId) {
-      setHoveredId(id);
-      canvas.style.cursor = id ? "pointer" : "default";
-    }
-  }
-
-  function handleMouseLeave() {
-    setHoveredId(null);
-    if (canvasRef.current) canvasRef.current.style.cursor = "default";
-  }
-
-  function handleDblClick(e: React.MouseEvent<HTMLCanvasElement>) {
-    const canvas = canvasRef.current;
-    const root = layoutRef.current;
-    if (!canvas || !root) return;
-    const rect = canvas.getBoundingClientRect();
-    const node = ostFind(root, e.clientX - rect.left, e.clientY - rect.top);
-    if (!node) return;
-    const newText = window.prompt("Edit node text:", node.text);
-    if (newText?.trim()) setTree(prev => ostUpdateText(prev, node.id, newText.trim()));
-  }
-
-  async function generate() {
-    if (!feedback.trim() || generating) return;
-    setGenerating(true);
-    setStatus("Generating opportunity tree…");
-    try {
-      let raw = "";
-      await streamChat(
-        TEAM_MODEL, OST_SYSTEM,
-        [{ role: "user", content: feedback }],
-        4000,
-        (chunk) => { raw += chunk; }
-      );
-      const stripped = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
-      let parsed: OSTTree | null = null;
-      try {
-        parsed = JSON.parse(stripped);
-      } catch {
-        // Fallback: extract the largest JSON object between first { and last }
-        const start = stripped.indexOf("{");
-        const end = stripped.lastIndexOf("}");
-        if (start !== -1 && end > start) {
-          try { parsed = JSON.parse(stripped.slice(start, end + 1)); } catch { /* give up */ }
-        }
-      }
-      if (!parsed) throw new Error("Could not parse JSON from response");
-      setTree(parsed);
-      setStatus("Tree generated — double-click any node to edit.");
-    } catch (err) {
-      console.error("[ost generate]", err);
-      setStatus("Generation failed — showing example tree.");
-      setTree(OST_DEFAULT);
-    }
-    setGenerating(false);
-  }
-
-  function downloadPng() {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const url = canvas.toDataURL("image/png");
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "opportunity-solution-tree.png";
-    a.click();
-  }
-
-  return (
-    <div className="flex flex-col gap-6">
-
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-base font-bold text-white">Opportunity solution tree</h2>
-        <button
-          onClick={downloadPng}
-          className="rounded-xl border border-[#2a2a2a] text-gray-300 hover:text-white hover:border-[#444] font-semibold px-4 py-2 transition-colors text-sm"
-        >
-          Download PNG ↓
-        </button>
-      </div>
-
-      {/* Legend */}
-      <div className="flex flex-wrap gap-5">
-        {(
-          [
-            { label: "Outcome",     fill: "#00D64F", border: "#00b340" },
-            { label: "Opportunity", fill: "#1a6b3c", border: "#00D64F" },
-            { label: "Solution",    fill: "#1e1e1e", border: "#444444" },
-            { label: "Assumption",  fill: "#2a1a00", border: "#7a5000" },
-          ] as const
-        ).map(({ label, fill, border }) => (
-          <div key={label} className="flex items-center gap-2">
-            <div
-              className="w-4 h-4 rounded-full flex-shrink-0"
-              style={{ background: fill, border: `1.5px solid ${border}` }}
-            />
-            <span className="text-xs text-gray-400">{label}</span>
-          </div>
-        ))}
-      </div>
-
-      {/* Input */}
-      <div className="flex flex-col gap-3">
-        <label className="text-xs font-bold text-gray-500 uppercase tracking-widest">
-          Paste user feedback or research
-        </label>
-        <textarea
-          rows={4}
-          value={feedback}
-          onChange={(e) => setFeedback(e.target.value)}
-          placeholder="e.g. 'Users feel lost after onboarding. They don't know what to do next. Several mentioned wanting a plan for each day…'"
-          className="w-full bg-[#111] border border-[#2a2a2a] focus:border-[#00D64F] outline-none rounded-xl px-5 py-4 text-white placeholder-[#444] transition-colors text-sm resize-none"
-        />
-        <div className="flex items-center gap-3">
-          <button
-            onClick={generate}
-            disabled={!feedback.trim() || generating}
-            className="rounded-2xl bg-[#00D64F] text-black font-bold px-8 py-4 hover:bg-[#00c248] transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm"
-          >
-            {generating ? "Generating…" : "Generate OST →"}
-          </button>
-        </div>
-        <p className="text-xs text-gray-600">{status}</p>
-      </div>
-
-      {/* Canvas */}
-      <div className="overflow-x-auto rounded-2xl border border-[#1e1e1e] bg-[#0a0a0a]">
-        <canvas
-          ref={canvasRef}
-          onMouseMove={handleMouseMove}
-          onMouseLeave={handleMouseLeave}
-          onDoubleClick={handleDblClick}
-        />
-      </div>
-
-    </div>
-  );
-}
 
 // ── Page ───────────────────────────────────────────────────────────────────────
 
 export default function TeamPage() {
-  const [activeTab, setActiveTab] = useState<"team" | "pm" | "coach" | "ost">("team");
+  const [activeTab, setActiveTab] = useState<"kanban" | "team" | "pm" | "coach">("kanban");
+  const [pendingObjective, setPendingObjective] = useState<{ id: string; problem: string } | null>(null);
+  const [cardContext, setCardContext] = useState<Objective | null>(null);
+  const [selectedCard, setSelectedCard] = useState<Objective | null>(null);
+  const [buildMode, setBuildMode] = useState<boolean>(true);
+  const [kanbanRefreshKey, setKanbanRefreshKey] = useState(0);
 
-  // Pre-select tab from ?tab= query param
+  // Pre-select tab from ?tab= query param; load persisted build mode
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get("tab");
-    if (tab === "ost" || tab === "coach" || tab === "team" || tab === "pm") setActiveTab(tab);
+    if (tab === "kanban" || tab === "team" || tab === "pm" || tab === "coach") {
+      setActiveTab(tab);
+    }
+    const saved = localStorage.getItem("rise_team_mode");
+    if (saved === "research") setBuildMode(false);
   }, []);
 
+  function toggleMode() {
+    const next = !buildMode;
+    setBuildMode(next);
+    localStorage.setItem("rise_team_mode", next ? "build" : "research");
+  }
+
+  function handleDiscussionSaved(objectiveId: string, discussion: Discussion, prd: string | null) {
+    // Save discussion to the card
+    void (async () => {
+      const { data } = await supabase
+        .from("objectives")
+        .select("discussions, prd")
+        .eq("id", objectiveId)
+        .single();
+      const existing: Discussion[] = (data?.discussions as Discussion[]) ?? [];
+      const updated = [...existing, discussion];
+      const fields: Record<string, unknown> = { discussions: updated };
+      if (prd) fields.prd = prd;
+      await updateObjectiveField(objectiveId, fields);
+      setKanbanRefreshKey((k) => k + 1);
+    })();
+  }
+
+  function handleCardUpdate(updated: Objective) {
+    if (updated.id === "__deleted__") {
+      setSelectedCard(null);
+      setKanbanRefreshKey((k) => k + 1);
+      return;
+    }
+    setSelectedCard(updated);
+    setKanbanRefreshKey((k) => k + 1);
+  }
+
   const tabs = [
+    { id: "kanban" as const, label: "Kanban" },
     { id: "team" as const, label: "Product team" },
     { id: "pm" as const, label: "PM" },
     { id: "coach" as const, label: "Product coach" },
-    { id: "ost" as const, label: "Opportunity tree" },
   ];
 
   return (
-    <main className="min-h-screen bg-[#0a0a0a] px-6 py-10">
-      <div className="max-w-3xl mx-auto">
+    <main className="min-h-screen bg-[#f8f6f1] px-6 py-10 overflow-x-hidden">
+      <div className={`${activeTab === "kanban" ? "max-w-5xl" : "max-w-3xl"} mx-auto transition-all`}>
 
-        <div className="mb-8">
-          <h1 className="text-4xl font-extrabold tracking-tight mb-2">Product agents</h1>
-          <p className="text-gray-400">AI-powered product thinking for Rise.</p>
+        <div className="mb-8 flex items-start justify-between gap-6 flex-wrap">
+          <div>
+            <h1 className="text-4xl font-extrabold tracking-tight mb-2">Product agents</h1>
+            <p className="text-[#4a6580]">AI-powered product thinking for Rise.</p>
+          </div>
+          {/* Build / Research mode toggle */}
+          <button
+            onClick={toggleMode}
+            className="flex items-center gap-2.5 bg-white border border-[#e8e4de] rounded-2xl px-4 py-2.5 hover:border-[#d4cfc5] transition-colors shrink-0"
+          >
+            <span className={`w-2 h-2 rounded-full ${buildMode ? "bg-[#1a6b7f]" : "bg-amber-400"}`} />
+            <span className="text-sm font-semibold text-[#0e2a47]">{buildMode ? "Build mode" : "Research mode"}</span>
+            <span className="text-xs text-[#6a7f8f]">— tap to switch</span>
+          </button>
         </div>
 
         {/* Tab bar */}
-        <div className="flex gap-1 bg-[#111] border border-[#1e1e1e] rounded-2xl p-1 w-fit mb-10">
+        <div className="flex gap-1 bg-white border border-[#e8e4de] rounded-2xl p-1 w-fit mb-10 overflow-x-auto">
           {tabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+              className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-colors whitespace-nowrap ${
                 activeTab === tab.id
-                  ? "bg-[#00D64F] text-black"
-                  : "text-gray-400 hover:text-white"
+                  ? "bg-[#1a6b7f] text-white"
+                  : "text-[#4a6580] hover:text-[#0e2a47]"
               }`}
             >
               {tab.label}
@@ -1891,12 +2655,36 @@ export default function TeamPage() {
           ))}
         </div>
 
-        {activeTab === "team" && <ProductTeamTab />}
-        {activeTab === "pm" && <PMTab />}
-        {activeTab === "coach" && <ProductCoachTab />}
-        {activeTab === "ost" && <OSTTab />}
+        {activeTab === "kanban" && (
+          <KanbanTab
+            onCardClick={(obj) => setSelectedCard(obj)}
+            refreshKey={kanbanRefreshKey}
+          />
+        )}
+        {activeTab === "team" && (
+          <ProductTeamTab
+            pendingObjective={pendingObjective}
+            cardContext={cardContext}
+            onObjectiveSaved={() => { setPendingObjective(null); setKanbanRefreshKey((k) => k + 1); }}
+            onDiscussionSaved={handleDiscussionSaved}
+            buildMode={buildMode}
+          />
+        )}
+        {activeTab === "pm" && <PMTab onSwitchToKanban={() => setActiveTab("kanban")} onObjectiveSaved={() => setKanbanRefreshKey((k) => k + 1)} buildMode={buildMode} />}
+        {activeTab === "coach" && <ProductCoachTab buildMode={buildMode} />}
 
       </div>
+
+      {/* Card detail slide-in panel */}
+      {selectedCard && (
+        <CardDetailPanel
+          obj={selectedCard}
+          onClose={() => setSelectedCard(null)}
+          onUpdate={handleCardUpdate}
+          onDiscussionSaved={handleDiscussionSaved}
+          buildMode={buildMode}
+        />
+      )}
     </main>
   );
 }

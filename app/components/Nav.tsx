@@ -31,9 +31,10 @@ const sections: NavSection[] = [
     label: "Admin",
     links: [
       { href: "/admin", label: "AI Logs" },
-      { href: "/team", label: "Team" },
-      { href: "/team?tab=pm", label: "PM 1-on-1" },
-      { href: "/team?tab=ost", label: "Opportunity tree" },
+      { href: "/admin/evals", label: "Evals" },
+      { href: "/admin/usage", label: "Usage" },
+      { href: "/team", label: "Product" },
+      { href: "/team?tab=pm", label: "PM" },
       { href: "/feedback-admin", label: "Feedback" },
     ],
   },
@@ -74,17 +75,17 @@ export default function Nav() {
     setOpenSection((prev) => (prev === label ? null : label));
   }
 
-  // Don't show nav on welcome/onboarding
-  if (pathname === "/welcome") return null;
+  // Don't show nav on homepage or welcome/onboarding
+  if (pathname === "/" || pathname === "/welcome") return null;
 
   return (
-    <nav ref={navRef} className="sticky top-0 z-50 w-full bg-[#0a0a0a] border-b border-[#1a1a1a]">
+    <nav ref={navRef} className="sticky top-0 z-50 w-full bg-white border-b border-[#e8e4de]">
       <div className="max-w-5xl mx-auto px-6 h-14 flex items-center justify-between">
 
         {/* Logo */}
         <Link
           href="/"
-          className="text-[#00D64F] font-extrabold text-lg tracking-tight hover:opacity-80 transition-opacity"
+          className="text-[#1a6b7f] font-extrabold text-lg tracking-tight hover:opacity-80 transition-opacity"
         >
           Rise
         </Link>
@@ -101,8 +102,8 @@ export default function Nav() {
                   onClick={() => toggleSection(section.label)}
                   className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
                     isActive
-                      ? "text-[#00D64F] bg-[#00D64F]/10"
-                      : "text-gray-400 hover:text-white hover:bg-[#111]"
+                      ? "text-[#1a6b7f] bg-[#1a6b7f]/10"
+                      : "text-[#4a6580] hover:text-[#0e2a47] hover:bg-[#f0ede8]"
                   }`}
                 >
                   {section.label}
@@ -116,7 +117,7 @@ export default function Nav() {
                 </button>
 
                 {isOpen && (
-                  <div className="absolute top-full right-0 mt-2 w-48 bg-[#111] border border-[#2a2a2a] rounded-2xl overflow-hidden shadow-2xl py-1">
+                  <div className="absolute top-full right-0 mt-2 w-48 bg-white border border-[#d4cfc5] rounded-2xl overflow-hidden shadow-2xl py-1">
                     {section.links.map((link) => {
                       const isLinkActive = pathname === link.href || (link.href !== "/" && pathname.startsWith(link.href));
                       return (
@@ -125,8 +126,8 @@ export default function Nav() {
                           href={link.href}
                           className={`block px-4 py-3 text-sm transition-colors ${
                             isLinkActive
-                              ? "text-[#00D64F] bg-[#00D64F]/10 font-semibold"
-                              : "text-gray-300 hover:text-white hover:bg-[#1a1a1a]"
+                              ? "text-[#1a6b7f] bg-[#1a6b7f]/10 font-semibold"
+                              : "text-[#4a6580] hover:text-[#0e2a47] hover:bg-[#f0ede8]"
                           }`}
                         >
                           {link.label}
@@ -146,20 +147,20 @@ export default function Nav() {
           onClick={() => setMobileOpen((v) => !v)}
           aria-label="Toggle menu"
         >
-          <span className={`block w-5 h-0.5 bg-white transition-transform origin-center ${mobileOpen ? "rotate-45 translate-y-2" : ""}`} />
-          <span className={`block w-5 h-0.5 bg-white transition-opacity ${mobileOpen ? "opacity-0" : ""}`} />
-          <span className={`block w-5 h-0.5 bg-white transition-transform origin-center ${mobileOpen ? "-rotate-45 -translate-y-2" : ""}`} />
+          <span className={`block w-5 h-0.5 bg-[#0e2a47] transition-transform origin-center ${mobileOpen ? "rotate-45 translate-y-2" : ""}`} />
+          <span className={`block w-5 h-0.5 bg-[#0e2a47] transition-opacity ${mobileOpen ? "opacity-0" : ""}`} />
+          <span className={`block w-5 h-0.5 bg-[#0e2a47] transition-transform origin-center ${mobileOpen ? "-rotate-45 -translate-y-2" : ""}`} />
         </button>
       </div>
 
       {/* Mobile menu */}
       {mobileOpen && (
-        <div className="md:hidden border-t border-[#1a1a1a] bg-[#0a0a0a] px-6 pb-4">
+        <div className="md:hidden border-t border-[#e8e4de] bg-white px-6 pb-4">
           {sections.map((section) => {
             const isActive = activeSection === section.label;
             return (
               <div key={section.label} className="mt-4">
-                <p className={`text-xs font-bold uppercase tracking-widest mb-2 ${isActive ? "text-[#00D64F]" : "text-gray-600"}`}>
+                <p className={`text-xs font-bold uppercase tracking-widest mb-2 ${isActive ? "text-[#1a6b7f]" : "text-[#6a7f8f]"}`}>
                   {section.label}
                 </p>
                 <div className="flex flex-col gap-1">
@@ -172,8 +173,8 @@ export default function Nav() {
                         onClick={() => setMobileOpen(false)}
                         className={`block px-3 py-2.5 rounded-xl text-sm transition-colors ${
                           isLinkActive
-                            ? "text-[#00D64F] bg-[#00D64F]/10 font-semibold"
-                            : "text-gray-300 hover:text-white hover:bg-[#111]"
+                            ? "text-[#1a6b7f] bg-[#1a6b7f]/10 font-semibold"
+                            : "text-[#4a6580] hover:text-[#0e2a47] hover:bg-[#f0ede8]"
                         }`}
                       >
                         {link.label}
