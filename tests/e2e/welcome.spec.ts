@@ -708,6 +708,50 @@ test("welcome parser enriches destination with resolved PlaceRef on save", async
   });
 });
 
+/**
+ * Follow-up #2 — Maya's Tier-2 inline signup prompt on step 4.
+ *
+ * After 2+ activity ratings on step 4 (real engagement), a soft
+ * non-blocking inline prompt appears asking the user to save their
+ * trip below. Disappears as soon as they fill the email field.
+ */
+test("welcome step 4 shows Tier-2 inline signup prompt after 2 ratings", async ({
+  page,
+}) => {
+  await page.goto("/welcome");
+  await page.getByTestId("use-structured-form").click();
+
+  // Walk to step 4
+  await page.getByPlaceholder("e.g. Tokyo, Japan").fill("Lisbon");
+  await page.getByTestId("use-destination-anyway").click();
+  await page.getByRole("button", { name: /Start planning/i }).click();
+  await page.locator('input[type="date"]').first().fill("2026-06-15");
+  await page.locator('input[type="date"]').nth(1).fill("2026-06-22");
+  await page.getByRole("button", { name: /Continue/i }).click();
+  await page.getByRole("button", { name: /haven't booked yet/i }).click();
+  await page.getByRole("button", { name: /Couple/i }).click();
+  await page.getByRole("button", { name: "Cultural", exact: true }).click();
+  await page.getByRole("button", { name: "Comfortable" }).click();
+  await page.getByRole("button", { name: /Continue/i }).click();
+  await expect(page.getByText("Pastéis de Belém Tasting", { exact: false })).toBeVisible({
+    timeout: 10_000,
+  });
+
+  const tier2 = page.getByTestId("signup-tier2-prompt");
+
+  // Not visible yet (0 ratings)
+  await expect(tier2).toHaveCount(0);
+
+  // First rating — still hidden (we want >=2 to avoid spamming)
+  await page.locator('button[title="Interested"]').nth(0).click();
+  await expect(tier2).toHaveCount(0);
+
+  // Second rating — prompt appears
+  await page.locator('button[title="Interested"]').nth(1).click();
+  await expect(tier2).toBeVisible();
+  await expect(tier2).toContainText(/Loving these picks/i);
+});
+
 test("welcome step 5 renders with description shown exactly once", async ({ page }) => {
   await page.goto("/welcome");
   // PHI-34: dual-CTA landing — drop into structured form for the wizard walk.
