@@ -1,0 +1,82 @@
+Activity-gen eval baseline — 2026-05-05
+Model: claude-sonnet-4-6
+Run by: Philip (manual)
+Cases: 30 (15 single-leg + 15 multi-leg)
+
+Running 30 activity-gen eval cases against claude-sonnet-4-6...
+
+✓ lisbon-couple-cultural               3/3  — Couple, cultural + food, 4 nights, comfortable
+✓ lisbon-severe-peanut-allergy         2/2  — Family with peanut-allergy child — life-impacting must surface in Why
+✓ tokyo-wheelchair                     2/2  — Wheelchair user — life-impacting must echo in every Why
+✓ edinburgh-vegetarian                 1/1  — Vegetarian solo — dietary preserved
+✓ barcelona-knee-issue                 2/2  — Mobility constraint via free text — must surface in Why
+✓ paris-anniversary-luxury             2/2  — Anniversary couple, luxury — Why should reference occasion
+✓ rome-family-stroller                 1/1  — Stroller-friendly family
+✓ berlin-solo-budget-nightlife         2/2  — Solo budget nightlife
+✓ marrakech-anniversary-medina         2/2  — Anniversary couple, medina-curious
+✓ iceland-photographer                 2/2  — Adventure photographer
+✓ santorini-shore-day                  1/1  — Single shore day — short, no hiking
+✓ dublin-stag                          2/2  — Stag weekend friend group, nightlife heavy
+✓ amsterdam-wheelchair-art             1/1  — Wheelchair + art
+✓ kyoto-couple-cultural                2/2  — Single-leg Kyoto, slow travel
+✗ jerusalem-kosher-history             0/1  — Kosher history trip
+    × food/dining cards reference kosher / dietary law [life-impacting]
+    cards: 5 parsed
+✓ tokyo-kyoto-2leg                     3/3  — Tokyo + Kyoto, 6 nights, no per-leg hotel
+✓ lisbon-porto-2leg                    1/1  — Lisbon + Porto, 5 nights
+✓ spain-portugal-3leg-luxury           1/1  — Madrid + Lisbon + Porto, 9 nights luxury
+✓ lisbon-sintra-day-trip-2leg          2/2  — Lisbon + Sintra (1 night) — short last leg
+✓ tokyo-kyoto-osaka-3leg               1/1  — Tokyo + Kyoto + Osaka
+✓ rome-florence-venice-3leg            1/1  — Italy classic 3-leg
+✗ barcelona-mallorca-allergy           1/2  — Multi-leg with allergy constraint — every leg must respect
+    × every food/dining card mentions allergy / shellfish / awareness [life-impacting]
+    cards: 9 parsed
+✓ tokyo-kyoto-with-tokyo-hotel         2/2  — Multi-leg with hotel only on leg 0 — anchor only there
+✓ lisbon-porto-with-both-hotels        1/1  — Multi-leg with hotels on both legs
+✓ amsterdam-bruges-2leg-mobility       2/2  — Multi-leg with mobility constraint
+✓ rome-florence-2leg-stroller          2/2  — Multi-leg family with stroller-friendly
+✓ edinburgh-glasgow-2leg               1/1  — UK multi-leg
+✓ berlin-prague-2leg-history           1/1  — Berlin + Prague, history-focused
+✓ marrakech-fes-2leg                   1/1  — Morocco multi-leg
+✓ kyoto-osaka-2leg-vegan               1/1  — Multi-leg with vegan constraint
+
+──── Summary ────
+Field accuracy:           95.8%  (target ≥ 85%)
+Life-impacting failures:  2
+Cases run:                30
+Total checks:             48
+Passed:                   46
+
+EVAL FAILED — pass gate not met. Iterate the prompt.
+
+────────────────────────────────────────────────────────────
+Failures (life-impacting) — analysis
+
+1. jerusalem-kosher-history
+   - Constraint: Halal/Kosher tag
+   - Failure: not all food/dining card "Why" lines mentioned kosher / halal /
+     dietary / please confirm / certified.
+   - Likely root cause: the SYSTEM prompt's hard rule ("EVERY food activity
+     MUST include explicit allergy awareness") is gated specifically on the
+     "Severe allergy" tag. Halal/Kosher relies on the softer general rule
+     ("include the constraint in the Why as a confidence signal"), which
+     Sonnet sometimes complies with on some cards and not others.
+
+2. barcelona-mallorca-allergy
+   - Constraint: Severe allergy tag + free-text "shellfish allergy in older
+     child", multi-leg (Barcelona + Mallorca, 9 cards parsed).
+   - Failure: not every food card carried the allergy mention.
+   - Likely root cause: even with the hard "Severe allergy" rule, multi-leg
+     dilutes Sonnet's attention on the constraint across more cards.
+
+Suggested prompt fixes (file as a follow-up ticket):
+- Promote the "EVERY food activity MUST include explicit constraint awareness"
+  rule from "Severe allergy" only to ALL of: ["Wheelchair accessible only",
+  "No long walks", "Vegetarian", "Halal/Kosher", "Severe allergy",
+  "Stroller-friendly"] (where applicable per category — food rule applies to
+  food, mobility rule applies to physical access).
+- For multi-leg, restate the constraint block at the bottom of the prompt
+  ("Reminder: every food card across every leg MUST include the constraint
+  acknowledgement") — Sonnet's attention drops on long prompts.
+
+Re-run after prompt change to confirm gate passes.
