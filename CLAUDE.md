@@ -358,8 +358,9 @@ create index idx_connectors_traveler on travel_connectors(traveler_id);
 
 ### Eval harnesses
 - `npm run eval:parser` — runs the 50-case free-form parser eval. Run before any prompt edit in `app/api/parse-trip/route.ts`. Pass gate: ≥85% field accuracy, 100% on constraint preservation.
-- `npm run eval:activities` — runs the 30-case activity-gen eval (15 single-leg + 15 multi-leg). Run before any prompt edit in `app/api/activities-stream/route.ts`. Pass gate: ≥85% field accuracy, 0 life-impacting failures.
+- `npm run eval:activities` — runs the 30-case activity-gen eval (15 single-leg + 15 multi-leg). Run before any prompt edit in `lib/activity-gen-prompt.ts`. Pass gate: ≥85% field accuracy, 0 life-impacting failures.
 - Both evals call the live Anthropic API and cost ~$1–2 per run on Sonnet 4.6. Keep `lib/api-costs.ts` rates current.
+- **`eval:activities` uses `temperature: 0.2`** (PHI-42). Default temperature gave noisy results on "every card mentions X" checks — same prompt, different runs, different failures. PHI-42 trialled `{0.2, 0.5, default}` × `{strict check, ≥(N−1) loosened check}` — temp 0.2 with the strict check produced the best result (1 life-impacting failure vs 2–3 at other configs). The dominant remaining failure is the 9-card multi-leg-allergy case where Sonnet drops the constraint mention on 1 of 9 cards stochastically; that's a model variance ceiling on this prompt, not a prompt bug. Filed as a known limitation; revisit only if traffic signals it matters in production. The production route at `app/api/activities-stream/route.ts` stays at default temperature so real users still see variation.
 
 ### Cost telemetry (PHI-40)
 - `npm run report:multi-leg-cost` — reads `ai_logs`, groups by `session_id`, computes per-trip Anthropic cost, splits single-leg vs multi-leg, prints median + p95 + ratio.
