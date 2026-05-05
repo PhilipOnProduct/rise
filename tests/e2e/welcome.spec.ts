@@ -69,6 +69,61 @@ test.beforeEach(async ({ page }) => {
     await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
   });
 
+  // PHI-31 Part 2 slice 2: mock the itinerary generator so step 5 can
+  // render the preview without hitting Anthropic.
+  await page.route("**/api/itinerary/generate", async (route: Route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        days: [
+          {
+            day_number: 1,
+            date: "2026-06-15",
+            items: [
+              {
+                id: "day1-morning",
+                title: "Pastéis de Belém Tasting",
+                description: "Custard tart pilgrimage at the original 1837 bakery.",
+                type: "restaurant",
+                time_block: "morning",
+              },
+              {
+                id: "day1-afternoon",
+                title: "Jerónimos Monastery",
+                description: "UNESCO Manueline cloisters next door.",
+                type: "activity",
+                time_block: "afternoon",
+              },
+            ],
+          },
+          {
+            day_number: 2,
+            date: "2026-06-16",
+            items: [
+              {
+                id: "day2-morning",
+                title: "Praia de Carcavelos",
+                description: "Wide flat beach 25 min by train.",
+                type: "activity",
+                time_block: "morning",
+              },
+            ],
+          },
+        ],
+      }),
+    });
+  });
+
+  // PHI-31 Part 2 slice 1: anonymous-session PATCH from step transitions.
+  await page.route("**/api/anonymous-session", async (route: Route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ id: "test-session-id" }),
+    });
+  });
+
   // Mock the partial-traveler write at step 3 advance.
   await page.route("**/api/travelers", async (route: Route) => {
     if (route.request().method() === "POST") {
@@ -406,6 +461,52 @@ test("welcome step 4 cards show expandable Why this rationale", async ({ page })
   // Collapse
   await whyThis.click();
   await expect(page.getByText(/Picked because you flagged Food-led/i)).toHaveCount(0);
+});
+
+/**
+ * PHI-31 Part 2 slice 2 — itinerary preview before signup.
+ *
+ * Step 5 now renders the day-by-day itinerary FIRST, with the signup form
+ * below as a "Save your trip" card. This is the activation lever per the
+ * team review.
+ */
+test("welcome step 5 shows itinerary preview before signup form", async ({ page }) => {
+  await page.goto("/welcome");
+
+  // Walk to step 5 with the standard happy path
+  const destinationInput = page.getByPlaceholder("e.g. Tokyo, Japan");
+  await destinationInput.fill("Lisbon");
+  await page.getByTestId("use-destination-anyway").click();
+  await page.getByRole("button", { name: /Start planning/i }).click();
+  await page.locator('input[type="date"]').first().fill("2026-06-15");
+  await page.locator('input[type="date"]').nth(1).fill("2026-06-22");
+  await page.getByRole("button", { name: /Continue/i }).click();
+  await page.getByRole("button", { name: /haven't booked yet/i }).click();
+  await page.getByRole("button", { name: /Couple/i }).click();
+  await page.getByRole("button", { name: "Cultural", exact: true }).click();
+  await page.getByRole("button", { name: "Comfortable" }).click();
+  await page.getByRole("button", { name: /Continue/i }).click();
+  await expect(page.getByText("Pastéis de Belém Tasting", { exact: false })).toBeVisible({
+    timeout: 10_000,
+  });
+  await page.locator('button[title="Interested"]').first().click();
+  await page.getByRole("button", { name: /Continue with/i }).click();
+
+  // Step 5 — preview must be visible
+  const preview = page.getByTestId("itinerary-preview");
+  await expect(preview).toBeVisible({ timeout: 10_000 });
+
+  // The preview shows the generated trip
+  await expect(page.getByText(/Day 1/i).first()).toBeVisible();
+  await expect(
+    page.getByText(/Custard tart pilgrimage|Pastéis de Belém Tasting/i).first()
+  ).toBeVisible();
+
+  // Save Trip CTA is below the preview
+  await expect(page.getByText(/Save your trip to keep it/i)).toBeVisible();
+  // Email + name inputs still present so users can sign up
+  await expect(page.getByPlaceholder("Your name")).toBeVisible();
+  await expect(page.getByPlaceholder("you@example.com")).toBeVisible();
 });
 
 test("welcome step 5 renders with description shown exactly once", async ({ page }) => {
