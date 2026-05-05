@@ -104,6 +104,10 @@ export async function POST(req: NextRequest) {
   }
   const intent = coerceTripIntent(toolBlock.input);
 
+  // PHI-40: tag the log with rise_session_id so the cost-report script
+  // can attribute calls to a trip.
+  const sessionId = req.cookies.get("rise_session_id")?.value ?? null;
+
   // Log + usage
   try {
     await logAiInteraction({
@@ -115,6 +119,7 @@ export async function POST(req: NextRequest) {
       latency_ms: Date.now() - startTime,
       input_tokens: response.usage.input_tokens,
       output_tokens: response.usage.output_tokens,
+      session_id: sessionId,
     });
     await logApiUsage({
       provider: "anthropic",

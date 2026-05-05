@@ -602,6 +602,12 @@ export default function WelcomePage() {
   const [parsedLegs, setParsedLegs] = useState<
     { place: PlaceRef; nights: number }[]
   >([]);
+  // PHI-39: per-leg hotels for multi-leg trips. Indexed by leg, each
+  // entry is the hotel name (free text via PlacesAutocomplete) or "" if
+  // the user skipped that leg. For single-leg trips this stays empty
+  // and the existing `hotel` state is the source of truth. Sized in
+  // applyParsedIntentAndAdvance + chip-edit handlers to match parsedLegs.
+  const [legHotels, setLegHotels] = useState<string[]>([]);
 
   // Activity cards + feedback
   const [parsedActivities, setParsedActivities] = useState<ParsedActivity[]>([]);
@@ -864,18 +870,22 @@ export default function WelcomePage() {
   // — callers fall back to the existing flat-fields path. When multi-leg,
   // the leg list reflects parsedLegs (places + per-leg nights) anchored
   // on the current departureDate when one is set, so subsequent date
-  // edits on the wizard flow through naturally.
+  // edits on the wizard flow through naturally. PHI-39 adds per-leg
+  // hotels from legHotels — empty strings become null so the prompt knows
+  // not to anchor on a hotel for that leg.
   function buildLegsForApi(): TripLeg[] | null {
     if (parsedLegs.length < 2) return null;
     const start = departureDate || undefined;
     let cursor = start;
-    return parsedLegs.map((leg) => {
+    return parsedLegs.map((leg, i) => {
       const startDate = cursor;
       const endDate = cursor ? addDays(cursor, leg.nights) : undefined;
       cursor = endDate;
+      const legHotel = legHotels[i]?.trim() || null;
       return {
         id: newLegId(),
         place: leg.place,
+        hotel: legHotel,
         ...(startDate && { startDate }),
         ...(endDate && { endDate }),
       };
@@ -1396,10 +1406,14 @@ export default function WelcomePage() {
           nights: split[i] ?? 0,
         }))
       );
+      // PHI-39: initialise per-leg hotel slots (one empty string per leg).
+      // The user fills these in step 2.
+      setLegHotels(new Array(dests.length).fill(""));
     } else {
       // Single-leg: keep parsedLegs empty so persistence falls through
       // to the existing single-leg path.
       setParsedLegs([]);
+      setLegHotels([]);
     }
     if (parsedIntent.dates.departure) setDepartureDate(parsedIntent.dates.departure);
     if (parsedIntent.dates.return) setReturnDate(parsedIntent.dates.return);
@@ -2027,8 +2041,10 @@ export default function WelcomePage() {
             </div>
           )}
 
-          {/* Step 2: Hotel (optional) */}
-          {step === 2 && (
+          {/* Step 2: Hotel (optional). PHI-39: when multi-leg, render
+              one hotel field per leg with the leg name as the label.
+              Single-leg path is unchanged. */}
+          {step === 2 && parsedLegs.length < 2 && (
             <div className="flex flex-col gap-4">
               <PlacesAutocomplete
                 value={hotel}
@@ -2046,6 +2062,64 @@ export default function WelcomePage() {
                 className="self-start text-sm text-[#6a7f8f] hover:text-[#0e2a47] transition-colors"
               >
                 I haven&apos;t booked yet — skip →
+              </button>
+            </div>
+          )}
+          {step === 2 && parsedLegs.length >= 2 && (
+            <div
+              className="flex flex-col gap-6"
+              data-testid="multi-leg-hotels"
+            >
+              {parsedLegs.map((leg, i) => (
+                <div
+                  key={`hotel-${i}`}
+                  className="flex flex-col gap-2"
+                  data-testid={`leg-hotel-${i}`}
+                >
+                  <label
+                    className="text-xs font-bold text-[#1a6b7f] uppercase tracking-widest"
+                  >
+                    Leg {i + 1} · {leg.place.name}
+                    {leg.nights ? ` · ${leg.nights} night${leg.nights === 1 ? "" : "s"}` : ""}
+                  </label>
+                  <PlacesAutocomplete
+                    value={legHotels[i] ?? ""}
+                    onChange={(v) =>
+                      setLegHotels((prev) => {
+                        const next = [...prev];
+                        next[i] = v;
+                        return next;
+                      })
+                    }
+                    onSelect={(v) =>
+                      setLegHotels((prev) => {
+                        const next = [...prev];
+                        next[i] = v.split(",")[0].trim();
+                        return next;
+                      })
+                    }
+                    placeholder={`e.g. Hotel in ${leg.place.name}`}
+                    types={["establishment"]}
+                    locationBias={
+                      leg.place.lat != null && leg.place.lng != null
+                        ? { lat: leg.place.lat, lng: leg.place.lng }
+                        : destinationBias
+                    }
+                    autoFocus={i === 0}
+                    className={underlineInput}
+                    theme="light"
+                  />
+                </div>
+              ))}
+              <button
+                onClick={() => {
+                  // Skip-all: clear every leg's hotel.
+                  setLegHotels(new Array(parsedLegs.length).fill(""));
+                  handleContinue();
+                }}
+                className="self-start text-sm text-[#6a7f8f] hover:text-[#0e2a47] transition-colors"
+              >
+                I haven&apos;t booked any of these — skip →
               </button>
             </div>
           )}

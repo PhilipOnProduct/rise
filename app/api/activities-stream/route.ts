@@ -169,10 +169,15 @@ export async function POST(req: NextRequest) {
             leg.startDate && leg.endDate
               ? ` (${leg.startDate} → ${leg.endDate})`
               : "";
-          return `- LEG ${i}: ${name}${nightsStr}${dateStr}`;
+          // PHI-39: per-leg hotel. When set, the model should anchor that
+          // leg's activities around it. When unset, no hotel-proximity
+          // claims for that leg.
+          const hotelStr = leg.hotel ? ` [hotel: ${leg.hotel}]` : "";
+          return `- LEG ${i}: ${name}${nightsStr}${dateStr}${hotelStr}`;
         })
         .join("\n") +
-      "\n\nGenerate activities for EACH leg, prefixing every activity with a `LEG: <index>` marker line."
+      "\n\nGenerate activities for EACH leg, prefixing every activity with a `LEG: <index>` marker line." +
+      "\nPer-leg hotels: if a leg has a [hotel: ...] tag, you MAY reference proximity to that hotel in the Why line. If a leg has no hotel tag, NEVER fabricate a hotel-proximity claim for that leg."
     : "";
 
   const headline = isMultiLeg
@@ -183,6 +188,10 @@ export async function POST(req: NextRequest) {
     `${headline}${profileBlock}${legsBlock}\n` +
     `Budget: ${budgetLabel[budgetTier ?? "comfortable"] ?? "comfortable"}. Style: ${styleList.join(", ")}.\n` +
     `Every suggestion must genuinely suit this profile — not generic activities any visitor might do.`;
+
+  // PHI-40: tag the log with rise_session_id so the cost-report script
+  // can attribute calls to a trip. Cookie set by middleware on first visit.
+  const sessionId = req.cookies.get("rise_session_id")?.value ?? null;
 
   const startTime = Date.now();
   const stream = client.messages.stream({
@@ -234,6 +243,7 @@ export async function POST(req: NextRequest) {
           latency_ms: Date.now() - startTime,
           input_tokens: final.usage.input_tokens,
           output_tokens: final.usage.output_tokens,
+          session_id: sessionId,
         });
         await logApiUsage({
           provider: "anthropic", apiType: "activity-stream", feature: "onboarding",

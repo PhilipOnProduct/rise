@@ -173,7 +173,10 @@ ${legs!
       leg.startDate && leg.endDate
         ? `, ${leg.startDate} → ${leg.endDate}`
         : "";
-    return `- LEG ${i}: ${name}${nightsStr}${dateStr}`;
+    // PHI-39: per-leg hotel — anchor activities and the final-day evening
+    // around it when set. When unset, skip hotel-proximity claims.
+    const hotelStr = leg.hotel ? `, hotel: ${leg.hotel}` : "";
+    return `- LEG ${i}: ${name}${nightsStr}${dateStr}${hotelStr}`;
   })
   .join("\n")}
 
@@ -186,7 +189,7 @@ Multi-leg rules:
     * has "is_transition": true and "leg_index" set to the leg the user is travelling INTO
     * contains a single transport item: { title: "Travel to <next leg name>", description: "<a brief note>", type: "transport", time_block: "morning" or "afternoon" }
     * has NO other activities — travellers lose meals/naps/check-in time on transition days; do not over-plan.
-- Hotel guidance (single hotel field for v1): if the user provided a hotel name, treat it as the anchor for the longest-stay leg only. For other legs, skip hotel-proximity claims.
+- Hotel guidance: each leg may have its own hotel listed above. When set, anchor that leg's activities (especially day 1 and the final evening) around that hotel. When a leg has no hotel listed, skip hotel-proximity claims for that leg — never invent one.
 `
     : "";
 
@@ -241,6 +244,10 @@ Rules:
 - id must be unique across all days (e.g. "day1-morning-1")
 - Within each time block, order items in the sequence they should happen. Place meals at the right time: breakfast before morning activities, lunch before afternoon sightseeing, dinner before evening leisure. The items array order IS the display order.`;
 
+  // PHI-40: tag the log with rise_session_id so the cost-report script
+  // can attribute calls to a trip. Cookie set by middleware on first visit.
+  const sessionId = req.cookies.get("rise_session_id")?.value ?? null;
+
   const startTime = Date.now();
   try {
     const response = await client.messages.create({
@@ -283,6 +290,7 @@ Rules:
       latency_ms: Date.now() - startTime,
       input_tokens: response.usage.input_tokens,
       output_tokens: response.usage.output_tokens,
+      session_id: sessionId,
     });
 
     await logApiUsage({

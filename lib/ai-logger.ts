@@ -9,6 +9,10 @@ type LogEntry = {
   latency_ms: number;
   input_tokens: number;
   output_tokens: number;
+  // PHI-40: tag every Anthropic call with the rise_session_id cookie so
+  // the cost-report script can group calls by trip. Optional — calls
+  // without a session (e.g. internal evals) leave it unset.
+  session_id?: string | null;
 };
 
 export async function logAiInteraction(entry: LogEntry): Promise<void> {
