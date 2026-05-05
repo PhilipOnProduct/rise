@@ -583,6 +583,131 @@ test("welcome dual-CTA: free-form input parses and pre-fills the wizard", async 
   });
 });
 
+/**
+ * Follow-up #4 — place resolution wiring on parser output.
+ *
+ * After the free-form parser confirms a destination, the welcome page
+ * fires /api/resolve-place in the background to enrich the leg's
+ * PlaceRef with lat/lng/id/type. On accept, the POST to /api/travelers
+ * (and the PATCH to /api/anonymous-session) carry those resolved fields.
+ */
+test("welcome parser enriches destination with resolved PlaceRef on save", async ({
+  page,
+}) => {
+  // Mock the parser response — single destination, simple intent.
+  await page.route("**/api/parse-trip", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        intent: {
+          destinations: [{ name: "Lisbon", kind: "place" }],
+          dates: { departure: "2026-06-15", return: "2026-06-22" },
+          party: { adults: 2 },
+          styleTags: ["Cultural"],
+          budgetTier: "comfortable",
+          constraintTags: [],
+          clarifications: [],
+        },
+        tokensIn: 100,
+        tokensOut: 50,
+      }),
+    });
+  });
+
+  // Mock the resolve-place response — a Lisbon PlaceRef.
+  let resolveCallCount = 0;
+  let resolveRequestedNames: string[] = [];
+  await page.route("**/api/resolve-place", async (route) => {
+    resolveCallCount++;
+    try {
+      const body = JSON.parse(route.request().postData() ?? "{}");
+      if (body.name) resolveRequestedNames.push(body.name);
+    } catch {}
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        resolved: {
+          name: "Lisbon",
+          id: "ChIJ-Lisbon-Test",
+          lat: 38.7223,
+          lng: -9.1393,
+          type: "locality",
+        },
+      }),
+    });
+  });
+
+  // Capture the /api/travelers POST body so we can assert the resolved
+  // place fields land on the wire.
+  let capturedTravelersPost: Record<string, unknown> | null = null;
+  await page.route("**/api/travelers", async (route) => {
+    if (route.request().method() === "POST") {
+      try {
+        capturedTravelersPost = JSON.parse(route.request().postData() ?? "{}");
+      } catch {}
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ id: "test-traveler-id" }),
+      });
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+  });
+
+  await page.goto("/welcome");
+
+  // Submit the parser
+  await page.getByTestId("parser-textarea").fill(
+    "Cultural trip to Lisbon, 2 adults, June 15–22, comfortable budget"
+  );
+  await page.getByTestId("parser-submit").click();
+
+  // Confirmation chips appear; resolve-place should have been called.
+  await expect(page.getByTestId("confirm-chips")).toBeVisible();
+  // Give the background fetch a beat to settle.
+  await page.waitForTimeout(100);
+  expect(resolveCallCount).toBeGreaterThanOrEqual(1);
+  expect(resolveRequestedNames).toContain("Lisbon");
+
+  // Accept and walk to step 5.
+  await page.getByRole("button", { name: /Looks right/i }).click();
+  // Step 1 (dates) — keep parsed dates and continue.
+  await page.getByRole("button", { name: /Continue/i }).click();
+  // Step 2 (hotel) — skip.
+  await page.getByRole("button", { name: /haven't booked yet/i }).click();
+  // Step 3 (profile) — must pick Couple chip explicitly; style + budget
+  // come from the parsed intent so we don't re-pick them.
+  await page.getByRole("button", { name: /Couple/i }).click();
+  await page.getByRole("button", { name: /Continue/i }).click();
+  // Step 4 (activities) — wait for first card and thumbs up.
+  await expect(page.getByText("Pastéis de Belém Tasting", { exact: false })).toBeVisible({
+    timeout: 10_000,
+  });
+  await page.locator('button[title="Interested"]').first().click();
+  await page.getByRole("button", { name: /Continue with/i }).click();
+
+  // Sign up — fills name + email and clicks the step-5 finish CTA
+  // ("Let's go →"), which calls handleFinish() and POSTs /api/travelers.
+  await page.getByPlaceholder("Your name").fill("Mira");
+  await page.getByPlaceholder("you@example.com").fill("mira@example.com");
+  await page.getByRole("button", { name: /Let's go/i }).click();
+
+  // Wait until the travelers POST landed.
+  await expect.poll(() => capturedTravelersPost).not.toBeNull();
+
+  // The resolved place fields must have flowed through to the API.
+  expect(capturedTravelersPost).toMatchObject({
+    destination: "Lisbon",
+    destinationPlaceId: "ChIJ-Lisbon-Test",
+    destinationLat: 38.7223,
+    destinationLng: -9.1393,
+    destinationPlaceType: "locality",
+  });
+});
+
 test("welcome step 5 renders with description shown exactly once", async ({ page }) => {
   await page.goto("/welcome");
   // PHI-34: dual-CTA landing — drop into structured form for the wizard walk.

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import {
   buildSingleLegTrip,
+  type PlaceType,
   type Trip,
   type TripLeg,
   validateTrip,
@@ -29,6 +30,7 @@ function deriveLegs(body: {
   destinationLat?: number;
   destinationLng?: number;
   destinationPlaceId?: string;
+  destinationPlaceType?: PlaceType;
   departureDate?: string;
   returnDate?: string;
   hotel?: string | null;
@@ -50,6 +52,7 @@ function deriveLegs(body: {
     destinationLat: body.destinationLat,
     destinationLng: body.destinationLng,
     destinationPlaceId: body.destinationPlaceId,
+    destinationPlaceType: body.destinationPlaceType,
     departureDate: body.departureDate,
     returnDate: body.returnDate,
     hotel: body.hotel ?? null,
