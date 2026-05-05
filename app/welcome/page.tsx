@@ -569,7 +569,54 @@ export default function WelcomePage() {
     });
   }, [parsedActivities, travelCompany, travelerTypes, budgetTier]);
 
+  // PHI-31 Part 2: write the partial trip state to the anonymous session
+  // on every step advance. Fire-and-forget — client-side state remains the
+  // primary source of truth during onboarding. Failures are silent (the
+  // happy path doesn't depend on it; the row will catch up on next advance).
+  function patchAnonymousSession() {
+    if (typeof window === "undefined") return;
+    const body = {
+      destination,
+      destinationVerified,
+      departureDate,
+      returnDate,
+      hotel: hotel || null,
+      travelCompany: travelCompany || null,
+      styleTags: travelerTypes,
+      budgetTier: budgetTier || null,
+      travelerCount: adultCount + childrenAges.length,
+      childrenAges: childrenAges.length > 0 ? childrenAges : null,
+      constraintTags: constraintTags.length > 0 ? constraintTags : null,
+      constraintText: constraintText.trim() || null,
+      activityFeedback: Object.values(activityFeedback),
+    };
+    fetch("/api/anonymous-session", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      keepalive: true, // tolerate page-unload mid-flight
+    }).catch(() => {});
+  }
+
+  // PHI-31 Part 2: lightweight telemetry — fire-and-forget to the existing
+  // activity-feedback endpoint which already accepts arbitrary event payloads.
+  function logOnboardingEvent(event: string, extra?: Record<string, unknown>) {
+    fetch("/api/activity-feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        event,
+        ...(extra ?? {}),
+      }),
+      keepalive: true,
+    }).catch(() => {});
+  }
+
   function goTo(next: number) {
+    // Persist before navigating so the session row reflects what the user
+    // saw. Skip on the very first advance from step 0 (we may not even
+    // have a destination yet — and the API rejects empty trips).
+    if (step > 0) patchAnonymousSession();
     setStep(next);
     setAnimKey((k) => k + 1);
   }
@@ -804,6 +851,14 @@ export default function WelcomePage() {
 
   async function handleFinish() {
     setSaving(true);
+    // PHI-31 Part 2: fire signup-after-itinerary telemetry. Today this
+    // event is emitted *before* the user has actually viewed the itinerary
+    // (because the itinerary-pre-signup view is a follow-up). Once that
+    // ships, the event meaning aligns with the design — for now, it
+    // captures every welcome → signup transition.
+    logOnboardingEvent("signup_initiated_after_itinerary", {
+      hasActivityFeedback: Object.keys(activityFeedback).length,
+    });
     try {
       if (travelerId) {
         await fetch("/api/travelers", {
