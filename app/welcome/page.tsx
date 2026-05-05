@@ -509,6 +509,27 @@ export default function WelcomePage() {
     setTravelerTypes((prev) => prev.filter((t) => available.includes(t)));
   }, [travelCompany]);
 
+  // Follow-up #2 — Maya's Tier-3 escalation: modal-on-leave.
+  // Once the user has invested real time (step 4+) and we don't yet have an
+  // email, attach a beforeunload listener. Modern browsers ignore the custom
+  // string and show their generic "Leave site? Changes you made may not be
+  // saved" prompt — that's by design and is exactly what we want here.
+  // The anonymous-session row keeps the trip alive on the server side; this
+  // prompt just makes sure the user doesn't lose access by closing the tab
+  // before they realise the trip is unsaved.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const guarded = step >= 4 && !email && parsedActivities.length > 0;
+    if (!guarded) return;
+    function onBeforeUnload(e: BeforeUnloadEvent) {
+      e.preventDefault();
+      // Required for legacy browsers; modern ones ignore the string.
+      e.returnValue = "";
+    }
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [step, email, parsedActivities.length]);
+
   // Fire streaming preview when entering step 4 — parse cards incrementally
   useEffect(() => {
     if (step !== 4) return;
@@ -1989,6 +2010,25 @@ export default function WelcomePage() {
                   Rate each activity to shape your itinerary.
                 </p>
               )}
+
+              {/* Follow-up #2 — Maya's Tier-2 inline prompt. Shown once the
+                  user has rated 2+ activities (real engagement signal) but
+                  before they advance to step 5. Soft, non-blocking, sits
+                  inline with the cards — not a modal. */}
+              {!previewLoading &&
+                Object.keys(activityFeedback).length >= 2 &&
+                !email && (
+                  <div
+                    data-testid="signup-tier2-prompt"
+                    className="rounded-xl border border-[#1a6b7f]/25 bg-[#1a6b7f]/5 px-4 py-3 text-sm text-[#0e2a47]"
+                  >
+                    <span className="font-semibold">Loving these picks?</span>{" "}
+                    <span className="text-[#4a6580]">
+                      Save your email at the end so this trip doesn&apos;t
+                      vanish when you close the tab.
+                    </span>
+                  </div>
+                )}
             </div>
           )}
 
