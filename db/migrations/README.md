@@ -32,3 +32,5 @@ Each migration is a standalone idempotent-where-possible SQL script. To apply:
 |---|---|---|
 | 0001_add_legs_to_travelers.sql | PHI-33 / RISE-303 | Adds `legs` JSONB. Backfill from existing destination/dates/hotel. Legacy columns kept; dropped in a follow-up migration once readers are gone. |
 | 0002_anonymous_sessions.sql | PHI-31 / RISE-202 | Creates `anonymous_sessions` table for pre-signup itinerary drafts. 14-day TTL. Includes the `claim_anonymous_session(...)` Postgres function for atomic claim-on-signup, the `gc_anonymous_sessions()` daily cleanup function, and the `tg_anonymous_sessions_updated_at` trigger. |
+| 0003_add_constraint_columns_to_travelers.sql | PHI-35 hygiene | Adds `constraint_tags` and `constraint_text` columns. The PHI-35 ticket shipped the API change but not these columns; this migration backfills the schema. |
+| 0004_drop_legacy_traveler_columns.sql | PHI-33 PR2 / RISE-303 | Drops legacy `destination` / `hotel` / `departure_date` / `return_date` columns from `travelers` and recreates `claim_anonymous_session()` without legacy refs. Trip shape now lives only in `legs` JSONB. |
