@@ -828,7 +828,6 @@ export default function ItineraryViewPage() {
 
   const [swapError, setSwapError] = useState<string | null>(null);
 
-  const STORAGE_KEY = "rise_itinerary";
   // ── Regenerate state ────────────────────────────────────────────────────
   const [regenerating, setRegenerating] = useState(false);
   const [showRegenConfirm, setShowRegenConfirm] = useState(false);
