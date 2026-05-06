@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import PlacesAutocomplete from "@/app/components/PlacesAutocomplete";
 import type { TripIntent } from "@/lib/trip-intent";
@@ -520,7 +520,11 @@ function ActivityCard({
 
 // ── Main page ──────────────────────────────────────────────────────────────
 
-export default function WelcomePage() {
+// PHI-48: useSearchParams() requires a Suspense boundary at build time.
+// The default export below wraps this inner component in Suspense so the
+// production prerender doesn't bail out. Local dev was forgiving — this
+// only surfaced on Vercel build.
+function WelcomePageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [step, setStep] = useState(0);
@@ -2928,5 +2932,13 @@ export default function WelcomePage() {
       </div>
 
     </main>
+  );
+}
+
+export default function WelcomePage() {
+  return (
+    <Suspense fallback={null}>
+      <WelcomePageInner />
+    </Suspense>
   );
 }
