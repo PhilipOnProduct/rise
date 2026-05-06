@@ -4,10 +4,12 @@
  * GET /api/itinerary/travel/admin
  */
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { isAdminRequest, adminForbiddenResponse } from "@/lib/auth";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  if (!isAdminRequest(req)) return adminForbiddenResponse();
   // Fetch all connectors and aggregate in JS (Supabase JS client doesn't support
   // filter(where ...) aggregation, so we pull rows and summarise).
   const { data, error } = await supabase

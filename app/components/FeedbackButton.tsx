@@ -7,7 +7,7 @@ export default function FeedbackButton() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
-  const [status, setStatus] = useState<"idle" | "sending" | "done">("idle");
+  const [status, setStatus] = useState<"idle" | "sending" | "done" | "error">("idle");
 
   // Hide on /welcome and /team
   if (pathname === "/welcome" || pathname.startsWith("/team")) return null;
@@ -15,11 +15,20 @@ export default function FeedbackButton() {
   async function handleSend() {
     if (!text.trim()) return;
     setStatus("sending");
-    await fetch("/api/feedback", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ page: pathname, feedback: text.trim() }),
-    });
+    try {
+      const res = await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ page: pathname, feedback: text.trim() }),
+      });
+      if (!res.ok) {
+        setStatus("error");
+        return;
+      }
+    } catch {
+      setStatus("error");
+      return;
+    }
     setStatus("done");
     setTimeout(() => {
       setOpen(false);
@@ -50,6 +59,7 @@ export default function FeedbackButton() {
       {open && (
         <div
           role="dialog"
+          aria-modal="true"
           aria-label="Send feedback"
           className="fixed bottom-20 right-6 z-50 w-80 bg-white border border-[#d4cfc5] rounded-2xl shadow-2xl p-5 flex flex-col gap-4"
           onKeyDown={handleKeyDown}
@@ -58,6 +68,17 @@ export default function FeedbackButton() {
             <div className="text-center py-6">
               <div className="text-2xl mb-2">✓</div>
               <p className="text-[#0e2a47] font-semibold">Thanks for the feedback!</p>
+            </div>
+          ) : status === "error" ? (
+            <div className="text-center py-6">
+              <p className="text-[#b91c1c] font-semibold mb-2">Couldn&rsquo;t send feedback</p>
+              <p className="text-[#6a7f8f] text-sm mb-4">Please try again in a moment.</p>
+              <button
+                onClick={() => setStatus("idle")}
+                className="text-sm font-bold text-[#1a6b7f] hover:text-[#155a6b]"
+              >
+                Try again
+              </button>
             </div>
           ) : (
             <>

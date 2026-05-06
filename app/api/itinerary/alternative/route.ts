@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
 import { logAiInteraction } from "@/lib/ai-logger";
+import { logApiUsage, checkApiLimit } from "@/lib/log-api-usage";
 import { supabase } from "@/lib/supabase";
 
 const client = new Anthropic();
@@ -25,6 +26,14 @@ export async function POST(req: NextRequest) {
 
   if (!destination || !replacingRestaurant || !timeBlock || !date) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+  }
+
+  const limit = await checkApiLimit("anthropic");
+  if (!limit.allowed) {
+    return NextResponse.json(
+      { error: "API limit exceeded", provider: "anthropic", spentUsd: limit.spentUsd, limitUsd: limit.limitUsd },
+      { status: 429 }
+    );
   }
 
   const styleStr = travelerTypes?.length ? travelerTypes.join(", ") : "no specific style";
@@ -90,11 +99,18 @@ For booking_meta.search_query: use the restaurant's commonly known name plus ${d
     try {
       alternative = JSON.parse(jsonStr);
     } catch {
-      console.error("[itinerary-alternative] JSON parse failed. Raw output:\n", raw);
-      return NextResponse.json(
-        { error: "AI returned malformed JSON. Please try again." },
-        { status: 500 }
-      );
+      // Fallback: extract object between first '{' and last '}'.
+      const start = jsonStr.indexOf("{");
+      const end = jsonStr.lastIndexOf("}");
+      if (start !== -1 && end > start) {
+        try { alternative = JSON.parse(jsonStr.slice(start, end + 1)); } catch {
+          console.error("[itinerary-alternative] JSON parse failed. Raw output:\n", raw);
+          return NextResponse.json({ error: "AI returned malformed JSON. Please try again." }, { status: 500 });
+        }
+      } else {
+        console.error("[itinerary-alternative] JSON parse failed. Raw output:\n", raw);
+        return NextResponse.json({ error: "AI returned malformed JSON. Please try again." }, { status: 500 });
+      }
     }
 
     // Persist to database immediately
@@ -130,6 +146,12 @@ For booking_meta.search_query: use the restaurant's commonly known name plus ${d
       latency_ms: Date.now() - startTime,
       input_tokens: response.usage.input_tokens,
       output_tokens: response.usage.output_tokens,
+      session_id: req.cookies.get("rise_session_id")?.value ?? null,
+    });
+
+    await logApiUsage({
+      provider: "anthropic", apiType: "itinerary-alternative", feature: "itinerary",
+      model: MODEL, inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens,
     });
 
     return NextResponse.json({ alternative });

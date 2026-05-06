@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { signSiteAuth } from "@/lib/auth";
 
 const COOKIE = "site_auth";
 
@@ -98,12 +99,12 @@ export async function POST(req: NextRequest) {
   const password = body.get("password") as string | null;
   const redirectTo = (body.get("redirect_to") as string | null) || "/";
 
-  if (password === process.env.SITE_PASSWORD) {
+  if (password && password === process.env.SITE_PASSWORD) {
     const res = NextResponse.redirect(new URL(redirectTo, req.url), { status: 303 });
-    res.cookies.set(COOKIE, process.env.SITE_PASSWORD!, {
+    res.cookies.set(COOKIE, await signSiteAuth(), {
       httpOnly: true,
       sameSite: "lax",
-      secure: true,
+      secure: process.env.NODE_ENV === "production",
       path: "/",
     });
     return res;

@@ -90,17 +90,28 @@ export async function POST(req: NextRequest) {
   });
 
   const encoder = new TextEncoder();
+  // Abort the upstream Anthropic stream when the client disconnects so we
+  // stop billing for tokens nobody is reading.
+  const onAbort = () => stream.abort();
+  req.signal.addEventListener("abort", onAbort);
+
   const readable = new ReadableStream({
     async start(controller) {
       let output = "";
-      for await (const event of stream) {
-        if (
-          event.type === "content_block_delta" &&
-          event.delta.type === "text_delta"
-        ) {
-          controller.enqueue(encoder.encode(event.delta.text));
-          output += event.delta.text;
+      try {
+        for await (const event of stream) {
+          if (
+            event.type === "content_block_delta" &&
+            event.delta.type === "text_delta"
+          ) {
+            controller.enqueue(encoder.encode(event.delta.text));
+            output += event.delta.text;
+          }
         }
+      } catch (err) {
+        console.error("[activities-stream] stream error:", err);
+      } finally {
+        req.signal.removeEventListener("abort", onAbort);
       }
       controller.close();
 

@@ -97,6 +97,19 @@ export async function POST(req: NextRequest) {
   const days = itinerary.days as ItineraryDay[];
   const destination = itinerary.destination as string;
 
+  // Cost guard: cap the number of activities we'll geocode + route in a single
+  // request. A 5-day trip with 6 activities/day = 30 activities, well under
+  // the cap. Pathological itineraries (50+ activities/day, 14+ days) are
+  // rejected before any external API spend.
+  const MAX_ACTIVITIES_PER_REQUEST = 100;
+  const totalActivities = days.reduce((sum, d) => sum + (d.activities?.length ?? 0), 0);
+  if (totalActivities > MAX_ACTIVITIES_PER_REQUEST) {
+    return NextResponse.json(
+      { error: `Itinerary has ${totalActivities} activities; cap is ${MAX_ACTIVITIES_PER_REQUEST}.` },
+      { status: 400 },
+    );
+  }
+
   if (refresh) {
     return handleRefresh(traveler_id, days, destination, childrenAges, refresh, startTime);
   }
