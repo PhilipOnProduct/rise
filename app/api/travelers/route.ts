@@ -14,6 +14,14 @@ function dbErr(err: unknown): string {
   return [e.message, e.code, e.details, e.hint].filter(Boolean).join(" | ") || JSON.stringify(err);
 }
 
+// PHI-47: same regex as the client-side check in app/welcome/page.tsx.
+// Belt-and-braces — if a non-wizard client ever POSTs/PATCHes here, the
+// server still enforces format.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function isValidEmail(value: unknown): boolean {
+  return typeof value === "string" && EMAIL_RE.test(value.trim());
+}
+
 /**
  * PHI-33: derive the legs array for the insert/update.
  *
@@ -91,6 +99,12 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // PHI-47: if email is supplied (signup-time POST), require valid format.
+  // Pre-signup partial writes (steps 3/4) omit email — those still pass.
+  if (email !== undefined && email !== null && email !== "" && !isValidEmail(email)) {
+    return NextResponse.json({ error: "invalid email" }, { status: 400 });
+  }
+
   const { data, error } = await supabase
     .from("travelers")
     .insert({
@@ -165,9 +179,15 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "id is required." }, { status: 400 });
   }
 
+  // PHI-47: validate email format on update too, when caller is changing it.
+  // Allow null (clearing) but reject malformed strings.
+  if (email !== undefined && email !== null && email !== "" && !isValidEmail(email)) {
+    return NextResponse.json({ error: "invalid email" }, { status: 400 });
+  }
+
   const updates: Record<string, unknown> = {};
   if (name !== undefined) updates.name = name;
-  if (email !== undefined) updates.email = email.toLowerCase().trim();
+  if (email !== undefined) updates.email = email ? email.toLowerCase().trim() : null;
   if (travelCompany !== undefined) updates.travel_company = travelCompany;
   if (styleTags !== undefined) updates.style_tags = styleTags;
   if (budgetTier !== undefined) updates.budget_tier = budgetTier;

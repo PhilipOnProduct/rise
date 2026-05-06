@@ -232,8 +232,15 @@ create table activity_feedback (
   chip_type text,                -- hard_exclusion | soft_signal
   chips_source text,             -- fallback | dynamic — which chips were showing at submission
   first_chip_label text,         -- label of the first chip in the row at submission time
+  metadata jsonb,                -- PHI-45: arbitrary payload from onboarding telemetry events (length, dayCount, hasActivityFeedback, clarifications, destinationCount, hadConstraints, etc.)
   created_at timestamptz default now()
 );
+```
+
+**PHI-45 migration for existing deployments** (run once, idempotent):
+```sql
+alter table activity_feedback
+  add column if not exists metadata jsonb;
 ```
 
 **Required SQL for `user_feedback` table:**

@@ -63,6 +63,11 @@ const MAX_STYLE_SELECTIONS = 3;
 // PHI-27: added "13–17" so teen families aren't silently excluded.
 const CHILD_AGE_RANGES = ["Under 2", "2–4", "5–8", "9–12", "13–17"] as const;
 
+// PHI-47: permissive email format check. Rejects "x", "abc", "@", "user@",
+// while accepting plus-addressing, subdomains, and country TLDs. Server-
+// side check in /api/travelers mirrors this regex.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 type Chip = {
   label: string;
   type: "hard_exclusion" | "soft_signal";
@@ -554,6 +559,9 @@ export default function WelcomePage() {
   // Account
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  // PHI-47: only show the inline email error after the field has been
+  // blurred at least once — typing "p" shouldn't immediately read as wrong.
+  const [emailTouched, setEmailTouched] = useState(false);
   const [saving, setSaving] = useState(false);
 
   // Partial traveler ID written to DB at step 3 advance
@@ -592,6 +600,14 @@ export default function WelcomePage() {
   // falls back to equal-split when no override exists. Cleared on parse
   // start and on chip-screen "Start over".
   const [legNightOverrides, setLegNightOverrides] = useState<number[]>([]);
+  // PHI-46: which chip on the chip-confirm screen is currently in edit
+  // mode. Values: null | "destination-add" | "destination-N" | "dates"
+  // | "adults". Replaces window.prompt() for these three chip types.
+  const [editingChipKey, setEditingChipKey] = useState<string | null>(null);
+  // PHI-46: live-typed value for the destination autocomplete during
+  // inline edit. Snapshot taken when editing begins; the underlying
+  // parsedIntent only updates on commit.
+  const [destEditDraft, setDestEditDraft] = useState("");
   // PHI-37 slice 1: per-leg snapshot taken at chip-accept time. Holds the
   // parser's destinations (with resolved PlaceRefs where available) and a
   // per-leg night allocation. Empty / single-entry means single-leg path
@@ -619,6 +635,14 @@ export default function WelcomePage() {
   const chipsFetchedRef = useRef<Set<string>>(new Set());
   // Tracks submitted activities so dynamic chip swaps don't disrupt in-flight interactions
   const submittedActivitiesRef = useRef<Set<string>>(new Set());
+  // PHI-44: shown briefly when a step-4 stream restarts after the user
+  // had prior ratings — explains why the rated cards just disappeared.
+  // Cleared once the new stream finishes, or after a 4s timeout fallback.
+  const [streamRefreshNote, setStreamRefreshNote] = useState(false);
+  // PHI-44: ref-mirrored count of activityFeedback so the stream useEffect
+  // can detect "had prior ratings" without subscribing to feedback updates
+  // (which would re-fire the stream on every thumbs-up).
+  const activityFeedbackCountRef = useRef(0);
 
   useEffect(() => {
     if (departureDate) setReturnDate(addDays(departureDate, 7));
@@ -647,6 +671,20 @@ export default function WelcomePage() {
     const available = getStyleOptions(travelCompany);
     setTravelerTypes((prev) => prev.filter((t) => available.includes(t)));
   }, [travelCompany]);
+
+  // PHI-44: auto-dismiss the "refreshing your picks" note after 4s so it
+  // doesn't linger past the new stream's first cards arriving.
+  useEffect(() => {
+    if (!streamRefreshNote) return;
+    const t = setTimeout(() => setStreamRefreshNote(false), 4000);
+    return () => clearTimeout(t);
+  }, [streamRefreshNote]);
+
+  // PHI-44: keep activityFeedbackCountRef in sync without making the
+  // stream useEffect depend on the full feedback object.
+  useEffect(() => {
+    activityFeedbackCountRef.current = Object.keys(activityFeedback).length;
+  }, [activityFeedback]);
 
   // Follow-up #2 — Maya's Tier-3 escalation: modal-on-leave.
   // Once the user has invested real time (step 4+) and we don't yet have an
@@ -679,6 +717,17 @@ export default function WelcomePage() {
     setParsedActivities([]);
     chipsFetchedRef.current = new Set();
     submittedActivitiesRef.current = new Set();
+    // PHI-44: a stream restart after the user already rated cards would
+    // leave their feedback attached to ID slots (act-0, act-1...) that
+    // a new stream re-uses for different activities. Reset every piece
+    // of feedback/chip state, and surface a one-line note explaining
+    // why their ratings just disappeared. We read prior count from a
+    // ref so the stream effect doesn't depend on the feedback object.
+    const hadPriorFeedback = activityFeedbackCountRef.current > 0;
+    setActivityFeedback({});
+    setActivityChips({});
+    setOpenChipId(null);
+    if (hadPriorFeedback) setStreamRefreshNote(true);
 
     (async () => {
       let accumulated = "";
@@ -1297,6 +1346,9 @@ export default function WelcomePage() {
     // PHI-37 slice 4: clear stale per-leg night overrides when the user
     // re-parses; the allocator initialises again on the new chip screen.
     setLegNightOverrides([]);
+    // PHI-46: drop any open inline editor before showing fresh chips.
+    setEditingChipKey(null);
+    setDestEditDraft("");
     logOnboardingEvent("freeform_initiated", { length: parserText.length });
     try {
       const res = await fetch("/api/parse-trip", {
@@ -1466,120 +1518,326 @@ export default function WelcomePage() {
               Here&apos;s what we picked up. Tap any chip to fix it; we&apos;ll
               walk through the rest after.
             </p>
+            {/* PHI-46: chips that go into edit mode (destination/dates/adults)
+                expand inline rather than triggering window.prompt(). One
+                editor open at a time. Commit on Enter or "Done"; Cancel
+                button discards. Read-only chips below render as before. */}
             <div className="flex flex-wrap gap-2 mb-6" data-testid="confirm-chips">
-              {/* Destination(s) — editable */}
+              {/* Destination(s) — editable inline */}
               {intent.destinations.length === 0 ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const next = prompt("Where to?");
-                    if (next?.trim()) {
-                      updateIntent({
-                        destinations: [{ name: next.trim() }],
-                      });
-                      // Follow-up #4: resolve in the background so the leg
-                      // saved on accept already carries lat/lng/id.
-                      void resolveParsedDestinations([{ name: next.trim() }]);
-                    }
-                  }}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-dashed border-[#d4a94a]/60 bg-white px-3 py-1.5 text-sm text-[#0e2a47] hover:border-[#1a6b7f] transition-colors"
-                  aria-label="Add destination"
-                >
-                  <span>📍</span>
-                  <span className="font-medium">Add a destination</span>
-                </button>
-              ) : (
-                intent.destinations.map((d, i) => (
+                editingChipKey === "destination-add" ? (
+                  <div
+                    className="w-full flex flex-col gap-2 rounded-xl border border-[#1a6b7f] bg-white p-3"
+                    data-testid="destination-editor"
+                  >
+                    <PlacesAutocomplete
+                      value={destEditDraft}
+                      onChange={setDestEditDraft}
+                      onSelect={(place) => {
+                        const trimmed = place.split(",")[0].trim();
+                        if (!trimmed) return;
+                        updateIntent({
+                          destinations: [{ name: trimmed }],
+                        });
+                        void resolveParsedDestinations([{ name: trimmed }]);
+                        setEditingChipKey(null);
+                        setDestEditDraft("");
+                      }}
+                      onEnter={() => {
+                        const trimmed = destEditDraft.trim();
+                        if (!trimmed) return;
+                        updateIntent({
+                          destinations: [{ name: trimmed }],
+                        });
+                        void resolveParsedDestinations([{ name: trimmed }]);
+                        setEditingChipKey(null);
+                        setDestEditDraft("");
+                      }}
+                      placeholder="e.g. Lisbon, Portugal"
+                      types={["(cities)"]}
+                      autoFocus
+                      theme="light"
+                      className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-3 py-2 text-sm text-[#0e2a47] placeholder-[#9ca3af] transition-colors"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const trimmed = destEditDraft.trim();
+                          if (!trimmed) {
+                            setEditingChipKey(null);
+                            return;
+                          }
+                          updateIntent({
+                            destinations: [{ name: trimmed }],
+                          });
+                          void resolveParsedDestinations([{ name: trimmed }]);
+                          setEditingChipKey(null);
+                          setDestEditDraft("");
+                        }}
+                        className="rounded-xl bg-[#1a6b7f] text-white text-xs font-semibold px-3 py-1.5 hover:bg-[#155a6b] transition-colors"
+                      >
+                        Done
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingChipKey(null);
+                          setDestEditDraft("");
+                        }}
+                        className="text-xs text-[#6a7f8f] hover:text-[#4a6580] transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
                   <button
-                    key={i}
                     type="button"
                     onClick={() => {
-                      const next = prompt("Edit destination", d.name);
-                      if (next?.trim()) {
-                        const arr = [...intent.destinations];
-                        arr[i] = { ...d, name: next.trim() };
-                        updateIntent({ destinations: arr });
-                        // Follow-up #4: resolve any newly-named destination
-                        // in the background so the leg gets lat/lng/id.
-                        void resolveParsedDestinations([{ name: next.trim(), kind: d.kind }]);
-                      }
+                      setDestEditDraft("");
+                      setEditingChipKey("destination-add");
                     }}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-[#d4cfc5] bg-white px-3 py-1.5 text-sm text-[#0e2a47] hover:border-[#1a6b7f] transition-colors"
-                    aria-label={`Edit destination ${d.name}`}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-dashed border-[#d4a94a]/60 bg-white px-3 py-1.5 text-sm text-[#0e2a47] hover:border-[#1a6b7f] transition-colors"
+                    aria-label="Add destination"
                   >
                     <span>📍</span>
-                    <span className="font-medium">
-                      {d.name}
-                      {d.kind ? ` (${d.kind})` : ""}
-                    </span>
+                    <span className="font-medium">Add a destination</span>
                   </button>
-                ))
+                )
+              ) : (
+                intent.destinations.map((d, i) => {
+                  const editKey = `destination-${i}`;
+                  if (editingChipKey === editKey) {
+                    return (
+                      <div
+                        key={i}
+                        className="w-full flex flex-col gap-2 rounded-xl border border-[#1a6b7f] bg-white p-3"
+                        data-testid={`destination-editor-${i}`}
+                      >
+                        <PlacesAutocomplete
+                          value={destEditDraft}
+                          onChange={setDestEditDraft}
+                          onSelect={(place) => {
+                            const trimmed = place.split(",")[0].trim();
+                            if (!trimmed) return;
+                            const arr = [...intent.destinations];
+                            arr[i] = { ...d, name: trimmed };
+                            updateIntent({ destinations: arr });
+                            void resolveParsedDestinations([{ name: trimmed, kind: d.kind }]);
+                            setEditingChipKey(null);
+                            setDestEditDraft("");
+                          }}
+                          onEnter={() => {
+                            const trimmed = destEditDraft.trim();
+                            if (!trimmed) return;
+                            const arr = [...intent.destinations];
+                            arr[i] = { ...d, name: trimmed };
+                            updateIntent({ destinations: arr });
+                            void resolveParsedDestinations([{ name: trimmed, kind: d.kind }]);
+                            setEditingChipKey(null);
+                            setDestEditDraft("");
+                          }}
+                          placeholder="e.g. Lisbon, Portugal"
+                          types={["(cities)"]}
+                          autoFocus
+                          theme="light"
+                          className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-3 py-2 text-sm text-[#0e2a47] placeholder-[#9ca3af] transition-colors"
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const trimmed = destEditDraft.trim();
+                              if (!trimmed) {
+                                setEditingChipKey(null);
+                                return;
+                              }
+                              const arr = [...intent.destinations];
+                              arr[i] = { ...d, name: trimmed };
+                              updateIntent({ destinations: arr });
+                              void resolveParsedDestinations([{ name: trimmed, kind: d.kind }]);
+                              setEditingChipKey(null);
+                              setDestEditDraft("");
+                            }}
+                            className="rounded-xl bg-[#1a6b7f] text-white text-xs font-semibold px-3 py-1.5 hover:bg-[#155a6b] transition-colors"
+                          >
+                            Done
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingChipKey(null);
+                              setDestEditDraft("");
+                            }}
+                            className="text-xs text-[#6a7f8f] hover:text-[#4a6580] transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  }
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => {
+                        setDestEditDraft(d.name);
+                        setEditingChipKey(editKey);
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-[#d4cfc5] bg-white px-3 py-1.5 text-sm text-[#0e2a47] hover:border-[#1a6b7f] transition-colors"
+                      aria-label={`Edit destination ${d.name}`}
+                    >
+                      <span>📍</span>
+                      <span className="font-medium">
+                        {d.name}
+                        {d.kind ? ` (${d.kind})` : ""}
+                      </span>
+                    </button>
+                  );
+                })
               )}
 
-              {/* Dates — editable. Show current value or a prompt to set. */}
-              <button
-                type="button"
-                onClick={() => {
-                  const dep = prompt(
-                    "Departure date (YYYY-MM-DD), or leave blank for none",
-                    intent.dates.departure ?? ""
-                  );
-                  if (dep === null) return;
-                  const ret = prompt(
-                    "Return date (YYYY-MM-DD), or leave blank for none",
-                    intent.dates.return ?? ""
-                  );
-                  if (ret === null) return;
-                  updateIntent({
-                    dates: {
-                      ...intent.dates,
-                      departure: dep.trim() || undefined,
-                      return: ret.trim() || undefined,
-                    },
-                  });
-                }}
-                className={`inline-flex items-center gap-1.5 rounded-xl border bg-white px-3 py-1.5 text-sm text-[#0e2a47] hover:border-[#1a6b7f] transition-colors ${
-                  intent.dates.departure && intent.dates.return
-                    ? "border-[#d4cfc5]"
-                    : "border-dashed border-[#d4a94a]/60"
-                }`}
-                aria-label="Edit dates"
-              >
-                <span>📅</span>
-                <span className="font-medium">
-                  {intent.dates.departure && intent.dates.return
-                    ? `${intent.dates.departure} → ${intent.dates.return}`
-                    : intent.dates.durationNights
-                    ? `${intent.dates.durationNights} nights — set dates`
-                    : intent.dates.season
-                    ? `${intent.dates.season} — set dates`
-                    : "Set dates"}
-                </span>
-              </button>
+              {/* Dates — editable inline */}
+              {editingChipKey === "dates" ? (
+                <div
+                  className="w-full flex flex-col gap-2 rounded-xl border border-[#1a6b7f] bg-white p-3"
+                  data-testid="dates-editor"
+                >
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <label className="flex flex-col gap-1 text-xs text-[#6a7f8f] flex-1">
+                      <span className="font-semibold uppercase tracking-widest">Departure</span>
+                      <input
+                        type="date"
+                        value={intent.dates.departure ?? ""}
+                        min={tomorrow()}
+                        onChange={(e) =>
+                          updateIntent({
+                            dates: {
+                              ...intent.dates,
+                              departure: e.target.value || undefined,
+                            },
+                          })
+                        }
+                        className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-3 py-2 text-sm text-[#0e2a47] transition-colors"
+                        autoFocus
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 text-xs text-[#6a7f8f] flex-1">
+                      <span className="font-semibold uppercase tracking-widest">Return</span>
+                      <input
+                        type="date"
+                        value={intent.dates.return ?? ""}
+                        min={intent.dates.departure || tomorrow()}
+                        onChange={(e) =>
+                          updateIntent({
+                            dates: {
+                              ...intent.dates,
+                              return: e.target.value || undefined,
+                            },
+                          })
+                        }
+                        className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-3 py-2 text-sm text-[#0e2a47] transition-colors"
+                      />
+                    </label>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditingChipKey(null)}
+                      className="rounded-xl bg-[#1a6b7f] text-white text-xs font-semibold px-3 py-1.5 hover:bg-[#155a6b] transition-colors"
+                    >
+                      Done
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setEditingChipKey("dates")}
+                  className={`inline-flex items-center gap-1.5 rounded-xl border bg-white px-3 py-1.5 text-sm text-[#0e2a47] hover:border-[#1a6b7f] transition-colors ${
+                    intent.dates.departure && intent.dates.return
+                      ? "border-[#d4cfc5]"
+                      : "border-dashed border-[#d4a94a]/60"
+                  }`}
+                  aria-label="Edit dates"
+                >
+                  <span>📅</span>
+                  <span className="font-medium">
+                    {intent.dates.departure && intent.dates.return
+                      ? `${intent.dates.departure} → ${intent.dates.return}`
+                      : intent.dates.durationNights
+                      ? `${intent.dates.durationNights} nights — set dates`
+                      : intent.dates.season
+                      ? `${intent.dates.season} — set dates`
+                      : "Set dates"}
+                  </span>
+                </button>
+              )}
 
-              {/* Adults — editable via prompt */}
-              <button
-                type="button"
-                onClick={() => {
-                  const next = prompt(
-                    "How many adults?",
-                    String(intent.party.adults ?? 1)
-                  );
-                  const n = Number(next);
-                  if (Number.isInteger(n) && n >= 1)
-                    updateIntent({
-                      party: { ...intent.party, adults: n },
-                    });
-                }}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-[#d4cfc5] bg-white px-3 py-1.5 text-sm text-[#0e2a47] hover:border-[#1a6b7f] transition-colors"
-                aria-label="Edit adult count"
-              >
-                <span>👤</span>
-                <span className="font-medium">
-                  {intent.party.adults ?? 1} adult
-                  {(intent.party.adults ?? 1) > 1 ? "s" : ""}
-                </span>
-              </button>
+              {/* Adults — editable inline stepper */}
+              {editingChipKey === "adults" ? (
+                <div
+                  className="inline-flex items-center gap-2 rounded-xl border border-[#1a6b7f] bg-white px-3 py-1.5"
+                  data-testid="adults-editor"
+                >
+                  <span aria-hidden>👤</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateIntent({
+                        party: {
+                          ...intent.party,
+                          adults: Math.max(1, (intent.party.adults ?? 1) - 1),
+                        },
+                      })
+                    }
+                    aria-label="Decrease adults"
+                    className="w-7 h-7 rounded-full border border-[#d4cfc5] text-[#1a6b7f] hover:border-[#1a6b7f] transition-colors"
+                  >
+                    −
+                  </button>
+                  <span className="text-sm font-semibold text-[#0e2a47] w-10 text-center">
+                    {intent.party.adults ?? 1}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateIntent({
+                        party: {
+                          ...intent.party,
+                          adults: (intent.party.adults ?? 1) + 1,
+                        },
+                      })
+                    }
+                    aria-label="Increase adults"
+                    className="w-7 h-7 rounded-full border border-[#d4cfc5] text-[#1a6b7f] hover:border-[#1a6b7f] transition-colors"
+                  >
+                    +
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingChipKey(null)}
+                    className="ml-1 rounded-xl bg-[#1a6b7f] text-white text-xs font-semibold px-3 py-1 hover:bg-[#155a6b] transition-colors"
+                  >
+                    Done
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setEditingChipKey("adults")}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-[#d4cfc5] bg-white px-3 py-1.5 text-sm text-[#0e2a47] hover:border-[#1a6b7f] transition-colors"
+                  aria-label="Edit adult count"
+                >
+                  <span>👤</span>
+                  <span className="font-medium">
+                    {intent.party.adults ?? 1} adult
+                    {(intent.party.adults ?? 1) > 1 ? "s" : ""}
+                  </span>
+                </button>
+              )}
 
               {/* Children — read-only display (count + ages) */}
               {intent.party.children?.length ? (
@@ -1769,6 +2027,9 @@ export default function WelcomePage() {
               onClick={() => {
                 setParserPhase("landing");
                 setParsedIntent(null);
+                // PHI-46: clear any open inline editor when bailing out.
+                setEditingChipKey(null);
+                setDestEditDraft("");
               }}
               className="w-full text-sm text-[#6a7f8f] hover:text-[#4a6580] underline-offset-4 hover:underline transition-colors"
             >
@@ -1913,6 +2174,9 @@ export default function WelcomePage() {
   // pick conscious is the right tradeoff.
   const allChildrenHaveAges = childrenAges.every((a) => a.length > 0);
 
+  // PHI-47: regex check at the gate; "x" no longer passes. Server mirrors.
+  const emailValid = EMAIL_RE.test(email.trim());
+
   const canContinue: Record<number, boolean> = {
     // PHI-30: step 1 also requires destinationVerified — the user might
     // have re-opened the autocomplete here and started editing.
@@ -1924,7 +2188,7 @@ export default function WelcomePage() {
     2: true,
     3: travelCompany.length > 0 && allChildrenHaveAges,
     4: !previewLoading && Object.keys(activityFeedback).length > 0,
-    5: name.trim().length > 0 && email.trim().length > 0,
+    5: name.trim().length > 0 && emailValid,
   };
 
   async function handleContinue() {
@@ -2350,6 +2614,18 @@ export default function WelcomePage() {
           {/* Step 4: AI Preview with activity cards */}
           {step === 4 && (
             <div className="flex flex-col gap-4">
+              {/* PHI-44: stream restarted after the user rated cards.
+                  Explains why their ratings just disappeared. Auto-dismisses. */}
+              {streamRefreshNote && (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  data-testid="stream-refresh-note"
+                  className="rounded-xl border border-[#1a6b7f]/25 bg-[#1a6b7f]/5 px-4 py-2.5 text-sm text-[#0e2a47]"
+                >
+                  Updated preferences — refreshing your picks.
+                </div>
+              )}
               {/* Initial loading state — before any cards arrive */}
               {previewLoading && parsedActivities.length === 0 && (
                 <div className="rounded-2xl border border-[#e8e4de] bg-white p-6 min-h-[140px] flex items-center">
@@ -2574,15 +2850,34 @@ export default function WelcomePage() {
                     name="name"
                     className={darkInput}
                   />
-                  <input
-                    type="email"
-                    placeholder="you@example.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    autoComplete="email"
-                    name="email"
-                    className={darkInput}
-                  />
+                  <div className="flex flex-col gap-1">
+                    <input
+                      type="email"
+                      placeholder="you@example.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      onBlur={() => setEmailTouched(true)}
+                      autoComplete="email"
+                      name="email"
+                      aria-invalid={emailTouched && !emailValid}
+                      aria-describedby={
+                        emailTouched && !emailValid ? "email-error" : undefined
+                      }
+                      className={darkInput}
+                      data-testid="signup-email"
+                    />
+                    {/* PHI-47: only show after field has been blurred,
+                        so typing "p" doesn't immediately read as wrong. */}
+                    {emailTouched && email.trim().length > 0 && !emailValid && (
+                      <p
+                        id="email-error"
+                        role="alert"
+                        className="text-xs text-red-500"
+                      >
+                        That doesn&apos;t look like a valid email.
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
