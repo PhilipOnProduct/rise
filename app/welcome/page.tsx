@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import PlacesAutocomplete from "@/app/components/PlacesAutocomplete";
 import type { TripIntent } from "@/lib/trip-intent";
 import { newLegId, type PlaceRef, type TripLeg } from "@/lib/trip-schema";
@@ -522,8 +522,13 @@ function ActivityCard({
 
 export default function WelcomePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [step, setStep] = useState(0);
   const [animKey, setAnimKey] = useState(0);
+  // PHI-48: one-time seed from `?destination=` query param sent by the
+  // landing-page CTA. Treated as initial state, not a controlled value —
+  // the user's edits to the destination input win after the seed fires.
+  const seededFromUrlRef = useRef(false);
 
   // Trip data
   const [destination, setDestination] = useState("");
@@ -647,6 +652,21 @@ export default function WelcomePage() {
   useEffect(() => {
     if (departureDate) setReturnDate(addDays(departureDate, 7));
   }, [departureDate]);
+
+  // PHI-48: seed the destination once from `?destination=` if the user
+  // arrived from the landing page CTA. Skip the wizard's full-screen
+  // step-0 landing and drop the user straight into Step 1 (dates) with
+  // the destination pre-filled. The ref guard prevents re-seeding when
+  // the user navigates back from Step 2.
+  useEffect(() => {
+    if (seededFromUrlRef.current) return;
+    const seed = searchParams.get("destination")?.trim();
+    if (!seed) return;
+    seededFromUrlRef.current = true;
+    handleDestinationSelect(seed);
+    setStep(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   // Derive valid trip type options from composition and auto-set/clear travelCompany
   useEffect(() => {
