@@ -29,8 +29,10 @@ export async function POST(req: NextRequest) {
   console.log("[team/chat] Anthropic response", upstream.status, JSON.stringify(data).slice(0, 500));
 
   if (!upstream.ok) {
+    // Don't leak Anthropic's error envelope to the browser — log it server-side
+    // and return a generic message. The client just needs to know it failed.
     console.error("[team/chat] Anthropic error", upstream.status, data);
-    return NextResponse.json(data, { status: upstream.status });
+    return NextResponse.json({ error: "Upstream model error" }, { status: 502 });
   }
 
   // Log usage from response

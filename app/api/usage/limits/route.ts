@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { isAdminRequest, adminForbiddenResponse } from "@/lib/auth";
 
 export async function PATCH(req: NextRequest) {
+  if (!isAdminRequest(req)) return adminForbiddenResponse();
   const { provider, monthly_limit_usd, warning_threshold_pct, hard_limit_enabled } = await req.json();
 
   if (!provider) {

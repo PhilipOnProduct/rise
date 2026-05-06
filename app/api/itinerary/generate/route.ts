@@ -103,8 +103,6 @@ type ItineraryDay = {
 };
 
 export async function POST(req: NextRequest) {
-  const { destination, departureDate, returnDate, travelCompany, travelerTypes, budgetTier, activityFeedback } =
-    await req.json();
   const {
     destination,
     departureDate,
@@ -112,6 +110,7 @@ export async function POST(req: NextRequest) {
     hotel,
     travelCompany,
     travelerTypes,
+    budgetTier,
     activityFeedback,
     travelerCount,
     childrenAges,
@@ -128,6 +127,7 @@ export async function POST(req: NextRequest) {
     hotel?: string;
     travelCompany?: string;
     travelerTypes?: string[];
+    budgetTier?: string;
     activityFeedback?: ActivityFeedbackEntry[];
     travelerCount?: number;
     childrenAges?: string[];
@@ -210,15 +210,12 @@ Multi-leg rules:
     ? `You are a trip planning AI. Generate a structured day-by-day itinerary for a ${days}-day multi-leg trip across ${legs!.map((l) => l.place?.name ?? "?").join(" → ")}.`
     : `You are a trip planning AI. Generate a structured day-by-day itinerary for a ${days}-day trip to ${destination}.`;
 
-  const prompt = `You are a trip planning AI. Generate a structured day-by-day itinerary for a ${days}-day trip to ${destination}.
+  const prompt = `${headline}
 Travel dates: ${departureDate} to ${returnDate}.
 ${companyStr}
-${styleStr}
-${budgetStr}${feedbackSegment}
-  const prompt = `${headline}
-${companyStr}
 ${hotelStr}
-${styleStr}${compositionStr}${feedbackSegment}${multiLegBlock}
+${styleStr}
+${budgetStr}${compositionStr}${feedbackSegment}${multiLegBlock}
 
 Return ONLY a valid JSON array — no markdown, no explanation, no code fences. The array must have exactly ${days} elements, one per day.
 
@@ -272,7 +269,7 @@ Rules:
 - Be specific to ${isMultiLeg ? "each leg" : destination} — no generic suggestions
 - Keep descriptions under 20 words
 - id must be unique across all days (e.g. "day1-morning-1")
-- For booking_meta.search_query: use the restaurant's commonly known name plus the city — this will be used to construct deep links, so accuracy matters more than matching the title field exactly`;
+- For booking_meta.search_query: use the restaurant's commonly known name plus the city — this will be used to construct deep links, so accuracy matters more than matching the title field exactly
 - Within each time block, order items in the sequence they should happen. Place meals at the right time: breakfast before morning activities, lunch before afternoon sightseeing, dinner before evening leisure. The items array order IS the display order.`;
 
   // PHI-40: tag the log with rise_session_id so the cost-report script
@@ -306,7 +303,6 @@ Rules:
       feature: "itinerary-generate",
       model: MODEL,
       prompt,
-      input: { destination, departureDate, returnDate, travelCompany, travelerTypes, budgetTier },
       input: {
         destination,
         departureDate,
@@ -314,6 +310,7 @@ Rules:
         hotel: hotel ?? null,
         travelCompany,
         travelerTypes,
+        budgetTier: budgetTier ?? null,
         travelerCount: travelerCount ?? null,
         childrenAges: childrenAges ?? null,
         legs: isMultiLeg ? legs : null,
