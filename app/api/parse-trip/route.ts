@@ -53,6 +53,13 @@ Rules (in priority order):
 
 10. styleTags should match the existing chip taxonomy: Cultural, Food-led, Relaxed, Adventure, Off the beaten track, History, Romantic, Wellness, Nightlife, Art & Design, Photography, Kid-friendly, Teen-friendly, Beach, Educational, Budget-savvy, Slow travel, Active, Festivals.
 
+11. Inspiration (PHI-51): set the optional inspiration field ONLY when the user names a creative theme using an anchor phrase. Anchor phrases include: "X-inspired", "inspired by X", "in the footsteps of X", "like in [film/book/show]", "themed around X", "we want to do some X stuff", "a [genre] trip", "in honour of X". The value is a short noun phrase (e.g. "Harry Potter", "Amélie", "World War II", "my grandmother who was born in Krakow"), not a full sentence.
+   - NEVER infer inspiration from destination alone. Paris does NOT imply Amélie. Tokyo does NOT imply anime. Edinburgh does NOT imply Harry Potter.
+   - NEVER extract from negation patterns. "Not too touristy", "avoid the Eat-Pray-Love itinerary", "don't make it a Disney trip" are constraints, not inspirations — leave inspiration unset and put the negation into constraintText.
+   - Personal-history inspirations are valid ("in honour of my grandmother who was born in Krakow", "my dad served in Vietnam"). Set inspiration to the noun phrase the user named.
+   - Inspiration NEVER overrides constraint preservation. If the user says "Harry Potter inspired family trip, no peanuts, the youngest is allergic", set inspiration: "Harry Potter" AND preserve the peanut allergy in constraintTags + constraintText. Both fields are independent.
+   - When the user mentions a theme without a clear anchor phrase, prefer leaving inspiration unset over guessing. Add a clarification if you think they meant a theme but can't tell.
+
 Output: call the parse_trip_intent tool with the structured TripIntent. Do not produce any prose — only the tool call.`;
 
 export async function POST(req: NextRequest) {

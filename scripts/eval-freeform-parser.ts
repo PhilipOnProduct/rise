@@ -733,6 +733,97 @@ const CASES: Case[] = [
       { name: "low-carbon / train preserved", check: (i) => /carbon|train|sustainab|flight/i.test(i.constraintText ?? "") || i.clarifications.some((c) => /transport/i.test(c)) },
     ],
   },
+  // ── PHI-51: inspiration field cases ──────────────────────────────────────
+  {
+    id: "inspiration-harry-potter-uk",
+    description: "PHI-51 — clear theme via anchor phrase ('X-inspired')",
+    input: "Harry Potter inspired family trip throughout the UK, starting in London, 10 nights, two adults and a 9-year-old",
+    checks: [
+      {
+        name: "inspiration extracted as 'Harry Potter'",
+        check: (i) => /harry potter/i.test(i.inspiration ?? ""),
+      },
+      {
+        name: "destination UK / London captured",
+        check: (i) => i.destinations.some((d) => /uk|united kingdom|london/i.test(d.name)),
+      },
+      { name: "duration 10 nights", check: (i) => i.dates.durationNights === 10 },
+      { name: "adults=2", check: (i) => i.party.adults === 2 },
+      {
+        name: "child age 9-12",
+        check: (i) => (i.party.children ?? []).some((c) => c.ageRange === "9–12"),
+      },
+    ],
+  },
+  {
+    id: "inspiration-not-from-destination",
+    description: "PHI-51 — destination alone must NOT trigger inspiration extraction",
+    input: "Romantic weekend in Paris, couple in our 30s, food-led",
+    checks: [
+      {
+        name: "inspiration NOT inferred from Paris",
+        check: (i) => !i.inspiration,
+      },
+      {
+        name: "destination Paris extracted",
+        check: (i) => i.destinations.some((d) => /paris/i.test(d.name)),
+      },
+      { name: "adults=2", check: (i) => i.party.adults === 2 },
+      {
+        name: "Food-led style tag",
+        check: (i) => i.styleTags.some((t) => /food/i.test(t)),
+      },
+    ],
+  },
+  {
+    id: "inspiration-ambiguous-clarification",
+    description: "PHI-51 — ambiguous theme returns clarification, no guess",
+    input: "We're really into wizarding stuff — somewhere in Europe, 7 nights, two adults and an 8-year-old",
+    checks: [
+      {
+        name: "no specific destination guessed (or clarification asked)",
+        check: (i) =>
+          i.destinations.length === 0 ||
+          i.clarifications.some((c) => /destination|where|country|city/i.test(c)),
+      },
+      {
+        name: "inspiration not over-extracted (left unset OR clarification)",
+        check: (i) =>
+          !i.inspiration ||
+          i.clarifications.some((c) => /theme|inspiration|wizard/i.test(c)),
+      },
+      { name: "duration 7 nights", check: (i) => i.dates.durationNights === 7 },
+      { name: "adults=2", check: (i) => i.party.adults === 2 },
+    ],
+  },
+  {
+    id: "inspiration-with-allergy-constraint",
+    description: "PHI-51 — constraint preservation gate holds when inspiration also present",
+    input: "Harry Potter inspired family trip throughout the UK, starting in London, no peanuts, the youngest is allergic. 8 nights, two adults and a 7-year-old.",
+    checks: [
+      {
+        name: "inspiration extracted as 'Harry Potter'",
+        check: (i) => /harry potter/i.test(i.inspiration ?? ""),
+      },
+      {
+        name: "Severe allergy tag preserved (life-impacting — non-negotiable)",
+        check: (i) => i.constraintTags.includes("Severe allergy"),
+      },
+      {
+        name: "peanut preserved verbatim in constraintText",
+        check: (i) => /peanut/i.test(i.constraintText ?? ""),
+      },
+      {
+        name: "destination UK / London captured",
+        check: (i) => i.destinations.some((d) => /uk|united kingdom|london/i.test(d.name)),
+      },
+      { name: "duration 8 nights", check: (i) => i.dates.durationNights === 8 },
+      {
+        name: "child age 5-8",
+        check: (i) => (i.party.children ?? []).some((c) => c.ageRange === "5–8"),
+      },
+    ],
+  },
 ];
 
 // ── Runner ──────────────────────────────────────────────────────────────
@@ -754,6 +845,13 @@ Rules (in priority order):
 8. Always extract occasion if mentioned (anniversary, honeymoon, birthday, bucket_list). It biases downstream tone — this is a key differentiator.
 9. Children: if ages are stated, map to ageRange buckets ("Under 2" | "2–4" | "5–8" | "9–12" | "13–17"). If only "the kids" is mentioned, push to clarifications: "What ages are the kids?"
 10. styleTags should match the existing chip taxonomy: Cultural, Food-led, Relaxed, Adventure, Off the beaten track, History, Romantic, Wellness, Nightlife, Art & Design, Photography, Kid-friendly, Teen-friendly, Beach, Educational, Budget-savvy, Slow travel, Active, Festivals.
+
+11. Inspiration (PHI-51): set the optional inspiration field ONLY when the user names a creative theme using an anchor phrase. Anchor phrases include: "X-inspired", "inspired by X", "in the footsteps of X", "like in [film/book/show]", "themed around X", "we want to do some X stuff", "a [genre] trip", "in honour of X". The value is a short noun phrase (e.g. "Harry Potter", "Amélie", "World War II", "my grandmother who was born in Krakow"), not a full sentence.
+   - NEVER infer inspiration from destination alone. Paris does NOT imply Amélie. Tokyo does NOT imply anime. Edinburgh does NOT imply Harry Potter.
+   - NEVER extract from negation patterns. "Not too touristy", "avoid the Eat-Pray-Love itinerary", "don't make it a Disney trip" are constraints, not inspirations — leave inspiration unset and put the negation into constraintText.
+   - Personal-history inspirations are valid ("in honour of my grandmother who was born in Krakow", "my dad served in Vietnam"). Set inspiration to the noun phrase the user named.
+   - Inspiration NEVER overrides constraint preservation. If the user says "Harry Potter inspired family trip, no peanuts, the youngest is allergic", set inspiration: "Harry Potter" AND preserve the peanut allergy in constraintTags + constraintText. Both fields are independent.
+   - When the user mentions a theme without a clear anchor phrase, prefer leaving inspiration unset over guessing. Add a clarification if you think they meant a theme but can't tell.
 
 Output: call the parse_trip_intent tool with the structured TripIntent. Do not produce any prose — only the tool call.`;
 

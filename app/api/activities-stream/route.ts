@@ -28,6 +28,8 @@ export async function POST(req: NextRequest) {
     // allergies. Treated as MUST respect in the prompt below.
     constraintTags,
     constraintText,
+    // PHI-51: optional creative-inspiration soft bias from the free-form parser.
+    inspiration,
     // PHI-37: multi-leg trip support. When 2+ legs are provided, the
     // prompt switches to multi-leg mode and the streamed output carries
     // LEG: <index> markers so the client can group cards by leg. When
@@ -45,6 +47,7 @@ export async function POST(req: NextRequest) {
     childrenAges?: string[];
     constraintTags?: string[];
     constraintText?: string;
+    inspiration?: string;
     legs?: TripLeg[];
   };
 
@@ -67,6 +70,7 @@ export async function POST(req: NextRequest) {
     childrenAges,
     constraintTags,
     constraintText,
+    inspiration,
     legs,
   });
   const isMultiLeg = Array.isArray(legs) && legs.length >= 2;

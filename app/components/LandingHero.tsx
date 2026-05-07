@@ -3,6 +3,7 @@
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import PlacesAutocomplete from "@/app/components/PlacesAutocomplete";
+import { isFreeFormTripDescription } from "@/lib/free-form-detect";
 
 export default function LandingHero() {
   const [destination, setDestination] = useState("");
@@ -14,10 +15,19 @@ export default function LandingHero() {
 
   function handleSubmit() {
     if (submittedRef.current) return;
-    if (destination.trim().length < 2) return;
+    const raw = destination.trim();
+    if (raw.length < 2) return;
     submittedRef.current = true;
     setSubmitting(true);
-    const seed = destination.split(",")[0].trim();
+    // PHI-58: if the user typed a free-form trip description ("Harry Potter
+    // inspired family trip throughout the UK, starting in London") forward
+    // the raw text to /welcome's parser flow. Otherwise fall through to the
+    // existing structured wizard with the city pre-filled.
+    if (isFreeFormTripDescription(raw)) {
+      router.push(`/welcome?parser_text=${encodeURIComponent(raw)}`);
+      return;
+    }
+    const seed = raw.split(",")[0].trim();
     router.push(`/welcome?destination=${encodeURIComponent(seed)}`);
   }
 

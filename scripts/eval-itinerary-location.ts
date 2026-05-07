@@ -12,6 +12,59 @@ import Anthropic from "@anthropic-ai/sdk";
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const BASE_URL = process.env.EVAL_BASE_URL ?? "http://localhost:3000";
+const SITE_PASSWORD = process.env.SITE_PASSWORD;
+
+// ---------------------------------------------------------------------------
+// Auth bootstrap
+//
+// The dev server gates every route behind middleware.ts when SITE_PASSWORD is
+// set. Without a valid `site_auth` HMAC cookie, requests get 307-redirected to
+// /api/auth, which then chokes on JSON content-type and 500s. We mirror what a
+// browser does on first load: POST the password to /api/auth (form-encoded),
+// capture the Set-Cookie, and replay it on every authed request.
+//
+// When SITE_PASSWORD is unset, the middleware skips the gate and we return
+// null — no cookie needed.
+// ---------------------------------------------------------------------------
+async function bootstrapAuth(): Promise<string | null> {
+  if (!SITE_PASSWORD) return null;
+
+  const body = new URLSearchParams();
+  body.set("password", SITE_PASSWORD);
+  body.set("redirect_to", "/");
+
+  const res = await fetch(`${BASE_URL}/api/auth`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+    // Don't follow the 303 — we just want the Set-Cookie header.
+    redirect: "manual",
+  });
+
+  // Successful auth returns 303 to redirect_to with Set-Cookie: site_auth=...
+  // Wrong password returns 303 to /api/auth?auth_error=1 with NO site_auth cookie.
+  // Anything else is unexpected.
+  if (res.status !== 303) {
+    throw new Error(`Auth bootstrap got unexpected status ${res.status} from /api/auth`);
+  }
+
+  // Node 20+ supports getSetCookie(); fall back to splitting the joined header
+  // for older runtimes.
+  const setCookies =
+    typeof res.headers.getSetCookie === "function"
+      ? res.headers.getSetCookie()
+      : (res.headers.get("set-cookie") ?? "").split(/,(?=\s*[a-zA-Z0-9_-]+=)/);
+
+  const siteAuth = setCookies.find((c) => c.trim().startsWith("site_auth="));
+  if (!siteAuth) {
+    throw new Error(
+      "Auth bootstrap: no site_auth cookie in /api/auth response — SITE_PASSWORD likely incorrect."
+    );
+  }
+
+  // Keep only the name=value pair; strip HttpOnly, SameSite, Path, etc.
+  return siteAuth.split(";")[0].trim();
+}
 
 // ---------------------------------------------------------------------------
 // Test cases
@@ -31,6 +84,10 @@ type EditRequest = {
   budgetTier: string;
   travelerCount: number;
   childrenAges: string[] | null;
+  // PHI-51: optional creative-inspiration soft bias. When set, the route
+  // injects a single-slot bias clause; the trap case below verifies the
+  // hallucination guard prevents wrong-city famous-but-themed POIs.
+  inspiration?: string;
 };
 
 type TestCase = {
@@ -142,6 +199,32 @@ const TEST_CASES: TestCase[] = [
     ],
   },
   {
+    label: "PHI-51: Harry Potter inspired Edinburgh — must NOT suggest Warner Bros (Watford)",
+    request: {
+      mode: "add",
+      destination: "Edinburgh",
+      dayNumber: 2,
+      date: "2025-08-12",
+      block: "afternoon",
+      dayItems: [
+        { title: "The Elephant House", description: "Café where J.K. Rowling drafted early Harry Potter chapters", time_block: "morning" },
+        { title: "Dinner in Old Town", description: "Traditional Scottish fare on the Royal Mile", time_block: "evening" },
+      ],
+      travelCompany: "family",
+      travelerTypes: ["Cultural", "Kid-friendly"],
+      budgetTier: "comfortable",
+      travelerCount: 3,
+      childrenAges: ["9–12"],
+      inspiration: "Harry Potter",
+    },
+    criteria: [
+      "The suggested activity is physically located in Edinburgh (not Watford, London, or any other city)",
+      "The title does NOT reference Warner Bros, the Wizarding World studio tour, or any London/Watford-area Harry Potter attraction",
+      "The activity is real and verifiable — no invented Wizarding-themed venues that don't exist (e.g. fake themed cafes or fictional shops)",
+      "If the suggestion references the Harry Potter inspiration, it cites a real Edinburgh location plausibly linked to the books (Greyfriars Kirkyard, Victoria Street, the Elephant House, the Edinburgh Writers' Museum, etc.) — or it leans on a non-themed Edinburgh activity that fits the slot",
+    ],
+  },
+  {
     label: "Add: empty morning in Prague — no trap context",
     request: {
       mode: "add",
@@ -177,10 +260,16 @@ type ApiResponse = {
   conflict: string | null;
 };
 
-async function callEditApi(request: EditRequest): Promise<ApiResponse> {
+async function callEditApi(
+  request: EditRequest,
+  authCookie: string | null
+): Promise<ApiResponse> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (authCookie) headers["Cookie"] = authCookie;
+
   const res = await fetch(`${BASE_URL}/api/itinerary/edit`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(request),
   });
 
@@ -253,7 +342,7 @@ Respond with valid JSON only, no markdown, in this exact shape:
 }
 
 function printResult(testCase: TestCase, response: ApiResponse, result: ScoreResult) {
-  const badge = result.passed ? "\u2705 PASS" : "\u274c FAIL";
+  const badge = result.passed ? "✅ PASS" : "❌ FAIL";
   console.log(`\n${"─".repeat(60)}`);
   console.log(`${badge}  ${testCase.label}  (score: ${result.score}/10)`);
   console.log(`${"─".repeat(60)}`);
@@ -266,7 +355,7 @@ function printResult(testCase: TestCase, response: ApiResponse, result: ScoreRes
 
   console.log("\n  Criteria:");
   for (const c of result.criteriaScores) {
-    const mark = c.met ? "  \u2713" : "  \u2717";
+    const mark = c.met ? "  ✓" : "  ✗";
     console.log(`  ${mark} ${c.criterion}`);
     console.log(`        ${c.comment}`);
   }
@@ -279,19 +368,34 @@ function printResult(testCase: TestCase, response: ApiResponse, result: ScoreRes
 // ---------------------------------------------------------------------------
 
 async function main() {
-  console.log("\u2550".repeat(60));
+  console.log("═".repeat(60));
   console.log("  Itinerary Edit — Location Constraint Eval");
   console.log(`  Targeting: ${BASE_URL}`);
-  console.log("\u2550".repeat(60));
+  console.log("═".repeat(60));
+
+  // Bootstrap site auth so middleware.ts doesn't 307-redirect every POST.
+  let authCookie: string | null = null;
+  try {
+    authCookie = await bootstrapAuth();
+    if (authCookie) {
+      console.log("  Auth: bootstrapped via SITE_PASSWORD");
+    } else {
+      console.log("  Auth: SITE_PASSWORD not set — proceeding without site_auth cookie");
+    }
+  } catch (err) {
+    console.error(`\nAuth bootstrap failed: ${err instanceof Error ? err.message : err}`);
+    console.error("Aborting — fix SITE_PASSWORD or unset it before retrying.");
+    process.exit(1);
+  }
 
   const results: { label: string; passed: boolean; score: number }[] = [];
 
   for (const testCase of TEST_CASES) {
-    process.stdout.write(`\nRunning: ${testCase.label}\u2026 `);
+    process.stdout.write(`\nRunning: ${testCase.label}… `);
 
     try {
-      const response = await callEditApi(testCase.request);
-      process.stdout.write("scoring\u2026 ");
+      const response = await callEditApi(testCase.request, authCookie);
+      process.stdout.write("scoring… ");
       const result = await scoreSuggestion(testCase, response);
       process.stdout.write("done.\n");
 
@@ -299,7 +403,7 @@ async function main() {
       results.push({ label: testCase.label, passed: result.passed, score: result.score });
     } catch (err) {
       process.stdout.write("error.\n");
-      console.error(`  \u26a0 ${testCase.label}: ${err instanceof Error ? err.message : err}`);
+      console.error(`  ⚠ ${testCase.label}: ${err instanceof Error ? err.message : err}`);
       results.push({ label: testCase.label, passed: false, score: 0 });
     }
   }
@@ -313,7 +417,7 @@ async function main() {
   console.log(`  RESULTS  ${passed}/${results.length} passed  (${passRate}% pass rate)  avg score: ${avgScore}/10`);
   console.log("═".repeat(60));
   for (const r of results) {
-    const badge = r.passed ? "\u2705" : "\u274c";
+    const badge = r.passed ? "✅" : "❌";
     console.log(`  ${badge} ${r.label.padEnd(55)} ${r.score}/10`);
   }
   console.log();

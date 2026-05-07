@@ -105,6 +105,16 @@ Other multi-leg rules:
 - Do NOT generate activities for transition days. The client will render a travel-only card for the day a user moves between legs.
 - Life-impacting constraints apply to EVERY relevant card on EVERY leg. Multi-leg trips have more cards, so attention drift is the failure mode — re-check before emitting each card. The reminder block at the end of the user message is non-negotiable.`;
 
+// ── PHI-51: Shared inspiration injection ─────────────────────────────────
+//
+// Single source of truth for the multi-item generator soft-bias string.
+// Imported by /api/itinerary/generate as well — DO NOT duplicate this
+// string. Hard constraint per PRD: hallucination guard verbatim, lean
+// "where natural", target one or two strong themed moments per leg.
+export function buildInspirationMultiItemInjection(inspiration: string): string {
+  return `Inspiration: the traveller wants this trip to lean into '${inspiration}' where natural. Don't force it. Only suggest theme-relevant items if a real, high-quality option exists in the destination. One or two strong themed moments per leg is the goal — not every activity.`;
+}
+
 // ── User-message builder ──────────────────────────────────────────────────
 
 export type ActivityGenInputs = {
@@ -125,6 +135,12 @@ export type ActivityGenInputs = {
   childrenAges?: string[];
   constraintTags?: string[];
   constraintText?: string;
+  /**
+   * PHI-51: optional creative inspiration captured by the free-form parser.
+   * When present, appended as a soft-bias instruction to the user message
+   * via buildInspirationMultiItemInjection.
+   */
+  inspiration?: string;
   legs?: TripLeg[];
 };
 
@@ -161,6 +177,7 @@ export function buildActivityGenUserMessage(args: ActivityGenInputs): string {
     childrenAges,
     constraintTags,
     constraintText,
+    inspiration,
     legs,
   } = args;
 
@@ -257,9 +274,15 @@ export function buildActivityGenUserMessage(args: ActivityGenInputs): string {
       ? `\n\nReminder (non-negotiable): the life-impacting constraints above apply to EVERY relevant card across EVERY leg. Re-check before emitting each card. Never silently drop a constraint just because the card list is long. If a card cannot satisfy a life-impacting constraint, drop the card — not the constraint.`
       : "";
 
+  // PHI-51: optional creative-inspiration soft bias.
+  const inspirationBlock =
+    typeof inspiration === "string" && inspiration.trim().length > 0
+      ? `\n\n${buildInspirationMultiItemInjection(inspiration.trim())}`
+      : "";
+
   return (
     `${headline}${profileBlock}${legsBlock}\n` +
     `Budget: ${BUDGET_LABEL[budgetTier ?? "comfortable"] ?? "comfortable"}. Style: ${styleList.join(", ")}.\n` +
-    `Every suggestion must genuinely suit this profile — not generic activities any visitor might do.${reminderBlock}`
+    `Every suggestion must genuinely suit this profile — not generic activities any visitor might do.${reminderBlock}${inspirationBlock}`
   );
 }

@@ -345,6 +345,10 @@ function logActivityEvent(payload: {
   chipType?: string;
   chipsSource?: string;
   firstChipLabel?: string;
+  // PHI-51: optional creative-inspiration; lands in activity_feedback.metadata
+  // because the route auto-buckets unknown fields into the jsonb column.
+  // The success-metric query joins thumbs_up rate against this field.
+  inspiration?: string | null;
 }) {
   fetch("/api/activity-feedback", {
     method: "POST",
@@ -565,6 +569,12 @@ function WelcomePageInner() {
   const [constraintTags, setConstraintTags] = useState<string[]>([]);
   const [constraintText, setConstraintText] = useState("");
 
+  // PHI-51: optional creative inspiration captured by the free-form parser.
+  // Sits below constraint chips on the chip-confirm screen as an editable
+  // chip ("Inspired by: Harry Potter"). Threaded into activity-gen and
+  // itinerary-gen calls when set.
+  const [inspiration, setInspiration] = useState("");
+
   // Account
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -657,13 +667,30 @@ function WelcomePageInner() {
     if (departureDate) setReturnDate(addDays(departureDate, 7));
   }, [departureDate]);
 
-  // PHI-48: seed the destination once from `?destination=` if the user
-  // arrived from the landing page CTA. Skip the wizard's full-screen
-  // step-0 landing and drop the user straight into Step 1 (dates) with
-  // the destination pre-filled. The ref guard prevents re-seeding when
-  // the user navigates back from Step 2.
+  // PHI-48 / PHI-58: seed once from query params sent by the landing page.
+  // `?parser_text=` (PHI-58) takes precedence — when the homepage detects
+  // free-form input it forwards the raw text here and we hand off straight
+  // to the parser flow. Otherwise `?destination=` (PHI-48) drops the user
+  // into Step 1 with the structured wizard pre-filled. The ref guard
+  // prevents re-seeding when the user navigates back from later steps.
   useEffect(() => {
     if (seededFromUrlRef.current) return;
+    const parserSeed = searchParams.get("parser_text")?.trim();
+    if (parserSeed) {
+      seededFromUrlRef.current = true;
+      setParserText(parserSeed);
+      // Strip the param from the URL so a refresh doesn't re-fire the
+      // parser. replaceState skips the Next.js router on purpose — the
+      // useSearchParams snapshot can stay stale, the ref guard already
+      // prevents re-entry.
+      if (typeof window !== "undefined") {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("parser_text");
+        window.history.replaceState(null, "", url.toString());
+      }
+      void submitFreeForm(parserSeed);
+      return;
+    }
     const seed = searchParams.get("destination")?.trim();
     if (!seed) return;
     seededFromUrlRef.current = true;
@@ -776,6 +803,8 @@ function WelcomePageInner() {
             // PHI-35: optional constraints. Empty fields are dropped server-side.
             constraintTags: constraintTags.length > 0 ? constraintTags : null,
             constraintText: constraintText.trim() || null,
+            // PHI-51: optional creative-inspiration soft bias.
+            inspiration: inspiration.trim() || null,
             ...(legsForApi && { legs: legsForApi }),
           }),
         });
@@ -857,6 +886,8 @@ function WelcomePageInner() {
             activityFeedback: feedbackArray,
             travelerCount: adultCount + childrenAges.length,
             childrenAges: childrenAges.length > 0 ? childrenAges : null,
+            // PHI-51: optional creative-inspiration soft bias.
+            inspiration: inspiration.trim() || null,
             ...(legsForApi && { legs: legsForApi }),
           }),
         });
@@ -1125,6 +1156,7 @@ function WelcomePageInner() {
       activityId: activity.id,
       activityName: activity.name,
       activityCategory: activity.category,
+      inspiration: inspiration.trim() || null,
     });
   }
 
@@ -1150,6 +1182,7 @@ function WelcomePageInner() {
       activityId: activity.id,
       activityName: activity.name,
       activityCategory: activity.category,
+      inspiration: inspiration.trim() || null,
     });
   }
 
@@ -1176,6 +1209,7 @@ function WelcomePageInner() {
       chipType: chip.type,
       chipsSource: chipsEntry?.source ?? "fallback",
       firstChipLabel: chipsEntry?.chips[0]?.label ?? "",
+      inspiration: inspiration.trim() || null,
     });
   }
 
@@ -1198,6 +1232,7 @@ function WelcomePageInner() {
       activityId: activity.id,
       activityName: activity.name,
       activityCategory: activity.category,
+      inspiration: inspiration.trim() || null,
     });
   }
 
@@ -1214,6 +1249,7 @@ function WelcomePageInner() {
       activityId,
       activityName: entry.activityName,
       activityCategory: entry.activityCategory,
+      inspiration: inspiration.trim() || null,
     });
   }
 
@@ -1363,8 +1399,11 @@ function WelcomePageInner() {
   // Default first impression. Free-form textarea → /api/parse-trip → chips
   // confirmation → pre-fill state and advance. Structured form remains
   // available via the "Or step by step →" link.
-  async function submitFreeForm() {
-    if (!parserText.trim()) return;
+  // PHI-58: accepts an optional text override so the homepage handoff can
+  // submit before parserText state has been committed in React.
+  async function submitFreeForm(textOverride?: string) {
+    const text = textOverride ?? parserText;
+    if (!text.trim()) return;
     setParserPhase("parsing");
     setParserError(null);
     // PHI-37 slice 4: clear stale per-leg night overrides when the user
@@ -1373,12 +1412,12 @@ function WelcomePageInner() {
     // PHI-46: drop any open inline editor before showing fresh chips.
     setEditingChipKey(null);
     setDestEditDraft("");
-    logOnboardingEvent("freeform_initiated", { length: parserText.length });
+    logOnboardingEvent("freeform_initiated", { length: text.length });
     try {
       const res = await fetch("/api/parse-trip", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: parserText }),
+        body: JSON.stringify({ text }),
       });
       if (!res.ok) {
         const err = await res.text();
@@ -1506,11 +1545,15 @@ function WelcomePageInner() {
     if (parsedIntent.budgetTier) setBudgetTier(parsedIntent.budgetTier);
     if (parsedIntent.constraintTags?.length) setConstraintTags(parsedIntent.constraintTags);
     if (parsedIntent.constraintText) setConstraintText(parsedIntent.constraintText);
+    // PHI-51: thread inspiration into the wizard state if the user kept the chip.
+    if (parsedIntent.inspiration) setInspiration(parsedIntent.inspiration);
 
     logOnboardingEvent("freeform_completed", {
       destinationCount: parsedIntent.destinations.length,
       hadConstraints:
         parsedIntent.constraintTags.length + (parsedIntent.constraintText ? 1 : 0),
+      hadInspiration: !!parsedIntent.inspiration,
+      inspiration: parsedIntent.inspiration ?? null,
     });
 
     // Skip to step 1 (dates) — destination is now pre-filled. The user
@@ -1911,6 +1954,65 @@ function WelcomePageInner() {
                       .join("; ")}
                   </span>
                 </span>
+              )}
+
+              {/* PHI-51: inspiration chip — editable plain-text + remove.
+                  Sits below constraint chips in visual hierarchy because
+                  inspiration is mood-flavouring, constraints are
+                  life-impacting. Neutral teal (not amber) by design. */}
+              {intent.inspiration && (
+                editingChipKey === "inspiration" ? (
+                  <div
+                    className="w-full flex flex-col gap-2 rounded-xl border border-[#1a6b7f] bg-white p-3"
+                    data-testid="inspiration-editor"
+                  >
+                    <input
+                      type="text"
+                      autoFocus
+                      defaultValue={intent.inspiration}
+                      placeholder="e.g. Harry Potter, Amélie, Roman history"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          const v = (e.target as HTMLInputElement).value.trim();
+                          updateIntent({ inspiration: v || undefined });
+                          setEditingChipKey(null);
+                        } else if (e.key === "Escape") {
+                          setEditingChipKey(null);
+                        }
+                      }}
+                      onBlur={(e) => {
+                        const v = e.target.value.trim();
+                        updateIntent({ inspiration: v || undefined });
+                        setEditingChipKey(null);
+                      }}
+                      className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-3 py-2 text-sm text-[#0e2a47] placeholder-[#9ca3af] transition-colors"
+                    />
+                  </div>
+                ) : (
+                  <span
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-[#d4cfc5] bg-white px-3 py-1.5 text-sm text-[#0e2a47]"
+                    data-testid="inspiration-chip"
+                  >
+                    <span>💡</span>
+                    <span className="font-medium">Inspired by: {intent.inspiration}</span>
+                    <button
+                      type="button"
+                      onClick={() => setEditingChipKey("inspiration")}
+                      className="text-xs text-[#1a6b7f] hover:underline"
+                      aria-label="Edit inspiration"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateIntent({ inspiration: undefined })}
+                      className="text-[#6a7f8f] hover:text-[#4a6580] text-xs"
+                      aria-label="Remove inspiration"
+                    >
+                      ×
+                    </button>
+                  </span>
+                )
               )}
             </div>
             {/* PHI-37 slice 4: per-leg night allocator. Visible only when
@@ -2638,6 +2740,33 @@ function WelcomePageInner() {
           {/* Step 4: AI Preview with activity cards */}
           {step === 4 && (
             <div className="flex flex-col gap-4">
+              {/* PHI-51: inspiration trust signal. Shown only when an
+                  inspiration is set AND fewer than half of the rendered
+                  cards visibly reference the theme — that's the case
+                  where the soft bias didn't land hard enough for the
+                  user to notice on their own. Theme-reference detection
+                  is a substring check on title + description, not a
+                  parser pass (deliberate simplicity per PRD). */}
+              {(() => {
+                const trimmed = inspiration.trim();
+                if (!trimmed) return null;
+                if (parsedActivities.length === 0) return null;
+                const needle = trimmed.toLowerCase();
+                const themed = parsedActivities.filter((a) => {
+                  const haystack = `${a.name} ${a.description ?? ""}`.toLowerCase();
+                  return haystack.includes(needle);
+                }).length;
+                const fewerThanHalf = themed * 2 < parsedActivities.length;
+                if (!fewerThanHalf) return null;
+                return (
+                  <p
+                    className="text-sm text-[#4a6580] italic px-2"
+                    data-testid="inspiration-empty-state"
+                  >
+                    We heard &lsquo;{trimmed}&rsquo; — leaning into it where we can.
+                  </p>
+                );
+              })()}
               {/* PHI-44: stream restarted after the user rated cards.
                   Explains why their ratings just disappeared. Auto-dismisses. */}
               {streamRefreshNote && (

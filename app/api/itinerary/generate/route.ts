@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { logAiInteraction } from "@/lib/ai-logger";
 import { logApiUsage, checkApiLimit } from "@/lib/log-api-usage";
 import { buildCompositionSegment } from "@/lib/composition";
+import { buildInspirationMultiItemInjection } from "@/lib/activity-gen-prompt";
 import type { TripLeg } from "@/lib/trip-schema";
 
 const client = new Anthropic();
@@ -114,6 +115,8 @@ export async function POST(req: NextRequest) {
     activityFeedback,
     travelerCount,
     childrenAges,
+    // PHI-51: optional creative-inspiration soft bias from the free-form parser.
+    inspiration,
     // PHI-37: multi-leg support. When 2+ legs are provided, the prompt
     // generates a day-by-day plan tagged with leg_index per day, with a
     // single transition day between legs (is_transition: true). When
@@ -131,6 +134,7 @@ export async function POST(req: NextRequest) {
     activityFeedback?: ActivityFeedbackEntry[];
     travelerCount?: number;
     childrenAges?: string[];
+    inspiration?: string;
     legs?: TripLeg[];
   };
 
@@ -157,6 +161,14 @@ export async function POST(req: NextRequest) {
   console.log("[itinerary-generate] Feedback segment:", feedbackSegment || "(none)");
   const composition = buildCompositionSegment(travelerCount, childrenAges);
   const compositionStr = composition ? `\nTraveller composition: ${composition}` : "";
+
+  // PHI-51: shared multi-item soft-bias string. Same text used by the
+  // activity-gen onboarding stream (lib/activity-gen-prompt.ts). Empty
+  // string when no inspiration was extracted.
+  const inspirationStr =
+    typeof inspiration === "string" && inspiration.trim().length > 0
+      ? `\n\n${buildInspirationMultiItemInjection(inspiration.trim())}`
+      : "";
 
   // PHI-37: multi-leg block. When 2+ legs, the prompt generates a plan
   // tagged with leg_index per day plus an explicit transition day between
@@ -215,7 +227,7 @@ Travel dates: ${departureDate} to ${returnDate}.
 ${companyStr}
 ${hotelStr}
 ${styleStr}
-${budgetStr}${compositionStr}${feedbackSegment}${multiLegBlock}
+${budgetStr}${compositionStr}${inspirationStr}${feedbackSegment}${multiLegBlock}
 
 Return ONLY a valid JSON array — no markdown, no explanation, no code fences. The array must have exactly ${days} elements, one per day.
 
@@ -313,6 +325,7 @@ Rules:
         budgetTier: budgetTier ?? null,
         travelerCount: travelerCount ?? null,
         childrenAges: childrenAges ?? null,
+        inspiration: inspiration ?? null,
         legs: isMultiLeg ? legs : null,
       },
       output: jsonStr,

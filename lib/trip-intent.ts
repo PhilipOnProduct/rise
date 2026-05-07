@@ -48,6 +48,15 @@ export type TripIntent = {
   constraintText?: string;
   /** Differentiator vs. ChatGPT — bias downstream tone. */
   occasion?: "anniversary" | "honeymoon" | "birthday" | "bucket_list" | "other";
+  /**
+   * PHI-51: optional creative inspiration (book, film, franchise, hobby,
+   * era, person). Surfaced as an editable chip on the chip-confirm screen
+   * and injected as a soft bias into activity-gen / itinerary-gen prompts.
+   * Extracted only when the user uses an anchor phrase ("X-inspired",
+   * "inspired by X", "in the footsteps of X", "themed around X", etc.).
+   * Never inferred from destination alone.
+   */
+  inspiration?: string;
   /** Questions for the user, one per missing required field. Never guesses. */
   clarifications: string[];
 };
@@ -118,6 +127,11 @@ export const TRIP_INTENT_TOOL = {
         type: "string",
         enum: ["anniversary", "honeymoon", "birthday", "bucket_list", "other"],
       },
+      inspiration: {
+        type: "string",
+        description:
+          "Optional creative inspiration (book, film, franchise, hobby, era, person). Extract ONLY when the user uses an anchor phrase such as 'X-inspired', 'inspired by X', 'in the footsteps of X', 'themed around X', 'like in [film/book/show]', 'we want to do some X stuff', 'a [genre] trip', or 'in honour of X'. NEVER infer from destination alone (Paris ≠ Amélie). NEVER extract from negation patterns ('not too touristy' is a constraint, not an inspiration). Personal-history inspirations ('in honour of my grandmother who was born in Krakow') are valid.",
+      },
       clarifications: { type: "array", items: { type: "string" } },
     },
     required: ["destinations", "dates", "party", "styleTags", "constraintTags", "clarifications"],
@@ -139,6 +153,7 @@ export function coerceTripIntent(raw: unknown): TripIntent {
     constraintTags: Array.isArray(r.constraintTags) ? (r.constraintTags as string[]) : [],
     constraintText: typeof r.constraintText === "string" ? r.constraintText : undefined,
     occasion: r.occasion as TripIntent["occasion"],
+    inspiration: typeof r.inspiration === "string" ? r.inspiration : undefined,
     clarifications: Array.isArray(r.clarifications) ? (r.clarifications as string[]) : [],
   };
 }

@@ -15,6 +15,15 @@ type ContextItem = {
   time_block: TimeBlock;
 };
 
+// PHI-51: single-slot edit inspiration injection. Differs from the shared
+// multi-item generator string in lib/activity-gen-prompt.ts because here
+// the model is replacing ONE slot — original-category-first is the
+// load-bearing rule (don't pivot a dinner to a museum just because the
+// museum is more themed). Hallucination guard verbatim.
+function buildInspirationEditInjection(inspiration: string): string {
+  return `Inspiration: the traveller has stated '${inspiration}'. The replacement must match the original slot's category first and the inspiration second — don't pivot a dinner suggestion into a museum just because the museum is more themed. Only suggest theme-relevant items if a real, high-quality option exists. Apply the standard hallucination guard: never invent themed locations.`;
+}
+
 export async function POST(req: NextRequest) {
   const {
     mode,            // "swap" | "add"
@@ -30,6 +39,8 @@ export async function POST(req: NextRequest) {
     budgetTier,
     travelerCount,
     childrenAges,
+    // PHI-51: optional creative-inspiration soft bias from the free-form parser.
+    inspiration,
   } = await req.json();
 
   // Hard limit check
@@ -99,6 +110,12 @@ export async function POST(req: NextRequest) {
     `Never suggest a place, venue, or attraction that is in a different city or country, even if it appears in the day context. ` +
     `If the item being replaced is from another city, ignore it — suggest something local to ${destination}.`;
 
+  // PHI-51: single-slot soft-bias clause. Empty string when no inspiration set.
+  const inspirationClause =
+    typeof inspiration === "string" && inspiration.trim().length > 0
+      ? `\n\n${buildInspirationEditInjection(inspiration.trim())}`
+      : "";
+
   let prompt: string;
   if (mode === "swap") {
     prompt =
@@ -109,6 +126,7 @@ export async function POST(req: NextRequest) {
       `It should be a confident, specific recommendation — not a generic tourist activity unless it's genuinely the best fit. ` +
       `It should feel like a natural alternative or upgrade to what it's replacing.` +
       locationConstraint +
+      inspirationClause +
       avoidClause;
   } else {
     prompt =
@@ -117,6 +135,7 @@ export async function POST(req: NextRequest) {
       `Suggest one specific ${block} activity in ${destination} that fits this traveller and the day's flow. ` +
       `It should complement what's already planned and feel like it belongs in the itinerary.` +
       locationConstraint +
+      inspirationClause +
       avoidClause;
   }
 
