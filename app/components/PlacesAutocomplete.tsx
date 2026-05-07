@@ -207,9 +207,9 @@ export default function PlacesAutocomplete({
                   : `${i === activeIdx ? "bg-[#2a2a2a]" : "hover:bg-[#222]"} ${i > 0 ? "border-t border-[#222]" : ""}`
               }`}
             >
-              <div className={`text-sm font-semibold ${theme === "light" ? "text-[#0e2a47]" : "text-white"}`}>{s.mainText}</div>
+              <div className={`text-sm font-semibold ${theme === "light" ? "text-[var(--text-primary)]" : "text-white"}`}>{s.mainText}</div>
               {s.secondaryText && (
-                <div className={`text-xs mt-0.5 ${theme === "light" ? "text-[#4a6580]" : "text-gray-500"}`}>{s.secondaryText}</div>
+                <div className={`text-xs mt-0.5 ${theme === "light" ? "text-[var(--text-secondary)]" : "text-gray-500"}`}>{s.secondaryText}</div>
               )}
             </button>
           ))}

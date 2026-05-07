@@ -69,7 +69,7 @@ export default function CityGuidePage() {
       <div className="max-w-2xl mx-auto">
 
         <div className="flex items-center justify-between mb-2">
-          <a href="/guides" className="text-[#6a7f8f] text-sm hover:text-[#4a6580] transition-colors">← Guides</a>
+          <a href="/guides" className="text-[var(--text-muted)] text-sm hover:text-[var(--text-secondary)] transition-colors">← Guides</a>
           <a href="/guides/add"
             className="rounded-xl bg-[#1a6b7f] text-white font-bold px-4 py-2 text-sm hover:bg-[#155a6b] transition-colors">
             + Add tip
@@ -78,14 +78,14 @@ export default function CityGuidePage() {
 
         <div className="mt-8 mb-12">
           <h1 className="text-4xl font-extrabold tracking-tight mb-2">Local tips: {displayCity}</h1>
-          <p className="text-[#4a6580]">Insider knowledge from people who live here.</p>
+          <p className="text-[var(--text-secondary)]">Insider knowledge from people who live here.</p>
         </div>
 
-        {loading && <p className="text-[#6a7f8f] text-sm">Loading tips…</p>}
+        {loading && <p className="text-[var(--text-muted)] text-sm">Loading tips…</p>}
 
         {!loading && tips.length === 0 && (
           <div className="bg-white border border-[#e8e4de] rounded-2xl p-12 text-center">
-            <p className="text-[#4a6580] mb-6">No tips yet for {displayCity}.</p>
+            <p className="text-[var(--text-secondary)] mb-6">No tips yet for {displayCity}.</p>
             <a href="/guides/add"
               className="inline-block rounded-2xl bg-[#1a6b7f] text-white font-bold px-8 py-4 hover:bg-[#155a6b] transition-colors">
               Be the first →
@@ -114,19 +114,19 @@ export default function CityGuidePage() {
                         <div key={tip.id}
                           className={`rounded-2xl border ${ACCENT[color]} p-5`}>
                           <div className="flex items-start justify-between gap-2 mb-2">
-                            <h3 className="font-bold text-[#0e2a47]">{tip.title}</h3>
+                            <h3 className="font-bold text-[var(--text-primary)]">{tip.title}</h3>
                             {guide && level && (
-                              <span className="shrink-0 text-xs text-[#6a7f8f] font-medium">
+                              <span className="shrink-0 text-xs text-[var(--text-muted)] font-medium">
                                 {badge} {guide.name} · {level}
                               </span>
                             )}
                             {!guide && (
-                              <span className="shrink-0 text-xs text-[#6a7f8f]">{tip.name}</span>
+                              <span className="shrink-0 text-xs text-[var(--text-muted)]">{tip.name}</span>
                             )}
                           </div>
-                          <p className="text-sm text-[#0e2a47] leading-relaxed mb-4">{tip.description}</p>
+                          <p className="text-sm text-[var(--text-primary)] leading-relaxed mb-4">{tip.description}</p>
                           <div className="flex items-center justify-between">
-                            <span className="text-xs text-[#6a7f8f]">
+                            <span className="text-xs text-[var(--text-muted)]">
                               👁 {tip.views} view{tip.views !== 1 ? "s" : ""}
                             </span>
                             <button
@@ -135,7 +135,7 @@ export default function CityGuidePage() {
                               className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition-colors ${
                                 hasRated
                                   ? "bg-yellow-500/20 text-yellow-400 cursor-default"
-                                  : "border border-[#d4cfc5] text-[#4a6580] hover:border-yellow-500/50 hover:text-yellow-400 disabled:opacity-40"
+                                  : "border border-[#d4cfc5] text-[var(--text-secondary)] hover:border-yellow-500/50 hover:text-yellow-400 disabled:opacity-40"
                               }`}>
                               ⭐ {hasRated ? "Rated!" : isRating ? "Rating…" : "Rate"}
                             </button>
@@ -151,7 +151,7 @@ export default function CityGuidePage() {
         )}
 
         <div className="mt-14 text-center">
-          <a href="/guides/leaderboard" className="text-sm text-[#6a7f8f] hover:text-[#0e2a47] transition-colors">
+          <a href="/guides/leaderboard" className="text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
             🏆 View top guides leaderboard →
           </a>
         </div>

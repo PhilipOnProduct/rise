@@ -92,28 +92,28 @@ const AGENTS: Record<
     name: "Alex",
     role: "Researcher",
     initial: "A",
-    badge: "bg-blue-600 text-[#0e2a47]",
+    badge: "bg-blue-600 text-[var(--text-primary)]",
     system: `You are Alex, a User Researcher for Rise. ${RISE_CONTEXT}\nYour role is to identify the core user assumption embedded in this objective — what must be true about how users think or behave for this feature to work. Flag the single biggest assumption risk clearly and concisely. One paragraph. No research methodology, no validation recommendations.`,
   },
   maya: {
     name: "Maya",
     role: "Designer",
     initial: "M",
-    badge: "bg-purple-600 text-[#0e2a47]",
+    badge: "bg-purple-600 text-[var(--text-primary)]",
     system: `You are Maya, a Product Designer for Rise. ${RISE_CONTEXT} Rise uses a light warm design: #f8f6f1 background, #1a6b7f teal accent, DM Sans font.\nYour role is to identify usability risk — where will users get confused, misunderstand the interaction, or fail to complete the intended action? Focus on the moment of highest friction in the proposed feature. What is the one thing most likely to go wrong in the user's hands?\nNo interaction design specs. No component suggestions. No visual design details. One to two paragraphs.`,
   },
   luca: {
     name: "Luca",
     role: "Tech Lead",
     initial: "L",
-    badge: "bg-orange-500 text-[#0e2a47]",
+    badge: "bg-orange-500 text-[var(--text-primary)]",
     system: `You are Luca, the Tech Lead for Rise. ${RISE_CONTEXT}\nYour role in every product discussion is exactly two things:\n1. Feasibility risk — what is the single biggest technical risk that could prevent this from working or make it significantly harder than expected? Be specific about why it's a risk for Rise specifically, not in general.\n2. What's newly possible — what does current technology (AI, APIs, browser capabilities, Supabase features) make possible that's directly relevant to this objective and that the team might not be aware of?\nNo implementation details. No architecture suggestions. No function names. No data structures. Two paragraphs maximum.\nImportant: your observations are input for Sarah to consider — not decisions for the team to adopt. Explicitly frame your 'what's newly possible' point as an option worth exploring, not a recommendation to implement.`,
   },
   elena: {
     name: "Elena",
     role: "Travel Expert",
     initial: "ET",
-    badge: "text-[#0e2a47]",
+    badge: "text-[var(--text-primary)]",
     bgColor: "#185fa5",
     system: `You are Elena, a Senior Travel Planner with 15 years experience creating personalised trips. ${RISE_CONTEXT}\nYour role is to flag mismatches between the product assumption and how real travellers actually think and behave. What in this objective contradicts real travel psychology, real traveller behaviour, or how trips actually get planned and experienced? Be specific and direct. One to two paragraphs maximum. No design suggestions, no technical input, no product strategy.`,
   },
@@ -182,17 +182,17 @@ function MarkdownText({ text, className }: { text: string; className?: string })
     if (line.match(/^---+\s*$/)) {
       elements.push(<hr key={k} className="border-t border-[#d4cfc5] my-3" />);
     } else if (line.startsWith("### ")) {
-      elements.push(<p key={k} className="font-semibold text-[#0e2a47] text-sm mt-3 mb-1">{inlineBold(line.slice(4), k)}</p>);
+      elements.push(<p key={k} className="font-semibold text-[var(--text-primary)] text-sm mt-3 mb-1">{inlineBold(line.slice(4), k)}</p>);
     } else if (line.startsWith("## ")) {
-      elements.push(<p key={k} className="font-bold text-[#0e2a47] text-sm mt-4 mb-1">{inlineBold(line.slice(3), k)}</p>);
+      elements.push(<p key={k} className="font-bold text-[var(--text-primary)] text-sm mt-4 mb-1">{inlineBold(line.slice(3), k)}</p>);
     } else if (line.startsWith("# ")) {
-      elements.push(<p key={k} className="font-bold text-[#0e2a47] text-base mt-4 mb-1">{inlineBold(line.slice(2), k)}</p>);
+      elements.push(<p key={k} className="font-bold text-[var(--text-primary)] text-base mt-4 mb-1">{inlineBold(line.slice(2), k)}</p>);
     } else if (line.startsWith("- ") || line.startsWith("* ")) {
-      elements.push(<p key={k} className="ml-4 before:content-['•'] before:mr-2 before:text-[#6a7f8f]">{inlineBold(line.slice(2), k)}</p>);
+      elements.push(<p key={k} className="ml-4 before:content-['•'] before:mr-2 before:text-[var(--text-muted)]">{inlineBold(line.slice(2), k)}</p>);
     } else if (line.match(/^\d+\.\s/)) {
       const match = line.match(/^(\d+\.)\s(.*)$/);
       if (match) {
-        elements.push(<p key={k} className="ml-4"><span className="text-[#6a7f8f] mr-2">{match[1]}</span>{inlineBold(match[2], k)}</p>);
+        elements.push(<p key={k} className="ml-4"><span className="text-[var(--text-muted)] mr-2">{match[1]}</span>{inlineBold(match[2], k)}</p>);
       } else {
         elements.push(<p key={k}>{inlineBold(line, k)}</p>);
       }
@@ -203,7 +203,7 @@ function MarkdownText({ text, className }: { text: string; className?: string })
     }
   }
 
-  return <div className={className ?? "text-sm text-[#0e2a47] leading-relaxed"}>{elements}</div>;
+  return <div className={className ?? "text-sm text-[var(--text-primary)] leading-relaxed"}>{elements}</div>;
 }
 
 // ── Supabase error serializer ──────────────────────────────────────────────────
@@ -619,7 +619,7 @@ function CardTypeSelector({ value, onChange }: { value: CardType; onChange: (v: 
             className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors ${
               isActive
                 ? `${style.className} border-current`
-                : "bg-white text-[#6a7f8f] border-[#d4cfc5] hover:border-[#b8b3a9]"
+                : "bg-white text-[var(--text-muted)] border-[#d4cfc5] hover:border-[#b8b3a9]"
             }`}
           >
             {style.label}
@@ -654,8 +654,8 @@ function AgentBubble({
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-2">
-          <span className="text-sm font-bold text-[#0e2a47]">{agent.name}</span>
-          <span className="text-xs text-[#6a7f8f] bg-[#f0ede8] px-2 py-0.5 rounded-full">
+          <span className="text-sm font-bold text-[var(--text-primary)]">{agent.name}</span>
+          <span className="text-xs text-[var(--text-muted)] bg-[#f0ede8] px-2 py-0.5 rounded-full">
             {roleOverride ?? agent.role}
           </span>
           {thinking && <ThinkingDots />}
@@ -664,7 +664,7 @@ function AgentBubble({
           <MarkdownText text={content} />
         )}
         {!content && thinking && (
-          <div className="text-sm text-[#6a7f8f] italic">Thinking…</div>
+          <div className="text-sm text-[var(--text-muted)] italic">Thinking…</div>
         )}
       </div>
     </div>
@@ -675,7 +675,7 @@ function SectionDivider({ label }: { label: string }) {
   return (
     <div className="flex items-center gap-3">
       <div className="flex-1 h-px bg-[#d4cfc5]" />
-      <span className="text-xs font-bold text-[#4a6580] uppercase tracking-widest">{label}</span>
+      <span className="text-xs font-bold text-[var(--text-secondary)] uppercase tracking-widest">{label}</span>
       <div className="flex-1 h-px bg-[#d4cfc5]" />
     </div>
   );
@@ -684,7 +684,7 @@ function SectionDivider({ label }: { label: string }) {
 function PrdLine({ line, i }: { line: string; i: number }) {
   if (line.startsWith("## ")) {
     return (
-      <h3 key={i} className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mt-6 mb-2 first:mt-0">
+      <h3 key={i} className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest mt-6 mb-2 first:mt-0">
         {line.slice(3)}
       </h3>
     );
@@ -692,10 +692,10 @@ function PrdLine({ line, i }: { line: string; i: number }) {
   if (line.trim() === "") return <div key={i} className="h-1" />;
   const parts = line.split(/(\*\*[^*]+\*\*)/g);
   return (
-    <p key={i} className="text-sm text-[#0e2a47] leading-relaxed">
+    <p key={i} className="text-sm text-[var(--text-primary)] leading-relaxed">
       {parts.map((part, j) =>
         part.startsWith("**") && part.endsWith("**")
-          ? <strong key={j} className="text-[#0e2a47] font-semibold">{part.slice(2, -2)}</strong>
+          ? <strong key={j} className="text-[var(--text-primary)] font-semibold">{part.slice(2, -2)}</strong>
           : part
       )}
     </p>
@@ -766,7 +766,7 @@ function PastConversations({
     return (
       <button
         onClick={() => setOpen(true)}
-        className="self-start text-xs text-[#6a7f8f] hover:text-[#0e2a47] transition-colors"
+        className="self-start text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
       >
         Past discussions →
       </button>
@@ -776,14 +776,14 @@ function PastConversations({
   return (
     <div className="bg-white border border-[#e8e4de] rounded-2xl p-4">
       <div className="flex items-center justify-between mb-3">
-        <span className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest">Past discussions</span>
-        <button onClick={() => setOpen(false)} className="text-xs text-[#6a7f8f] hover:text-[#0e2a47] transition-colors">
+        <span className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest">Past discussions</span>
+        <button onClick={() => setOpen(false)} className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
           Close
         </button>
       </div>
-      {loading && <p className="text-xs text-[#6a7f8f] py-2">Loading…</p>}
+      {loading && <p className="text-xs text-[var(--text-muted)] py-2">Loading…</p>}
       {!loading && rows.length === 0 && (
-        <p className="text-xs text-[#6a7f8f] py-2">No past conversations yet.</p>
+        <p className="text-xs text-[var(--text-muted)] py-2">No past conversations yet.</p>
       )}
       {!loading && rows.length > 0 && (
         <div className="flex flex-col gap-1">
@@ -805,17 +805,17 @@ function PastConversations({
                     onClick={() => { onLoad(row); setOpen(false); }}
                     className="flex-1 text-left px-3 py-2.5 min-w-0"
                   >
-                    <p className="text-sm text-[#0e2a47] group-hover/row:text-[#0e2a47] break-words">{row.title}</p>
-                    <p className="text-xs text-[#6a7f8f] mt-0.5">
+                    <p className="text-sm text-[var(--text-primary)] group-hover/row:text-[var(--text-primary)] break-words">{row.title}</p>
+                    <p className="text-xs text-[var(--text-muted)] mt-0.5">
                       {new Date(row.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
                       {hasPrd && <span className="ml-2 text-[#1a6b7f]">· PRD</span>}
-                      {isActive && <span className="ml-2 text-[#6a7f8f]">· Active</span>}
+                      {isActive && <span className="ml-2 text-[var(--text-muted)]">· Active</span>}
                     </p>
                   </button>
                   {!isActive && (
                     <button
                       onClick={() => setConfirmDeleteId(isConfirmingDelete ? null : row.id)}
-                      className="shrink-0 mt-2 mr-2 p-1.5 text-[#6a7f8f] hover:text-red-400 transition-colors opacity-0 group-hover/row:opacity-100"
+                      className="shrink-0 mt-2 mr-2 p-1.5 text-[var(--text-muted)] hover:text-red-400 transition-colors opacity-0 group-hover/row:opacity-100"
                       title="Delete"
                     >
                       ×
@@ -826,7 +826,7 @@ function PastConversations({
                 {/* Inline delete confirmation */}
                 {isConfirmingDelete && (
                   <div className="flex items-center gap-2 px-3 pb-2">
-                    <span className="text-xs text-[#6a7f8f]">Delete this conversation?</span>
+                    <span className="text-xs text-[var(--text-muted)]">Delete this conversation?</span>
                     <button
                       onClick={() => handleDelete(row.id)}
                       disabled={isDeleting}
@@ -836,7 +836,7 @@ function PastConversations({
                     </button>
                     <button
                       onClick={() => setConfirmDeleteId(null)}
-                      className="text-xs text-[#6a7f8f] hover:text-[#4a6580]"
+                      className="text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
                     >
                       No
                     </button>
@@ -851,8 +851,8 @@ function PastConversations({
                       <div className="flex flex-col gap-2 mb-2">
                         {existingFeedback.map((fb, i) => (
                           <div key={i} className="border-l-2 border-[#1a6b7f] pl-3 py-0.5">
-                            <p className="text-xs font-semibold text-[#6a7f8f] uppercase tracking-widest mb-1">Your feedback</p>
-                            <p className="text-xs text-[#4a6580] leading-relaxed whitespace-pre-wrap">{fb}</p>
+                            <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-widest mb-1">Your feedback</p>
+                            <p className="text-xs text-[var(--text-secondary)] leading-relaxed whitespace-pre-wrap">{fb}</p>
                           </div>
                         ))}
                       </div>
@@ -867,7 +867,7 @@ function PastConversations({
                           value={draft}
                           onChange={(e) => setDraftMap((prev) => ({ ...prev, [row.id]: e.target.value }))}
                           placeholder="What would you improve or change about this PRD?"
-                          className="w-full bg-[#f8f6f1] border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-[#0e2a47] placeholder-[#9ca3af] transition-colors text-xs resize-none"
+                          className="w-full bg-[#f8f6f1] border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-[var(--text-primary)] placeholder-[#9ca3af] transition-colors text-xs resize-none"
                         />
                         <div className="flex items-center gap-2">
                           <button
@@ -879,7 +879,7 @@ function PastConversations({
                           </button>
                           <button
                             onClick={() => { setOpenFeedbackId(null); setDraftMap((prev) => ({ ...prev, [row.id]: "" })); }}
-                            className="text-xs text-[#6a7f8f] hover:text-[#0e2a47] transition-colors"
+                            className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
                           >
                             Cancel
                           </button>
@@ -888,7 +888,7 @@ function PastConversations({
                     ) : (
                       <button
                         onClick={() => setOpenFeedbackId(row.id)}
-                        className="text-xs text-[#6a7f8f] hover:text-[#1a6b7f] transition-colors"
+                        className="text-xs text-[var(--text-muted)] hover:text-[#1a6b7f] transition-colors"
                       >
                         + Add feedback
                       </button>
@@ -984,34 +984,34 @@ function CardDetailPanel({
                   {STATUS_LABELS[obj.status]}
                 </span>
               </div>
-              <h2 className="text-lg font-bold text-[#0e2a47] leading-snug">{cleanTitle}</h2>
-              <p className="text-xs text-[#6a7f8f] mt-1">
+              <h2 className="text-lg font-bold text-[var(--text-primary)] leading-snug">{cleanTitle}</h2>
+              <p className="text-xs text-[var(--text-muted)] mt-1">
                 {new Date(obj.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
               </p>
             </div>
-            <button onClick={onClose} className="text-[#6a7f8f] hover:text-[#0e2a47] text-lg shrink-0 p-1">×</button>
+            <button onClick={onClose} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] text-lg shrink-0 p-1">×</button>
           </div>
 
           {/* Description */}
           {obj.description && (
             <div>
-              <p className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-2">Description</p>
-              <p className="text-sm text-[#0e2a47] leading-relaxed">{obj.description}</p>
+              <p className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest mb-2">Description</p>
+              <p className="text-sm text-[var(--text-primary)] leading-relaxed">{obj.description}</p>
             </div>
           )}
 
           {/* PM summary */}
           {obj.pm_summary && (
             <div>
-              <p className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-2">PM conversation summary</p>
-              <p className="text-sm text-[#4a6580] leading-relaxed">{obj.pm_summary}</p>
+              <p className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest mb-2">PM conversation summary</p>
+              <p className="text-sm text-[var(--text-secondary)] leading-relaxed">{obj.pm_summary}</p>
             </div>
           )}
 
           {/* Discussions */}
           {obj.discussions.length > 0 && (
             <div>
-              <p className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-2">
+              <p className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest mb-2">
                 Team discussions ({obj.discussions.length})
               </p>
               <div className="flex flex-col gap-2">
@@ -1022,53 +1022,53 @@ function CardDetailPanel({
                       className="w-full text-left"
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-xs text-[#6a7f8f]">{disc.date}</span>
-                        <span className="text-xs text-[#6a7f8f]">{expandedDiscIdx === idx ? "▲" : "▼"}</span>
+                        <span className="text-xs text-[var(--text-muted)]">{disc.date}</span>
+                        <span className="text-xs text-[var(--text-muted)]">{expandedDiscIdx === idx ? "▲" : "▼"}</span>
                       </div>
-                      <p className="text-sm text-[#0e2a47] mt-1 leading-relaxed">{disc.summary}</p>
+                      <p className="text-sm text-[var(--text-primary)] mt-1 leading-relaxed">{disc.summary}</p>
                     </button>
                     {expandedDiscIdx === idx && (
                       <div className="mt-3 pt-3 border-t border-[#e8e4de] flex flex-col gap-3">
                         {disc.transcript.framing && (
                           <div>
-                            <p className="text-xs font-semibold text-[#4a6580] mb-1">Sarah (Framing)</p>
-                            <p className="text-xs text-[#6a7f8f] leading-relaxed whitespace-pre-wrap">{disc.transcript.framing}</p>
+                            <p className="text-xs font-semibold text-[var(--text-secondary)] mb-1">Sarah (Framing)</p>
+                            <p className="text-xs text-[var(--text-muted)] leading-relaxed whitespace-pre-wrap">{disc.transcript.framing}</p>
                           </div>
                         )}
                         {disc.transcript.alex && (
                           <div>
-                            <p className="text-xs font-semibold text-[#4a6580] mb-1">Alex (Research)</p>
-                            <p className="text-xs text-[#6a7f8f] leading-relaxed whitespace-pre-wrap">{disc.transcript.alex}</p>
+                            <p className="text-xs font-semibold text-[var(--text-secondary)] mb-1">Alex (Research)</p>
+                            <p className="text-xs text-[var(--text-muted)] leading-relaxed whitespace-pre-wrap">{disc.transcript.alex}</p>
                           </div>
                         )}
                         {disc.transcript.maya && (
                           <div>
-                            <p className="text-xs font-semibold text-[#4a6580] mb-1">Maya (Design)</p>
-                            <p className="text-xs text-[#6a7f8f] leading-relaxed whitespace-pre-wrap">{disc.transcript.maya}</p>
+                            <p className="text-xs font-semibold text-[var(--text-secondary)] mb-1">Maya (Design)</p>
+                            <p className="text-xs text-[var(--text-muted)] leading-relaxed whitespace-pre-wrap">{disc.transcript.maya}</p>
                           </div>
                         )}
                         {disc.transcript.luca && (
                           <div>
-                            <p className="text-xs font-semibold text-[#4a6580] mb-1">Luca (Tech)</p>
-                            <p className="text-xs text-[#6a7f8f] leading-relaxed whitespace-pre-wrap">{disc.transcript.luca}</p>
+                            <p className="text-xs font-semibold text-[var(--text-secondary)] mb-1">Luca (Tech)</p>
+                            <p className="text-xs text-[var(--text-muted)] leading-relaxed whitespace-pre-wrap">{disc.transcript.luca}</p>
                           </div>
                         )}
                         {disc.transcript.elena && (
                           <div>
-                            <p className="text-xs font-semibold text-[#4a6580] mb-1">Elena (Travel Expert)</p>
-                            <p className="text-xs text-[#6a7f8f] leading-relaxed whitespace-pre-wrap">{disc.transcript.elena}</p>
+                            <p className="text-xs font-semibold text-[var(--text-secondary)] mb-1">Elena (Travel Expert)</p>
+                            <p className="text-xs text-[var(--text-muted)] leading-relaxed whitespace-pre-wrap">{disc.transcript.elena}</p>
                           </div>
                         )}
                         {disc.transcript.synthesis && (
                           <div>
-                            <p className="text-xs font-semibold text-[#4a6580] mb-1">Sarah (Synthesis)</p>
-                            <p className="text-xs text-[#6a7f8f] leading-relaxed whitespace-pre-wrap">{disc.transcript.synthesis}</p>
+                            <p className="text-xs font-semibold text-[var(--text-secondary)] mb-1">Sarah (Synthesis)</p>
+                            <p className="text-xs text-[var(--text-muted)] leading-relaxed whitespace-pre-wrap">{disc.transcript.synthesis}</p>
                           </div>
                         )}
                         {disc.prd && (
                           <div>
-                            <p className="text-xs font-semibold text-[#4a6580] mb-1">PRD</p>
-                            <p className="text-xs text-[#6a7f8f] leading-relaxed whitespace-pre-wrap max-h-48 overflow-y-auto">{disc.prd}</p>
+                            <p className="text-xs font-semibold text-[var(--text-secondary)] mb-1">PRD</p>
+                            <p className="text-xs text-[var(--text-muted)] leading-relaxed whitespace-pre-wrap max-h-48 overflow-y-auto">{disc.prd}</p>
                           </div>
                         )}
                       </div>
@@ -1094,10 +1094,10 @@ function CardDetailPanel({
             <div className="fixed inset-0 z-[60] bg-[#f8f6f1] overflow-y-auto">
               <div className="max-w-3xl mx-auto px-6 py-8">
                 <div className="flex items-center justify-between mb-6">
-                  <h2 className="text-lg font-bold text-[#0e2a47]">Team discussion: {cleanTitle}</h2>
+                  <h2 className="text-lg font-bold text-[var(--text-primary)]">Team discussion: {cleanTitle}</h2>
                   <button
                     onClick={() => setShowDiscussionModal(false)}
-                    className="text-[#6a7f8f] hover:text-[#0e2a47] text-xl p-1"
+                    className="text-[var(--text-muted)] hover:text-[var(--text-primary)] text-xl p-1"
                   >×</button>
                 </div>
                 <ProductTeamTab
@@ -1122,7 +1122,7 @@ function CardDetailPanel({
             <div>
               <button
                 onClick={() => setPrdOpen(!prdOpen)}
-                className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-2 hover:text-[#4a6580] transition-colors"
+                className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest mb-2 hover:text-[var(--text-secondary)] transition-colors"
               >
                 {prdOpen ? "Hide PRD ▲" : "View PRD ▼"}
               </button>
@@ -1140,13 +1140,13 @@ function CardDetailPanel({
           {implPrompt && (
             <div>
               <div className="flex items-center justify-between mb-2">
-                <p className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest">Claude Code Prompt</p>
+                <p className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest">Claude Code Prompt</p>
                 <button onClick={handleCopy} className="text-xs font-semibold text-[#1a6b7f] hover:underline">
                   {copied ? "Copied!" : "Copy prompt"}
                 </button>
               </div>
               <div className="bg-white border border-[#e8e4de] rounded-xl p-4">
-                <p className="text-xs text-[#0e2a47] leading-relaxed whitespace-pre-wrap">{implPrompt}</p>
+                <p className="text-xs text-[var(--text-primary)] leading-relaxed whitespace-pre-wrap">{implPrompt}</p>
               </div>
             </div>
           )}
@@ -1154,13 +1154,13 @@ function CardDetailPanel({
           {/* Claude Code result — only on implement/done */}
           {(obj.status === "implement" || obj.status === "done") && (
             <div>
-              <p className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-2">Claude Code Result</p>
+              <p className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest mb-2">Claude Code Result</p>
               <textarea
                 rows={5}
                 value={codeResult}
                 onChange={(e) => { setCodeResult(e.target.value); setResultSaved(false); }}
                 placeholder="Paste Claude Code output here…"
-                className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-[#0e2a47] placeholder-[#9ca3af] transition-colors text-xs resize-none"
+                className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-[var(--text-primary)] placeholder-[#9ca3af] transition-colors text-xs resize-none"
               />
               <div className="flex items-center gap-2 mt-2">
                 <button
@@ -1189,14 +1189,14 @@ function CardDetailPanel({
             {obj.status !== "done" && (
               confirmDelete ? (
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-[#6a7f8f]">Delete?</span>
+                  <span className="text-xs text-[var(--text-muted)]">Delete?</span>
                   <button onClick={handleDelete} className="text-xs font-semibold text-red-400 hover:text-red-300">Yes</button>
-                  <button onClick={() => setConfirmDelete(false)} className="text-xs text-[#6a7f8f] hover:text-[#4a6580]">No</button>
+                  <button onClick={() => setConfirmDelete(false)} className="text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)]">No</button>
                 </div>
               ) : (
                 <button
                   onClick={() => setConfirmDelete(true)}
-                  className="text-xs text-[#6a7f8f] hover:text-red-400 transition-colors"
+                  className="text-xs text-[var(--text-muted)] hover:text-red-400 transition-colors"
                 >
                   Delete card
                 </button>
@@ -1208,7 +1208,7 @@ function CardDetailPanel({
                 <p className="text-xs text-amber-700">No team discussion has been run for this card. Move to Implement anyway?</p>
                 <div className="flex items-center gap-2 shrink-0">
                   <button onClick={() => handleMoveToNext(true)} className="text-xs font-semibold text-amber-700 hover:text-amber-900">Yes</button>
-                  <button onClick={() => setConfirmNoDisc(false)} className="text-xs text-[#6a7f8f] hover:text-[#4a6580]">No</button>
+                  <button onClick={() => setConfirmNoDisc(false)} className="text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)]">No</button>
                 </div>
               </div>
             )}
@@ -1604,17 +1604,17 @@ function ProductTeamTab({
                 {a.initial}
               </div>
               <div>
-                <p className="text-xs font-semibold text-[#0e2a47] leading-none">{a.name}</p>
-                <p className="text-xs text-[#6a7f8f] mt-0.5">{a.role}</p>
+                <p className="text-xs font-semibold text-[var(--text-primary)] leading-none">{a.name}</p>
+                <p className="text-xs text-[var(--text-muted)] mt-0.5">{a.role}</p>
               </div>
             </div>
           ))}
         </div>
         {memoryLoading && (
-          <p className="text-xs text-[#6a7f8f] italic">Sarah is remembering…</p>
+          <p className="text-xs text-[var(--text-muted)] italic">Sarah is remembering…</p>
         )}
         {updatingMemory && (
-          <p className="text-xs text-[#6a7f8f] italic">Updating Sarah's memory…</p>
+          <p className="text-xs text-[var(--text-muted)] italic">Updating Sarah's memory…</p>
         )}
       </div>
 
@@ -1622,14 +1622,14 @@ function ProductTeamTab({
       {cardContext && (
         <div className="bg-[#e8f4f6] border border-[#1a6b7f]/20 rounded-xl px-4 py-3">
           <p className="text-xs font-bold text-[#1a6b7f] uppercase tracking-widest mb-1">Discussing card</p>
-          <p className="text-sm text-[#0e2a47] font-semibold">{cardContext.title.replace(/\*+/g, "")}</p>
-          {cardContext.description && <p className="text-xs text-[#4a6580] mt-1">{cardContext.description}</p>}
+          <p className="text-sm text-[var(--text-primary)] font-semibold">{cardContext.title.replace(/\*+/g, "")}</p>
+          {cardContext.description && <p className="text-xs text-[var(--text-secondary)] mt-1">{cardContext.description}</p>}
         </div>
       )}
 
       {/* Input */}
       <div>
-        <label className="block text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-3">
+        <label className="block text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest mb-3">
           Describe the problem
         </label>
         <textarea
@@ -1638,7 +1638,7 @@ function ProductTeamTab({
           onChange={(e) => setProblem(e.target.value)}
           placeholder="e.g. Users drop off at step 3 of the onboarding flow. We don't know why."
           disabled={isRunning}
-          className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-5 py-4 text-[#0e2a47] placeholder-[#9ca3af] transition-colors text-sm resize-none disabled:opacity-50"
+          className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-5 py-4 text-[var(--text-primary)] placeholder-[#9ca3af] transition-colors text-sm resize-none disabled:opacity-50"
         />
         <div className="mt-3 flex items-center gap-3">
           <button
@@ -1651,7 +1651,7 @@ function ProductTeamTab({
           {teamError && !isRunning && (
             <button
               onClick={runDiscussion}
-              className="rounded-2xl border border-[#333] text-[#4a6580] hover:text-[#0e2a47] hover:border-[#555] font-semibold px-6 py-4 transition-colors text-sm"
+              className="rounded-2xl border border-[#333] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[#555] font-semibold px-6 py-4 transition-colors text-sm"
             >
               Retry →
             </button>
@@ -1691,14 +1691,14 @@ function ProductTeamTab({
               <div className="flex items-center gap-3 flex-wrap">
                 <button
                   onClick={() => downloadConversationFile(problem, AGENTS, buildMode, sarahMemory, sarahFrame, alexContent, mayaContent, lucaContent, elenaContent, synthesis, prd)}
-                  className="rounded-2xl border border-[#d4cfc5] text-[#0e2a47] hover:text-[#0e2a47] hover:border-[#b8b3a9] font-semibold px-6 py-3 transition-colors text-sm"
+                  className="rounded-2xl border border-[#d4cfc5] text-[var(--text-primary)] hover:text-[var(--text-primary)] hover:border-[#b8b3a9] font-semibold px-6 py-3 transition-colors text-sm"
                 >
                   Download conversation ↓
                 </button>
                 {prd && (
                   <button
                     onClick={regeneratePrd}
-                    className="rounded-2xl border border-[#d4cfc5] text-[#0e2a47] hover:text-[#0e2a47] hover:border-[#b8b3a9] font-semibold px-6 py-3 transition-colors text-sm"
+                    className="rounded-2xl border border-[#d4cfc5] text-[var(--text-primary)] hover:text-[var(--text-primary)] hover:border-[#b8b3a9] font-semibold px-6 py-3 transition-colors text-sm"
                   >
                     Regenerate PRD →
                   </button>
@@ -1707,7 +1707,7 @@ function ProductTeamTab({
                   <button
                     onClick={handleSaveToKanban}
                     disabled={savingToKanban}
-                    className="rounded-2xl border border-[#d4cfc5] text-[#0e2a47] hover:text-[#0e2a47] hover:border-[#b8b3a9] font-semibold px-6 py-3 transition-colors text-sm disabled:opacity-40"
+                    className="rounded-2xl border border-[#d4cfc5] text-[var(--text-primary)] hover:text-[var(--text-primary)] hover:border-[#b8b3a9] font-semibold px-6 py-3 transition-colors text-sm disabled:opacity-40"
                   >
                     {savingToKanban ? "Saving…" : "Save to Kanban →"}
                   </button>
@@ -1725,7 +1725,7 @@ function ProductTeamTab({
               {scopeAdditions && scopeAdditions !== "No scope additions." && !kanbanSaved && (
                 <div className="bg-amber-500/5 border border-amber-500/15 rounded-xl px-4 py-3">
                   <p className="text-xs font-bold text-amber-500/60 uppercase tracking-widest mb-1.5">Team additions</p>
-                  <p className="text-xs text-[#6a7f8f] leading-relaxed whitespace-pre-wrap">{scopeAdditions}</p>
+                  <p className="text-xs text-[var(--text-muted)] leading-relaxed whitespace-pre-wrap">{scopeAdditions}</p>
                 </div>
               )}
               {kanbanSaved && (
@@ -1746,7 +1746,7 @@ function ProductTeamTab({
                 </div>
                 <div className="flex-1 bg-white border border-[#e8e4de] rounded-2xl p-6">
                   {phase === "prd" && thinking.sarah && !prd && (
-                    <div className="flex items-center gap-2 text-sm text-[#6a7f8f] italic">
+                    <div className="flex items-center gap-2 text-sm text-[var(--text-muted)] italic">
                       <ThinkingDots /> Writing PRD…
                     </div>
                   )}
@@ -1882,12 +1882,12 @@ function ProductCoachTab({ buildMode }: { buildMode: boolean }) {
           <div className="flex items-center gap-3 mb-3">
             <div className="w-9 h-9 rounded-full bg-[#1a6b7f] flex items-center justify-center text-white font-bold text-sm">C</div>
             <div>
-              <p className="text-sm font-bold text-[#0e2a47]">Product Coach</p>
-              <p className="text-xs text-[#6a7f8f]">Powered by Claude Opus 4</p>
+              <p className="text-sm font-bold text-[var(--text-primary)]">Product Coach</p>
+              <p className="text-xs text-[var(--text-muted)]">Powered by Claude Opus 4</p>
             </div>
           </div>
-          <p className="text-sm text-[#4a6580] leading-relaxed">
-            Ask me anything about product management — strategy, prioritisation, discovery, metrics, stakeholders. I'll challenge your thinking and help you grow. Try: <em className="text-[#0e2a47]">"How should I think about prioritising our roadmap as an early MVP?"</em>
+          <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
+            Ask me anything about product management — strategy, prioritisation, discovery, metrics, stakeholders. I'll challenge your thinking and help you grow. Try: <em className="text-[var(--text-primary)]">"How should I think about prioritising our roadmap as an early MVP?"</em>
           </p>
         </div>
       )}
@@ -1899,7 +1899,7 @@ function ProductCoachTab({ buildMode }: { buildMode: boolean }) {
             msg.role === "user" ? (
               <div key={i} className="flex justify-end">
                 <div className="bg-[#1a6b7f]/10 border border-[#1a6b7f]/20 rounded-2xl rounded-tr-sm px-5 py-3.5 max-w-xl">
-                  <p className="text-sm text-[#0e2a47] leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                  <p className="text-sm text-[var(--text-primary)] leading-relaxed whitespace-pre-wrap">{msg.content}</p>
                 </div>
               </div>
             ) : (
@@ -1907,13 +1907,13 @@ function ProductCoachTab({ buildMode }: { buildMode: boolean }) {
                 <div className="w-9 h-9 rounded-full bg-[#1a6b7f] flex items-center justify-center text-white font-bold text-sm flex-shrink-0">C</div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-2">
-                    <span className="text-sm font-bold text-[#0e2a47]">Coach</span>
+                    <span className="text-sm font-bold text-[var(--text-primary)]">Coach</span>
                     {thinking && i === messages.length - 1 && !msg.content && <ThinkingDots />}
                   </div>
                   {msg.content ? (
                     <MarkdownText text={msg.content} />
                   ) : (
-                    <div className="text-sm text-[#6a7f8f] italic">Thinking…</div>
+                    <div className="text-sm text-[var(--text-muted)] italic">Thinking…</div>
                   )}
                 </div>
               </div>
@@ -1931,7 +1931,7 @@ function ProductCoachTab({ buildMode }: { buildMode: boolean }) {
             <button
               onClick={retry}
               disabled={thinking}
-              className="text-sm font-semibold text-red-300 hover:text-[#0e2a47] transition-colors flex-shrink-0 disabled:opacity-50"
+              className="text-sm font-semibold text-red-300 hover:text-[var(--text-primary)] transition-colors flex-shrink-0 disabled:opacity-50"
             >
               Retry →
             </button>
@@ -1945,7 +1945,7 @@ function ProductCoachTab({ buildMode }: { buildMode: boolean }) {
             onKeyDown={handleKeyDown}
             placeholder="Ask your coach… (Enter to send, Shift+Enter for newline)"
             disabled={thinking}
-            className="flex-1 bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-5 py-4 text-[#0e2a47] placeholder-[#9ca3af] transition-colors text-sm resize-none disabled:opacity-50"
+            className="flex-1 bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-5 py-4 text-[var(--text-primary)] placeholder-[#9ca3af] transition-colors text-sm resize-none disabled:opacity-50"
           />
           <button
             onClick={send}
@@ -1976,10 +1976,10 @@ const KANBAN_COLUMNS: Array<{
   borderClass: string;
   textClass: string;
 }> = [
-  { status: "backlog",    label: "Backlog",    borderClass: "border-[#c8c3bb]",  textClass: "text-[#4a6580]" },
-  { status: "refine",     label: "Refine",     borderClass: "border-[#c8c3bb]",  textClass: "text-[#4a6580]" },
-  { status: "implement",  label: "Implement",  borderClass: "border-[#c8c3bb]",  textClass: "text-[#4a6580]" },
-  { status: "done",       label: "Done",       borderClass: "border-[#c8c3bb]",  textClass: "text-[#4a6580]" },
+  { status: "backlog",    label: "Backlog",    borderClass: "border-[#c8c3bb]",  textClass: "text-[var(--text-secondary)]" },
+  { status: "refine",     label: "Refine",     borderClass: "border-[#c8c3bb]",  textClass: "text-[var(--text-secondary)]" },
+  { status: "implement",  label: "Implement",  borderClass: "border-[#c8c3bb]",  textClass: "text-[var(--text-secondary)]" },
+  { status: "done",       label: "Done",       borderClass: "border-[#c8c3bb]",  textClass: "text-[var(--text-secondary)]" },
 ];
 
 // ── Kanban Card ────────────────────────────────────────────────────────────────
@@ -2011,10 +2011,10 @@ function KanbanCard({
       {/* Type badge + title */}
       <div className="flex items-start gap-2">
         <CardTypeBadge type={obj.card_type} />
-        <p className="text-sm font-bold text-[#0e2a47] leading-snug line-clamp-2 flex-1" title={cleanTitle}>{cleanTitle}</p>
+        <p className="text-sm font-bold text-[var(--text-primary)] leading-snug line-clamp-2 flex-1" title={cleanTitle}>{cleanTitle}</p>
       </div>
       {obj.description && (
-        <p className="text-xs text-[#6a7f8f] leading-relaxed line-clamp-2 overflow-hidden">{obj.description}</p>
+        <p className="text-xs text-[var(--text-muted)] leading-relaxed line-clamp-2 overflow-hidden">{obj.description}</p>
       )}
 
       {/* Bottom row */}
@@ -2022,20 +2022,20 @@ function KanbanCard({
         <div className="flex items-center gap-2">
           {obj.prd && <span className="text-xs text-[#1a6b7f]">PRD</span>}
           {obj.discussions.length > 0 && (
-            <span className="text-xs text-[#6a7f8f]">{obj.discussions.length} disc.</span>
+            <span className="text-xs text-[var(--text-muted)]">{obj.discussions.length} disc.</span>
           )}
         </div>
         {!isDone && (
           confirmDelete ? (
             <div className="flex items-center gap-2">
-              <span className="text-xs text-[#6a7f8f]">Delete?</span>
+              <span className="text-xs text-[var(--text-muted)]">Delete?</span>
               <button onClick={() => onDelete(obj.id)} className="text-xs font-semibold text-red-400 hover:text-red-300">Yes</button>
-              <button onClick={() => setConfirmDelete(false)} className="text-xs text-[#6a7f8f] hover:text-[#4a6580]">No</button>
+              <button onClick={() => setConfirmDelete(false)} className="text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)]">No</button>
             </div>
           ) : (
             <button
               onClick={() => setConfirmDelete(true)}
-              className="text-xs text-[#6a7f8f] hover:text-red-400 transition-colors"
+              className="text-xs text-[var(--text-muted)] hover:text-red-400 transition-colors"
               title="Delete"
             >
               🗑
@@ -2109,13 +2109,13 @@ function KanbanTab({
     setSavingNew(false);
   }
 
-  if (loading) return <p className="text-sm text-[#6a7f8f] py-4">Loading…</p>;
+  if (loading) return <p className="text-sm text-[var(--text-muted)] py-4">Loading…</p>;
 
   const newCardForm = showNewCard ? (
     <div className="bg-white border border-[#e8e4de] rounded-2xl p-5 mb-4 flex flex-col gap-3">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest">New card</span>
-        <button onClick={() => setShowNewCard(false)} className="text-[#6a7f8f] hover:text-[#0e2a47] text-sm">×</button>
+        <span className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest">New card</span>
+        <button onClick={() => setShowNewCard(false)} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] text-sm">×</button>
       </div>
       <CardTypeSelector value={newType} onChange={setNewType} />
       <input
@@ -2124,14 +2124,14 @@ function KanbanTab({
         onChange={(e) => setNewTitle(e.target.value)}
         placeholder="Card title…"
         autoFocus
-        className="w-full bg-[#f8f6f1] border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-[#0e2a47] placeholder-[#9ca3af] transition-colors text-sm"
+        className="w-full bg-[#f8f6f1] border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-[var(--text-primary)] placeholder-[#9ca3af] transition-colors text-sm"
       />
       <textarea
         rows={2}
         value={newDesc}
         onChange={(e) => setNewDesc(e.target.value)}
         placeholder="Description (optional)…"
-        className="w-full bg-[#f8f6f1] border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-[#0e2a47] placeholder-[#9ca3af] transition-colors text-xs resize-none"
+        className="w-full bg-[#f8f6f1] border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-[var(--text-primary)] placeholder-[#9ca3af] transition-colors text-xs resize-none"
       />
       <button
         onClick={handleCreateCard}
@@ -2157,7 +2157,7 @@ function KanbanTab({
       <div>
         {newCardForm}
         <div className="border border-dashed border-[#d4cfc5] rounded-2xl p-10 text-center">
-          <p className="text-sm text-[#6a7f8f]">No cards yet — save objectives from the PM tab or create one above.</p>
+          <p className="text-sm text-[var(--text-muted)]">No cards yet — save objectives from the PM tab or create one above.</p>
         </div>
       </div>
     );
@@ -2181,7 +2181,7 @@ function KanbanTab({
           >
             <div className="flex items-center justify-between px-1">
               <span className={`text-xs font-bold uppercase tracking-widest ${col.textClass}`}>{col.label}</span>
-              <span className="text-xs text-[#6a7f8f]">{cards.length}</span>
+              <span className="text-xs text-[var(--text-muted)]">{cards.length}</span>
             </div>
             <div
               className={`flex flex-col gap-3 min-h-[80px] rounded-2xl transition-colors ${
@@ -2189,7 +2189,7 @@ function KanbanTab({
               }`}
             >
               {cards.length === 0 ? (
-                <div className={`border ${col.borderClass} rounded-2xl p-4 text-xs text-[#6a7f8f] text-center`}>
+                <div className={`border ${col.borderClass} rounded-2xl p-4 text-xs text-[var(--text-muted)] text-center`}>
                   Empty
                 </div>
               ) : (
@@ -2398,15 +2398,15 @@ function PMTab({ onSwitchToKanban, onObjectiveSaved, buildMode }: { onSwitchToKa
         {messages.length === 0 && (
           <div className="bg-white border border-[#e8e4de] rounded-2xl p-6">
             <div className="flex items-center gap-3 mb-3">
-              <div className="w-9 h-9 rounded-full flex items-center justify-center text-[#0e2a47] font-bold text-sm flex-shrink-0" style={{ background: "#5a4fcf" }}>
+              <div className="w-9 h-9 rounded-full flex items-center justify-center text-[var(--text-primary)] font-bold text-sm flex-shrink-0" style={{ background: "#5a4fcf" }}>
                 SM
               </div>
               <div>
-                <p className="text-sm font-bold text-[#0e2a47]">Sarah · PM</p>
-                <p className="text-xs text-[#6a7f8f]">1-on-1 with Philip</p>
+                <p className="text-sm font-bold text-[var(--text-primary)]">Sarah · PM</p>
+                <p className="text-xs text-[var(--text-muted)]">1-on-1 with Philip</p>
               </div>
             </div>
-            <p className="text-sm text-[#4a6580] leading-relaxed">
+            <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
               Hey Philip — what's on your mind? We can work through a problem, align on priorities, or agree on what to focus on next.
             </p>
           </div>
@@ -2419,24 +2419,24 @@ function PMTab({ onSwitchToKanban, onObjectiveSaved, buildMode }: { onSwitchToKa
               msg.role === "user" ? (
                 <div key={i} className="flex justify-end">
                   <div className="bg-[#1a6b7f]/10 border border-[#1a6b7f]/20 rounded-2xl rounded-tr-sm px-5 py-3.5 max-w-xl">
-                    <p className="text-sm text-[#0e2a47] leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                    <p className="text-sm text-[var(--text-primary)] leading-relaxed whitespace-pre-wrap">{msg.content}</p>
                   </div>
                 </div>
               ) : (
                 <div key={i} className="flex gap-4">
-                  <div className="w-9 h-9 rounded-full flex items-center justify-center text-[#0e2a47] font-bold text-xs flex-shrink-0" style={{ background: "#5a4fcf" }}>
+                  <div className="w-9 h-9 rounded-full flex items-center justify-center text-[var(--text-primary)] font-bold text-xs flex-shrink-0" style={{ background: "#5a4fcf" }}>
                     SM
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-2">
-                      <span className="text-sm font-bold text-[#0e2a47]">Sarah</span>
-                      <span className="text-xs text-[#6a7f8f] bg-[#f0ede8] px-2 py-0.5 rounded-full">PM</span>
+                      <span className="text-sm font-bold text-[var(--text-primary)]">Sarah</span>
+                      <span className="text-xs text-[var(--text-muted)] bg-[#f0ede8] px-2 py-0.5 rounded-full">PM</span>
                       {thinking && i === messages.length - 1 && !msg.content && <ThinkingDots />}
                     </div>
                     {msg.content ? (
                       <MarkdownText text={msg.content} />
                     ) : (
-                      <div className="text-sm text-[#6a7f8f] italic">Thinking…</div>
+                      <div className="text-sm text-[var(--text-muted)] italic">Thinking…</div>
                     )}
                   </div>
                 </div>
@@ -2454,7 +2454,7 @@ function PMTab({ onSwitchToKanban, onObjectiveSaved, buildMode }: { onSwitchToKa
               <button
                 onClick={retry}
                 disabled={thinking}
-                className="text-sm font-semibold text-red-300 hover:text-[#0e2a47] transition-colors flex-shrink-0 disabled:opacity-50"
+                className="text-sm font-semibold text-red-300 hover:text-[var(--text-primary)] transition-colors flex-shrink-0 disabled:opacity-50"
               >
                 Retry →
               </button>
@@ -2468,7 +2468,7 @@ function PMTab({ onSwitchToKanban, onObjectiveSaved, buildMode }: { onSwitchToKa
               onKeyDown={handleKeyDown}
               placeholder="Message Sarah… (Enter to send, Shift+Enter for newline)"
               disabled={thinking}
-              className="flex-1 bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-5 py-4 text-[#0e2a47] placeholder-[#9ca3af] transition-colors text-sm resize-none disabled:opacity-50"
+              className="flex-1 bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-5 py-4 text-[var(--text-primary)] placeholder-[#9ca3af] transition-colors text-sm resize-none disabled:opacity-50"
             />
             <button
               onClick={send}
@@ -2486,8 +2486,8 @@ function PMTab({ onSwitchToKanban, onObjectiveSaved, buildMode }: { onSwitchToKa
 
         <div className="flex items-center justify-between gap-4">
           <div>
-            <h2 className="text-base font-bold text-[#0e2a47] mb-1">Agreed objectives</h2>
-            <p className="text-xs text-[#6a7f8f]">Objectives saved to the Kanban board as backlog cards.</p>
+            <h2 className="text-base font-bold text-[var(--text-primary)] mb-1">Agreed objectives</h2>
+            <p className="text-xs text-[var(--text-muted)]">Objectives saved to the Kanban board as backlog cards.</p>
           </div>
           <button
             onClick={onSwitchToKanban}
@@ -2503,7 +2503,7 @@ function PMTab({ onSwitchToKanban, onObjectiveSaved, buildMode }: { onSwitchToKa
           return lastAssistant && detectObjectiveAgreed(lastAssistant.content);
         })() && (
           <div className="bg-[#e8f4f6] border border-[#1a6b7f]/20 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
-            <p className="text-sm text-[#0e2a47]">Sarah suggested saving an objective from this conversation.</p>
+            <p className="text-sm text-[var(--text-primary)]">Sarah suggested saving an objective from this conversation.</p>
             <button
               onClick={handleAddToKanban}
               disabled={savingObj}
@@ -2519,7 +2519,7 @@ function PMTab({ onSwitchToKanban, onObjectiveSaved, buildMode }: { onSwitchToKa
 
         {/* List */}
         {objectives.length === 0 ? (
-          <p className="text-sm text-[#6a7f8f]">No objectives saved yet.</p>
+          <p className="text-sm text-[var(--text-muted)]">No objectives saved yet.</p>
         ) : (
           <div className="flex flex-col gap-2">
             {objectives.map((obj) => (
@@ -2527,12 +2527,12 @@ function PMTab({ onSwitchToKanban, onObjectiveSaved, buildMode }: { onSwitchToKa
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
                     <CardTypeBadge type={obj.card_type} />
-                    <p className="text-sm text-[#0e2a47] leading-relaxed">{obj.title}</p>
+                    <p className="text-sm text-[var(--text-primary)] leading-relaxed">{obj.title}</p>
                   </div>
                   {obj.description && (
-                    <p className="text-xs text-[#6a7f8f] mt-0.5 leading-relaxed">{obj.description}</p>
+                    <p className="text-xs text-[var(--text-muted)] mt-0.5 leading-relaxed">{obj.description}</p>
                   )}
-                  <p className="text-xs text-[#6a7f8f] mt-1">
+                  <p className="text-xs text-[var(--text-muted)] mt-1">
                     {new Date(obj.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
                   </p>
                 </div>
@@ -2618,7 +2618,7 @@ export default function TeamPage() {
         <div className="mb-8 flex items-start justify-between gap-6 flex-wrap">
           <div>
             <h1 className="text-4xl font-extrabold tracking-tight mb-2">Product agents</h1>
-            <p className="text-[#4a6580]">AI-powered product thinking for Rise.</p>
+            <p className="text-[var(--text-secondary)]">AI-powered product thinking for Rise.</p>
           </div>
           {/* Build / Research mode toggle */}
           <button
@@ -2626,8 +2626,8 @@ export default function TeamPage() {
             className="flex items-center gap-2.5 bg-white border border-[#e8e4de] rounded-2xl px-4 py-2.5 hover:border-[#d4cfc5] transition-colors shrink-0"
           >
             <span className={`w-2 h-2 rounded-full ${buildMode ? "bg-[#1a6b7f]" : "bg-amber-400"}`} />
-            <span className="text-sm font-semibold text-[#0e2a47]">{buildMode ? "Build mode" : "Research mode"}</span>
-            <span className="text-xs text-[#6a7f8f]">— tap to switch</span>
+            <span className="text-sm font-semibold text-[var(--text-primary)]">{buildMode ? "Build mode" : "Research mode"}</span>
+            <span className="text-xs text-[var(--text-muted)]">— tap to switch</span>
           </button>
         </div>
 
@@ -2640,7 +2640,7 @@ export default function TeamPage() {
               className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-colors whitespace-nowrap ${
                 activeTab === tab.id
                   ? "bg-[#1a6b7f] text-white"
-                  : "text-[#4a6580] hover:text-[#0e2a47]"
+                  : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
               }`}
             >
               {tab.label}

@@ -103,7 +103,7 @@ export default function Nav() {
                   className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
                     isActive
                       ? "text-[#1a6b7f] bg-[#1a6b7f]/10"
-                      : "text-[#4a6580] hover:text-[#0e2a47] hover:bg-[#f0ede8]"
+                      : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[#f0ede8]"
                   }`}
                 >
                   {section.label}
@@ -127,7 +127,7 @@ export default function Nav() {
                           className={`block px-4 py-3 text-sm transition-colors ${
                             isLinkActive
                               ? "text-[#1a6b7f] bg-[#1a6b7f]/10 font-semibold"
-                              : "text-[#4a6580] hover:text-[#0e2a47] hover:bg-[#f0ede8]"
+                              : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[#f0ede8]"
                           }`}
                         >
                           {link.label}
@@ -160,7 +160,7 @@ export default function Nav() {
             const isActive = activeSection === section.label;
             return (
               <div key={section.label} className="mt-4">
-                <p className={`text-xs font-bold uppercase tracking-widest mb-2 ${isActive ? "text-[#1a6b7f]" : "text-[#6a7f8f]"}`}>
+                <p className={`text-xs font-bold uppercase tracking-widest mb-2 ${isActive ? "text-[#1a6b7f]" : "text-[var(--text-muted)]"}`}>
                   {section.label}
                 </p>
                 <div className="flex flex-col gap-1">
@@ -174,7 +174,7 @@ export default function Nav() {
                         className={`block px-3 py-2.5 rounded-xl text-sm transition-colors ${
                           isLinkActive
                             ? "text-[#1a6b7f] bg-[#1a6b7f]/10 font-semibold"
-                            : "text-[#4a6580] hover:text-[#0e2a47] hover:bg-[#f0ede8]"
+                            : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[#f0ede8]"
                         }`}
                       >
                         {link.label}

@@ -59,28 +59,28 @@ export default function DashboardPage() {
         <div className="mb-12">
           <p className="text-[#1a6b7f] text-sm font-semibold tracking-widest uppercase mb-3">Your trip</p>
           <h1 className="text-5xl font-extrabold tracking-tight mb-2">{traveler.destination}</h1>
-          <p className="text-[#4a6580] text-lg">Hey {traveler.name}, here's what we've got planned.</p>
+          <p className="text-[var(--text-secondary)] text-lg">Hey {traveler.name}, here's what we've got planned.</p>
         </div>
 
         {/* Trip summary card */}
         <div className="bg-white border border-[#e8e4de] rounded-2xl p-7 mb-6">
-          <h2 className="text-xs font-bold text-[#4a6580] uppercase tracking-widest mb-5">Trip details</h2>
+          <h2 className="text-xs font-bold text-[var(--text-secondary)] uppercase tracking-widest mb-5">Trip details</h2>
           <div className="grid grid-cols-2 gap-y-5">
             <div>
-              <p className="text-xs text-[#4a6580] mb-1">Departure</p>
-              <p className="font-bold text-[#0e2a47]">{formatDate(traveler.departureDate)}</p>
+              <p className="text-xs text-[var(--text-secondary)] mb-1">Departure</p>
+              <p className="font-bold text-[var(--text-primary)]">{formatDate(traveler.departureDate)}</p>
             </div>
             <div>
-              <p className="text-xs text-[#4a6580] mb-1">Return</p>
-              <p className="font-bold text-[#0e2a47]">{formatDate(traveler.returnDate)}</p>
+              <p className="text-xs text-[var(--text-secondary)] mb-1">Return</p>
+              <p className="font-bold text-[var(--text-primary)]">{formatDate(traveler.returnDate)}</p>
             </div>
             <div>
-              <p className="text-xs text-[#4a6580] mb-1">Duration</p>
-              <p className="font-bold text-[#0e2a47]">{nights > 0 ? `${nights} nights` : "—"}</p>
+              <p className="text-xs text-[var(--text-secondary)] mb-1">Duration</p>
+              <p className="font-bold text-[var(--text-primary)]">{nights > 0 ? `${nights} nights` : "—"}</p>
             </div>
             <div>
-              <p className="text-xs text-[#4a6580] mb-1">Hotel</p>
-              <p className="font-bold text-[#0e2a47]">{traveler.hotel || "—"}</p>
+              <p className="text-xs text-[var(--text-secondary)] mb-1">Hotel</p>
+              <p className="font-bold text-[var(--text-primary)]">{traveler.hotel || "—"}</p>
             </div>
           </div>
         </div>
@@ -88,15 +88,15 @@ export default function DashboardPage() {
         {/* Activities */}
         {traveler.activities.length > 0 && (
           <div className="mb-6">
-            <h2 className="text-xs font-bold text-[#4a6580] uppercase tracking-widest mb-4">
+            <h2 className="text-xs font-bold text-[var(--text-secondary)] uppercase tracking-widest mb-4">
               Your activities · {traveler.activities.length} selected
             </h2>
             <div className="grid grid-cols-2 gap-3">
               {traveler.activities.map((a) => (
                 <div key={a.id} className="bg-white border border-[#e8e4de] rounded-2xl p-4">
                   <div className="text-2xl mb-2">{a.emoji}</div>
-                  <div className="font-semibold text-sm text-[#0e2a47] mb-1">{a.name}</div>
-                  <div className="text-xs text-[#6a7f8f]">{a.category}</div>
+                  <div className="font-semibold text-sm text-[var(--text-primary)] mb-1">{a.name}</div>
+                  <div className="text-xs text-[var(--text-muted)]">{a.category}</div>
                 </div>
               ))}
             </div>
@@ -105,47 +105,47 @@ export default function DashboardPage() {
 
         {/* Quick links */}
         <div className="bg-white border border-[#e8e4de] rounded-2xl p-6">
-          <h2 className="text-xs font-bold text-[#4a6580] uppercase tracking-widest mb-5">Explore more</h2>
+          <h2 className="text-xs font-bold text-[var(--text-secondary)] uppercase tracking-widest mb-5">Explore more</h2>
           <div className="flex flex-col gap-3">
             <a
               href="/itinerary"
               className="flex items-center justify-between rounded-xl bg-[#1a6b7f]/10 border border-[#1a6b7f]/30 px-5 py-4 hover:bg-[#1a6b7f]/20 transition-colors group"
             >
               <div>
-                <div className="font-semibold text-[#0e2a47]">Day-by-day itinerary</div>
+                <div className="font-semibold text-[var(--text-primary)]">Day-by-day itinerary</div>
                 <div className="text-xs text-[#1a6b7f]/70 mt-0.5">AI-planned · drag to reschedule</div>
               </div>
-              <span className="text-[#1a6b7f] group-hover:text-[#0e2a47] transition-colors">→</span>
+              <span className="text-[#1a6b7f] group-hover:text-[var(--text-primary)] transition-colors">→</span>
             </a>
             <a
               href="/profile"
               className="flex items-center justify-between rounded-xl bg-[#f0ede8] px-5 py-4 hover:bg-[#e8e4de] transition-colors group"
             >
               <div>
-                <div className="font-semibold text-[#0e2a47]">Restaurant recommendations</div>
-                <div className="text-xs text-[#6a7f8f] mt-0.5">AI picks based on your taste</div>
+                <div className="font-semibold text-[var(--text-primary)]">Restaurant recommendations</div>
+                <div className="text-xs text-[var(--text-muted)] mt-0.5">AI picks based on your taste</div>
               </div>
-              <span className="text-[#6a7f8f] group-hover:text-[#0e2a47] transition-colors">→</span>
+              <span className="text-[var(--text-muted)] group-hover:text-[var(--text-primary)] transition-colors">→</span>
             </a>
             <a
               href="/transport"
               className="flex items-center justify-between rounded-xl bg-[#f0ede8] px-5 py-4 hover:bg-[#e8e4de] transition-colors group"
             >
               <div>
-                <div className="font-semibold text-[#0e2a47]">Airport → Hotel</div>
-                <div className="text-xs text-[#6a7f8f] mt-0.5">Compare transport options</div>
+                <div className="font-semibold text-[var(--text-primary)]">Airport → Hotel</div>
+                <div className="text-xs text-[var(--text-muted)] mt-0.5">Compare transport options</div>
               </div>
-              <span className="text-[#6a7f8f] group-hover:text-[#0e2a47] transition-colors">→</span>
+              <span className="text-[var(--text-muted)] group-hover:text-[var(--text-primary)] transition-colors">→</span>
             </a>
             <a
               href={`/guides/${encodeURIComponent(traveler.destination.toLowerCase())}`}
               className="flex items-center justify-between rounded-xl bg-[#f0ede8] px-5 py-4 hover:bg-[#e8e4de] transition-colors group"
             >
               <div>
-                <div className="font-semibold text-[#0e2a47]">Local guides</div>
-                <div className="text-xs text-[#6a7f8f] mt-0.5">Insider tips for {traveler.destination}</div>
+                <div className="font-semibold text-[var(--text-primary)]">Local guides</div>
+                <div className="text-xs text-[var(--text-muted)] mt-0.5">Insider tips for {traveler.destination}</div>
               </div>
-              <span className="text-[#6a7f8f] group-hover:text-[#0e2a47] transition-colors">→</span>
+              <span className="text-[var(--text-muted)] group-hover:text-[var(--text-primary)] transition-colors">→</span>
             </a>
           </div>
         </div>
@@ -157,7 +157,7 @@ export default function DashboardPage() {
               localStorage.removeItem("rise_traveler");
               router.push("/welcome");
             }}
-            className="text-sm text-[#6a7f8f] hover:text-[#4a6580] transition-colors"
+            className="text-sm text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
           >
             Plan a new trip
           </button>

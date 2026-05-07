@@ -107,7 +107,7 @@ export default function AdminPage() {
     });
   }
 
-  const inputCls = "w-full bg-[#f8f6f1] border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-[#0e2a47] text-xs placeholder-[#9ca3af] transition-colors resize-none font-mono";
+  const inputCls = "w-full bg-[#f8f6f1] border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-[var(--text-primary)] text-xs placeholder-[#9ca3af] transition-colors resize-none font-mono";
 
   return (
     <main className="min-h-screen bg-[#f8f6f1] px-6 py-14">
@@ -117,12 +117,12 @@ export default function AdminPage() {
         <div className="mb-14">
           <div className="mb-6">
             <h1 className="text-4xl font-extrabold tracking-tight">Team discussions</h1>
-            <p className="text-[#6a7f8f] mt-1">{discussions.length} discussions</p>
+            <p className="text-[var(--text-muted)] mt-1">{discussions.length} discussions</p>
           </div>
 
-          {discussionsLoading && <p className="text-[#6a7f8f] text-sm">Loading…</p>}
+          {discussionsLoading && <p className="text-[var(--text-muted)] text-sm">Loading…</p>}
           {!discussionsLoading && discussions.length === 0 && (
-            <p className="text-[#6a7f8f] text-sm">No team discussions yet.</p>
+            <p className="text-[var(--text-muted)] text-sm">No team discussions yet.</p>
           )}
 
           <div className="flex flex-col gap-2">
@@ -136,13 +136,13 @@ export default function AdminPage() {
                     onClick={() => setExpandedDiscussionId(isOpen ? null : disc.id)}
                     className="w-full text-left px-5 py-4 flex items-center gap-4 hover:bg-[#f0ede8] transition-colors"
                   >
-                    <span className="flex-1 text-sm text-[#0e2a47] truncate font-medium">{disc.title.replace(/\*+/g, "")}</span>
-                    <span className="shrink-0 text-xs text-[#6a7f8f]">5 agents</span>
+                    <span className="flex-1 text-sm text-[var(--text-primary)] truncate font-medium">{disc.title.replace(/\*+/g, "")}</span>
+                    <span className="shrink-0 text-xs text-[var(--text-muted)]">5 agents</span>
                     {disc.prd && <span className="shrink-0 text-xs text-[#1a6b7f]">PRD</span>}
-                    <span className="shrink-0 text-xs text-[#6a7f8f] hidden md:block">
+                    <span className="shrink-0 text-xs text-[var(--text-muted)] hidden md:block">
                       {new Date(disc.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
                     </span>
-                    <span className="shrink-0 text-[#6a7f8f] text-xs">{isOpen ? "▲" : "▼"}</span>
+                    <span className="shrink-0 text-[var(--text-muted)] text-xs">{isOpen ? "▲" : "▼"}</span>
                   </button>
 
                   {isOpen && (
@@ -156,8 +156,8 @@ export default function AdminPage() {
                         { label: "Sarah — Synthesis", content: msgs.synthesis },
                       ].map(({ label, content }) => (
                         <div key={label}>
-                          <h3 className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-2">{label}</h3>
-                          <pre className="bg-[#f8f6f1] border border-[#e8e4de] rounded-xl p-4 text-xs text-[#4a6580] overflow-x-auto whitespace-pre-wrap font-mono">{content || <span className="italic text-[#6a7f8f]">empty</span>}</pre>
+                          <h3 className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest mb-2">{label}</h3>
+                          <pre className="bg-[#f8f6f1] border border-[#e8e4de] rounded-xl p-4 text-xs text-[var(--text-secondary)] overflow-x-auto whitespace-pre-wrap font-mono">{content || <span className="italic text-[var(--text-muted)]">empty</span>}</pre>
                         </div>
                       ))}
 
@@ -165,12 +165,12 @@ export default function AdminPage() {
                         <div>
                           <button
                             onClick={() => setExpandedPrdId(isPrdOpen ? null : disc.id)}
-                            className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest hover:text-[#0e2a47] transition-colors mb-2 flex items-center gap-2"
+                            className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest hover:text-[var(--text-primary)] transition-colors mb-2 flex items-center gap-2"
                           >
                             Sarah — PRD {isPrdOpen ? "▲" : "▼"}
                           </button>
                           {isPrdOpen && (
-                            <pre className="bg-[#f8f6f1] border border-[#e8e4de] rounded-xl p-4 text-xs text-[#4a6580] overflow-x-auto whitespace-pre-wrap font-mono">{disc.prd}</pre>
+                            <pre className="bg-[#f8f6f1] border border-[#e8e4de] rounded-xl p-4 text-xs text-[var(--text-secondary)] overflow-x-auto whitespace-pre-wrap font-mono">{disc.prd}</pre>
                           )}
                         </div>
                       )}
@@ -185,11 +185,11 @@ export default function AdminPage() {
         {/* ── AI Logs ────────────────────────────────────────────────────── */}
         <div className="mb-10">
           <h1 className="text-4xl font-extrabold tracking-tight">AI Logs</h1>
-          <p className="text-[#6a7f8f] mt-1">{logs.length} interactions logged</p>
+          <p className="text-[var(--text-muted)] mt-1">{logs.length} interactions logged</p>
         </div>
 
-        {loading && <p className="text-[#6a7f8f] text-sm">Loading…</p>}
-        {!loading && logs.length === 0 && <p className="text-[#6a7f8f] text-sm">No logs yet.</p>}
+        {loading && <p className="text-[var(--text-muted)] text-sm">Loading…</p>}
+        {!loading && logs.length === 0 && <p className="text-[var(--text-muted)] text-sm">No logs yet.</p>}
 
         <div className="flex flex-col gap-2">
           {logs.map((log) => {
@@ -204,22 +204,22 @@ export default function AdminPage() {
                   onClick={() => toggleExpand(log.id)}
                   className="w-full text-left px-5 py-4 flex items-center gap-4 hover:bg-[#f0ede8] transition-colors"
                 >
-                  <span className={`shrink-0 rounded-lg px-2.5 py-0.5 text-xs font-bold ${FEATURE_COLORS[log.feature] ?? "bg-[#e8e4de] text-[#4a6580]"}`}>
+                  <span className={`shrink-0 rounded-lg px-2.5 py-0.5 text-xs font-bold ${FEATURE_COLORS[log.feature] ?? "bg-[#e8e4de] text-[var(--text-secondary)]"}`}>
                     {log.feature}
                   </span>
-                  <span className="shrink-0 text-xs text-[#6a7f8f] font-mono hidden sm:block">
+                  <span className="shrink-0 text-xs text-[var(--text-muted)] font-mono hidden sm:block">
                     {log.model.replace("claude-", "")}
                   </span>
-                  <span className="flex-1 text-sm text-[#4a6580] truncate">
+                  <span className="flex-1 text-sm text-[var(--text-secondary)] truncate">
                     {truncate(log.output, 120)}
                   </span>
-                  <span className="shrink-0 text-xs text-[#6a7f8f] hidden md:block">{log.latency_ms}ms</span>
-                  <span className="shrink-0 text-xs text-[#6a7f8f] hidden md:block">{log.input_tokens}↑ {log.output_tokens}↓</span>
-                  <span className="shrink-0 text-xs text-[#6a7f8f] hidden lg:block">{formatDate(log.created_at)}</span>
+                  <span className="shrink-0 text-xs text-[var(--text-muted)] hidden md:block">{log.latency_ms}ms</span>
+                  <span className="shrink-0 text-xs text-[var(--text-muted)] hidden md:block">{log.input_tokens}↑ {log.output_tokens}↓</span>
+                  <span className="shrink-0 text-xs text-[var(--text-muted)] hidden lg:block">{formatDate(log.created_at)}</span>
                   <span className="shrink-0 text-base">
                     {log.rating === "good" ? "✅" : log.rating === "bad" ? "❌" : "·"}
                   </span>
-                  <span className="shrink-0 text-[#6a7f8f] text-xs">{isExpanded ? "▲" : "▼"}</span>
+                  <span className="shrink-0 text-[var(--text-muted)] text-xs">{isExpanded ? "▲" : "▼"}</span>
                 </button>
 
                 {/* Expanded */}
@@ -227,23 +227,23 @@ export default function AdminPage() {
                   <div className="border-t border-[#e8e4de] px-5 py-6 flex flex-col gap-6">
 
                     {/* Meta */}
-                    <div className="flex flex-wrap gap-4 text-xs text-[#6a7f8f]">
-                      <span><strong className="text-[#4a6580]">Model:</strong> {log.model}</span>
-                      <span><strong className="text-[#4a6580]">Latency:</strong> {log.latency_ms}ms</span>
-                      <span><strong className="text-[#4a6580]">Tokens:</strong> {log.input_tokens} in / {log.output_tokens} out</span>
-                      <span><strong className="text-[#4a6580]">Date:</strong> {formatDate(log.created_at)}</span>
+                    <div className="flex flex-wrap gap-4 text-xs text-[var(--text-muted)]">
+                      <span><strong className="text-[var(--text-secondary)]">Model:</strong> {log.model}</span>
+                      <span><strong className="text-[var(--text-secondary)]">Latency:</strong> {log.latency_ms}ms</span>
+                      <span><strong className="text-[var(--text-secondary)]">Tokens:</strong> {log.input_tokens} in / {log.output_tokens} out</span>
+                      <span><strong className="text-[var(--text-secondary)]">Date:</strong> {formatDate(log.created_at)}</span>
                     </div>
 
                     {/* Prompt */}
                     <div>
-                      <h3 className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-2">Prompt</h3>
-                      <pre className="bg-[#f8f6f1] border border-[#e8e4de] rounded-xl p-4 text-xs text-[#4a6580] overflow-x-auto whitespace-pre-wrap font-mono">{log.prompt}</pre>
+                      <h3 className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest mb-2">Prompt</h3>
+                      <pre className="bg-[#f8f6f1] border border-[#e8e4de] rounded-xl p-4 text-xs text-[var(--text-secondary)] overflow-x-auto whitespace-pre-wrap font-mono">{log.prompt}</pre>
                     </div>
 
                     {/* Composition context — surfaced when present */}
                     {(log.input.travelerCount != null || (log.input.childrenAges as string[] | null)?.length) && (
                       <div>
-                        <h3 className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-2">Composition</h3>
+                        <h3 className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest mb-2">Composition</h3>
                         <div className="flex flex-wrap gap-2">
                           {log.input.travelerCount != null && (
                             <span className="rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs px-3 py-1.5 font-medium">
@@ -261,19 +261,19 @@ export default function AdminPage() {
 
                     {/* Input */}
                     <div>
-                      <h3 className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-2">Input</h3>
-                      <pre className="bg-[#f8f6f1] border border-[#e8e4de] rounded-xl p-4 text-xs text-[#4a6580] overflow-x-auto whitespace-pre-wrap font-mono">{JSON.stringify(log.input, null, 2)}</pre>
+                      <h3 className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest mb-2">Input</h3>
+                      <pre className="bg-[#f8f6f1] border border-[#e8e4de] rounded-xl p-4 text-xs text-[var(--text-secondary)] overflow-x-auto whitespace-pre-wrap font-mono">{JSON.stringify(log.input, null, 2)}</pre>
                     </div>
 
                     {/* Output */}
                     <div>
-                      <h3 className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-2">Output</h3>
-                      <pre className="bg-[#f8f6f1] border border-[#e8e4de] rounded-xl p-4 text-xs text-[#4a6580] overflow-x-auto whitespace-pre-wrap font-mono">{log.output}</pre>
+                      <h3 className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest mb-2">Output</h3>
+                      <pre className="bg-[#f8f6f1] border border-[#e8e4de] rounded-xl p-4 text-xs text-[var(--text-secondary)] overflow-x-auto whitespace-pre-wrap font-mono">{log.output}</pre>
                     </div>
 
                     {/* Rating */}
                     <div>
-                      <h3 className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-3">Rating</h3>
+                      <h3 className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest mb-3">Rating</h3>
                       <div className="flex gap-3">
                         {(["good", "bad"] as const).map((r) => (
                           <button key={r}
@@ -281,7 +281,7 @@ export default function AdminPage() {
                             className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold border transition-colors ${
                               log.rating === r
                                 ? r === "good" ? "border-green-500/50 bg-green-500/10 text-green-400" : "border-red-500/50 bg-red-500/10 text-red-400"
-                                : "border-[#d4cfc5] text-[#6a7f8f] hover:border-[#b8b3a9] hover:text-[#0e2a47]"
+                                : "border-[#d4cfc5] text-[var(--text-muted)] hover:border-[#b8b3a9] hover:text-[var(--text-primary)]"
                             }`}>
                             {r === "good" ? "✅ Good" : "❌ Bad"}
                           </button>
@@ -291,7 +291,7 @@ export default function AdminPage() {
 
                     {/* Notes */}
                     <div>
-                      <h3 className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-3">Notes</h3>
+                      <h3 className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest mb-3">Notes</h3>
                       <textarea
                         rows={3}
                         value={pendingNotes[log.id] ?? log.notes ?? ""}

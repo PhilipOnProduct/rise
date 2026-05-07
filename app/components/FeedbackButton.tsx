@@ -67,12 +67,12 @@ export default function FeedbackButton() {
           {status === "done" ? (
             <div className="text-center py-6">
               <div className="text-2xl mb-2">✓</div>
-              <p className="text-[#0e2a47] font-semibold">Thanks for the feedback!</p>
+              <p className="text-[var(--text-primary)] font-semibold">Thanks for the feedback!</p>
             </div>
           ) : status === "error" ? (
             <div className="text-center py-6">
               <p className="text-[#b91c1c] font-semibold mb-2">Couldn&rsquo;t send feedback</p>
-              <p className="text-[#6a7f8f] text-sm mb-4">Please try again in a moment.</p>
+              <p className="text-[var(--text-muted)] text-sm mb-4">Please try again in a moment.</p>
               <button
                 onClick={() => setStatus("idle")}
                 className="text-sm font-bold text-[#1a6b7f] hover:text-[#155a6b]"
@@ -83,10 +83,10 @@ export default function FeedbackButton() {
           ) : (
             <>
               <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold text-[#0e2a47]">Send feedback</p>
+                <p className="text-sm font-semibold text-[var(--text-primary)]">Send feedback</p>
                 <button
                   onClick={() => setOpen(false)}
-                  className="text-[#6a7f8f] hover:text-[#0e2a47] transition-colors text-lg leading-none"
+                  className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors text-lg leading-none"
                   aria-label="Close"
                 >
                   ×
@@ -98,7 +98,7 @@ export default function FeedbackButton() {
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 placeholder="What's on your mind?"
-                className="w-full bg-[#f8f6f1] border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-sm text-[#0e2a47] placeholder-[#9ca3af] resize-none transition-colors"
+                className="w-full bg-[#f8f6f1] border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-sm text-[var(--text-primary)] placeholder-[#9ca3af] resize-none transition-colors"
               />
               <button
                 onClick={handleSend}

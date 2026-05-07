@@ -94,7 +94,7 @@ function ProviderCard({
   return (
     <div className="bg-white border border-[#e8e4de] rounded-2xl p-6 flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold text-[#0e2a47] capitalize">{provider}</h2>
+        <h2 className="text-lg font-bold text-[var(--text-primary)] capitalize">{provider}</h2>
         <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
           status.warningLevel === "exceeded" ? "bg-[#fde8e8] text-[#c0392b]"
             : status.warningLevel === "warning" ? "bg-[#fef3e2] text-[#ba7517]"
@@ -105,40 +105,40 @@ function ProviderCard({
       <ProgressBar percent={status.percentUsed} level={status.warningLevel} />
 
       <div className="flex items-center justify-between text-sm">
-        <span className="text-[#0e2a47] font-semibold">${status.spentUsd.toFixed(4)} <span className="text-[#6a7f8f] font-normal">/ ${status.limitUsd.toFixed(2)}</span></span>
+        <span className="text-[var(--text-primary)] font-semibold">${status.spentUsd.toFixed(4)} <span className="text-[var(--text-muted)] font-normal">/ ${status.limitUsd.toFixed(2)}</span></span>
         <span className={`font-semibold ${levelColor}`}>{Math.round(status.percentUsed)}%</span>
       </div>
 
-      <p className="text-xs text-[#6a7f8f]">
-        Projected month-end: <span className="font-semibold text-[#0e2a47]">${projection.toFixed(4)}</span>
+      <p className="text-xs text-[var(--text-muted)]">
+        Projected month-end: <span className="font-semibold text-[var(--text-primary)]">${projection.toFixed(4)}</span>
       </p>
 
       {/* Editable settings */}
       <div className="border-t border-[#e8e4de] pt-4 flex flex-col gap-3">
-        <p className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest">Limits</p>
+        <p className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest">Limits</p>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs text-[#6a7f8f] mb-1">Monthly limit (USD)</label>
+            <label className="block text-xs text-[var(--text-muted)] mb-1">Monthly limit (USD)</label>
             <input
               type="number"
               step="1"
               value={limit}
               onChange={(e) => setLimit(e.target.value)}
-              className="w-full bg-[#f8f6f1] border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-3 py-2 text-[#0e2a47] text-sm"
+              className="w-full bg-[#f8f6f1] border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-3 py-2 text-[var(--text-primary)] text-sm"
             />
           </div>
           <div>
-            <label className="block text-xs text-[#6a7f8f] mb-1">Warning threshold (%)</label>
+            <label className="block text-xs text-[var(--text-muted)] mb-1">Warning threshold (%)</label>
             <input
               type="number"
               step="5"
               value={threshold}
               onChange={(e) => setThreshold(e.target.value)}
-              className="w-full bg-[#f8f6f1] border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-3 py-2 text-[#0e2a47] text-sm"
+              className="w-full bg-[#f8f6f1] border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-3 py-2 text-[var(--text-primary)] text-sm"
             />
           </div>
         </div>
-        <label className="flex items-center gap-2 text-sm text-[#0e2a47] cursor-pointer">
+        <label className="flex items-center gap-2 text-sm text-[var(--text-primary)] cursor-pointer">
           <input
             type="checkbox"
             checked={hardLimit}
@@ -187,7 +187,7 @@ export default function UsagePage() {
     });
   }, []);
 
-  if (loading) return <main className="min-h-screen bg-[#f8f6f1] px-6 py-10"><p className="text-sm text-[#6a7f8f]">Loading…</p></main>;
+  if (loading) return <main className="min-h-screen bg-[#f8f6f1] px-6 py-10"><p className="text-sm text-[var(--text-muted)]">Loading…</p></main>;
 
   const sorted = [...usageLog].sort((a, b) => {
     if (sortBy === "cost") return parseFloat(b.estimated_cost_usd) - parseFloat(a.estimated_cost_usd);
@@ -199,7 +199,7 @@ export default function UsagePage() {
       <div className="max-w-4xl mx-auto">
         <div className="mb-8">
           <h1 className="text-4xl font-extrabold tracking-tight mb-2">API Usage</h1>
-          <p className="text-[#4a6580]">Monitor spend, set limits, and track API calls.</p>
+          <p className="text-[var(--text-secondary)]">Monitor spend, set limits, and track API calls.</p>
         </div>
 
         {/* Provider cards */}
@@ -223,7 +223,7 @@ export default function UsagePage() {
         {/* Usage log */}
         <div>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-base font-bold text-[#0e2a47]">Recent usage</h2>
+            <h2 className="text-base font-bold text-[var(--text-primary)]">Recent usage</h2>
             <div className="flex gap-2">
               {(["date", "cost"] as const).map((s) => (
                 <button
@@ -232,7 +232,7 @@ export default function UsagePage() {
                   className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors ${
                     sortBy === s
                       ? "bg-[#1a6b7f] text-white border-[#1a6b7f]"
-                      : "bg-white text-[#6a7f8f] border-[#d4cfc5] hover:border-[#b8b3a9]"
+                      : "bg-white text-[var(--text-muted)] border-[#d4cfc5] hover:border-[#b8b3a9]"
                   }`}
                 >
                   {s === "date" ? "By date" : "By cost"}
@@ -242,12 +242,12 @@ export default function UsagePage() {
           </div>
 
           {sorted.length === 0 ? (
-            <p className="text-sm text-[#6a7f8f]">No usage logged yet.</p>
+            <p className="text-sm text-[var(--text-muted)]">No usage logged yet.</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-xs text-[#6a7f8f] uppercase tracking-widest border-b border-[#e8e4de]">
+                  <tr className="text-xs text-[var(--text-muted)] uppercase tracking-widest border-b border-[#e8e4de]">
                     <th className="text-left py-3 px-2">Date</th>
                     <th className="text-left py-3 px-2">Provider</th>
                     <th className="text-left py-3 px-2">Type</th>
@@ -259,16 +259,16 @@ export default function UsagePage() {
                 <tbody>
                   {sorted.map((row) => (
                     <tr key={row.id} className="border-b border-[#f0ede8] hover:bg-[#f0ede8] transition-colors">
-                      <td className="py-2.5 px-2 text-[#6a7f8f] text-xs">{formatDate(row.created_at)}</td>
-                      <td className="py-2.5 px-2 text-[#0e2a47] capitalize">{row.provider}</td>
-                      <td className="py-2.5 px-2 text-[#4a6580]">{row.api_type}</td>
-                      <td className="py-2.5 px-2 text-[#6a7f8f]">{row.feature ?? "—"}</td>
-                      <td className="py-2.5 px-2 text-right text-[#4a6580] text-xs">
+                      <td className="py-2.5 px-2 text-[var(--text-muted)] text-xs">{formatDate(row.created_at)}</td>
+                      <td className="py-2.5 px-2 text-[var(--text-primary)] capitalize">{row.provider}</td>
+                      <td className="py-2.5 px-2 text-[var(--text-secondary)]">{row.api_type}</td>
+                      <td className="py-2.5 px-2 text-[var(--text-muted)]">{row.feature ?? "—"}</td>
+                      <td className="py-2.5 px-2 text-right text-[var(--text-secondary)] text-xs">
                         {row.provider === "anthropic"
                           ? `${(row.input_tokens ?? 0).toLocaleString()} in / ${(row.output_tokens ?? 0).toLocaleString()} out`
                           : `${row.request_count} req`}
                       </td>
-                      <td className="py-2.5 px-2 text-right text-[#0e2a47] font-semibold">${parseFloat(row.estimated_cost_usd).toFixed(6)}</td>
+                      <td className="py-2.5 px-2 text-right text-[var(--text-primary)] font-semibold">${parseFloat(row.estimated_cost_usd).toFixed(6)}</td>
                     </tr>
                   ))}
                 </tbody>

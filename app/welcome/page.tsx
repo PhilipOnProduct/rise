@@ -292,15 +292,15 @@ function PreviewDayCard({ day }: { day: PreviewDay }) {
         data-testid={`transition-day-${day.day_number}`}
         className="rounded-2xl border border-dashed border-[#d4cfc5] bg-[#f5f2ec] p-5"
       >
-        <p className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-1">
+        <p className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest mb-1">
           Day {day.day_number}
           {day.date ? ` · ${day.date}` : ""} · Travel day
         </p>
-        <p className="text-sm text-[#4a6580]">
+        <p className="text-sm text-[var(--text-secondary)]">
           {transitionItem?.title ?? "Travel between legs."}
         </p>
         {transitionItem?.description && (
-          <p className="text-xs text-[#6a7f8f] mt-1">
+          <p className="text-xs text-[var(--text-muted)] mt-1">
             {transitionItem.description}
           </p>
         )}
@@ -317,15 +317,15 @@ function PreviewDayCard({ day }: { day: PreviewDay }) {
         {day.items.map((item) => (
           <li key={item.id} className="flex flex-col gap-0.5">
             <div className="flex items-baseline gap-2">
-              <span className="text-[10px] uppercase tracking-widest text-[#6a7f8f] w-16 shrink-0">
+              <span className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] w-16 shrink-0">
                 {item.time_block}
               </span>
-              <span className="text-sm font-semibold text-[#0e2a47]">
+              <span className="text-sm font-semibold text-[var(--text-primary)]">
                 {item.title}
               </span>
             </div>
             {item.description && (
-              <p className="text-xs text-[#4a6580] ml-[72px] leading-relaxed">
+              <p className="text-xs text-[var(--text-secondary)] ml-[72px] leading-relaxed">
                 {item.description}
               </p>
             )}
@@ -407,10 +407,10 @@ function ActivityCard({
       }`}
     >
       <div className="mb-3">
-        <div className="font-bold text-[#0e2a47] text-base leading-snug">{activity.name}</div>
+        <div className="font-bold text-[var(--text-primary)] text-base leading-snug">{activity.name}</div>
         <div className="text-xs text-[#1a6b7f] font-semibold mt-0.5">{activity.category}</div>
       </div>
-      <p className="text-sm text-[#4a6580] leading-relaxed mb-4">{activity.description}</p>
+      <p className="text-sm text-[var(--text-secondary)] leading-relaxed mb-4">{activity.description}</p>
 
       {/* PHI-32: "Why this" rationale — collapsed by default. Trust signal
           without visual noise. Hidden if the model didn't return one. */}
@@ -425,7 +425,7 @@ function ActivityCard({
             }}
             aria-expanded={rationaleOpen}
             aria-controls={`rationale-${activity.id}`}
-            className="text-xs text-[#1a6b7f] hover:text-[#0e2a47] underline-offset-4 hover:underline transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1a6b7f] focus-visible:ring-offset-2 rounded"
+            className="text-xs text-[#1a6b7f] hover:text-[var(--text-primary)] underline-offset-4 hover:underline transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1a6b7f] focus-visible:ring-offset-2 rounded"
             data-testid={`why-this-${activity.id}`}
           >
             {rationaleOpen ? "Hide why ↑" : "Why this →"}
@@ -435,7 +435,7 @@ function ActivityCard({
               id={`rationale-${activity.id}`}
               role="region"
               aria-live="polite"
-              className="mt-2 px-3 py-2.5 rounded-xl bg-[#f0ede8] text-xs text-[#4a6580] leading-relaxed"
+              className="mt-2 px-3 py-2.5 rounded-xl bg-[#f0ede8] text-xs text-[var(--text-secondary)] leading-relaxed"
             >
               {activity.rationale}
             </div>
@@ -454,7 +454,7 @@ function ActivityCard({
               className={`flex items-center justify-center w-12 h-12 rounded-xl border text-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1a6b7f] focus-visible:ring-offset-2 ${
                 isThumbsUp
                   ? "border-[#1a6b7f] bg-[#1a6b7f] text-white shadow-sm"
-                  : "border-[#d4cfc5] text-[#6a7f8f] hover:border-[#1a6b7f]/40 hover:text-[#1a6b7f]"
+                  : "border-[#d4cfc5] text-[var(--text-muted)] hover:border-[#1a6b7f]/40 hover:text-[#1a6b7f]"
               }`}
               title="Interested"
               aria-label={`Interested in ${activity.name}`}
@@ -463,7 +463,7 @@ function ActivityCard({
             </button>
             <button
               onClick={onThumbsDown}
-              className="flex items-center justify-center w-12 h-12 rounded-xl border border-[#d4cfc5] text-lg text-[#6a7f8f] hover:border-red-500/40 hover:text-red-400 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2"
+              className="flex items-center justify-center w-12 h-12 rounded-xl border border-[#d4cfc5] text-lg text-[var(--text-muted)] hover:border-red-500/40 hover:text-red-400 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2"
               title="Not for me"
               aria-label={`Not for me: ${activity.name}`}
             >
@@ -471,7 +471,7 @@ function ActivityCard({
             </button>
             <button
               onClick={onSkip}
-              className="ml-auto text-xs text-[#6a7f8f] hover:text-[#4a6580] underline-offset-4 hover:underline transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1a6b7f] focus-visible:ring-offset-2 rounded px-2 py-1"
+              className="ml-auto text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] underline-offset-4 hover:underline transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1a6b7f] focus-visible:ring-offset-2 rounded px-2 py-1"
               title="Skip — not sure"
               aria-label={`Skip ${activity.name} — not sure`}
             >
@@ -489,17 +489,17 @@ function ActivityCard({
               <button
                 key={chip.label}
                 onClick={() => onChipSelect(chip)}
-                className="rounded-xl border border-[#d4cfc5] px-3 py-1.5 text-xs font-medium text-[#4a6580] hover:border-[#b8b3a9] hover:text-[#0e2a47] transition-colors"
+                className="rounded-xl border border-[#d4cfc5] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:border-[#b8b3a9] hover:text-[var(--text-primary)] transition-colors"
               >
                 {chip.label}
               </button>
             ))}
           </div>
           <div className="flex items-center justify-between">
-            <p className="text-xs text-[#6a7f8f]">Pick one to help us plan better.</p>
+            <p className="text-xs text-[var(--text-muted)]">Pick one to help us plan better.</p>
             <button
               onClick={onUndo}
-              className="text-xs text-[#6a7f8f] hover:text-[#4a6580] transition-colors"
+              className="text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
             >
               ← Undo
             </button>
@@ -511,12 +511,12 @@ function ActivityCard({
       {isHardExcluded && <p className="text-xs text-orange-400">We&apos;ll skip this.</p>}
 
       {/* Soft signal or no-chip submission */}
-      {isNoted && <p className="text-xs text-[#6a7f8f]">👎 Noted — we&apos;ll adjust.</p>}
+      {isNoted && <p className="text-xs text-[var(--text-muted)]">👎 Noted — we&apos;ll adjust.</p>}
 
       {/* PHI-28: skipped — distinct visual from thumbs-down so users see
           their conscious "not sure" was registered */}
       {isSkipped && (
-        <p className="text-xs text-[#6a7f8f]">Skipped — no preference recorded.</p>
+        <p className="text-xs text-[var(--text-muted)]">Skipped — no preference recorded.</p>
       )}
     </div>
   );
@@ -1578,10 +1578,10 @@ function WelcomePageInner() {
         <main className="min-h-screen flex flex-col items-center justify-center px-6 py-10" style={{ backgroundColor: "#f8f6f1" }}>
           <div className="w-full max-w-xl animate-step" key={animKey}>
             <p className="font-extrabold text-xl tracking-tight mb-10" style={{ color: "#0e2a47" }}>Rise</p>
-            <h1 className="text-3xl md:text-4xl font-extrabold text-[#0e2a47] mb-3">
+            <h1 className="text-3xl md:text-4xl font-extrabold text-[var(--text-primary)] mb-3">
               Got it. Anything to fix?
             </h1>
-            <p className="text-base text-[#4a6580] mb-6">
+            <p className="text-base text-[var(--text-secondary)] mb-6">
               Here&apos;s what we picked up. Tap any chip to fix it; we&apos;ll
               walk through the rest after.
             </p>
@@ -1624,7 +1624,7 @@ function WelcomePageInner() {
                       types={["(cities)"]}
                       autoFocus
                       theme="light"
-                      className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-3 py-2 text-sm text-[#0e2a47] placeholder-[#9ca3af] transition-colors"
+                      className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-3 py-2 text-sm text-[var(--text-primary)] placeholder-[#9ca3af] transition-colors"
                     />
                     <div className="flex gap-2">
                       <button
@@ -1652,7 +1652,7 @@ function WelcomePageInner() {
                           setEditingChipKey(null);
                           setDestEditDraft("");
                         }}
-                        className="text-xs text-[#6a7f8f] hover:text-[#4a6580] transition-colors"
+                        className="text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
                       >
                         Cancel
                       </button>
@@ -1665,7 +1665,7 @@ function WelcomePageInner() {
                       setDestEditDraft("");
                       setEditingChipKey("destination-add");
                     }}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-dashed border-[#d4a94a]/60 bg-white px-3 py-1.5 text-sm text-[#0e2a47] hover:border-[#1a6b7f] transition-colors"
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-dashed border-[#d4a94a]/60 bg-white px-3 py-1.5 text-sm text-[var(--text-primary)] hover:border-[#1a6b7f] transition-colors"
                     aria-label="Add destination"
                   >
                     <span>📍</span>
@@ -1709,7 +1709,7 @@ function WelcomePageInner() {
                           types={["(cities)"]}
                           autoFocus
                           theme="light"
-                          className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-3 py-2 text-sm text-[#0e2a47] placeholder-[#9ca3af] transition-colors"
+                          className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-3 py-2 text-sm text-[var(--text-primary)] placeholder-[#9ca3af] transition-colors"
                         />
                         <div className="flex gap-2">
                           <button
@@ -1737,7 +1737,7 @@ function WelcomePageInner() {
                               setEditingChipKey(null);
                               setDestEditDraft("");
                             }}
-                            className="text-xs text-[#6a7f8f] hover:text-[#4a6580] transition-colors"
+                            className="text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
                           >
                             Cancel
                           </button>
@@ -1753,7 +1753,7 @@ function WelcomePageInner() {
                         setDestEditDraft(d.name);
                         setEditingChipKey(editKey);
                       }}
-                      className="inline-flex items-center gap-1.5 rounded-xl border border-[#d4cfc5] bg-white px-3 py-1.5 text-sm text-[#0e2a47] hover:border-[#1a6b7f] transition-colors"
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-[#d4cfc5] bg-white px-3 py-1.5 text-sm text-[var(--text-primary)] hover:border-[#1a6b7f] transition-colors"
                       aria-label={`Edit destination ${d.name}`}
                     >
                       <span>📍</span>
@@ -1773,7 +1773,7 @@ function WelcomePageInner() {
                   data-testid="dates-editor"
                 >
                   <div className="flex flex-col sm:flex-row gap-3">
-                    <label className="flex flex-col gap-1 text-xs text-[#6a7f8f] flex-1">
+                    <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)] flex-1">
                       <span className="font-semibold uppercase tracking-widest">Departure</span>
                       <input
                         type="date"
@@ -1787,11 +1787,11 @@ function WelcomePageInner() {
                             },
                           })
                         }
-                        className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-3 py-2 text-sm text-[#0e2a47] transition-colors"
+                        className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-3 py-2 text-sm text-[var(--text-primary)] transition-colors"
                         autoFocus
                       />
                     </label>
-                    <label className="flex flex-col gap-1 text-xs text-[#6a7f8f] flex-1">
+                    <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)] flex-1">
                       <span className="font-semibold uppercase tracking-widest">Return</span>
                       <input
                         type="date"
@@ -1805,7 +1805,7 @@ function WelcomePageInner() {
                             },
                           })
                         }
-                        className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-3 py-2 text-sm text-[#0e2a47] transition-colors"
+                        className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-3 py-2 text-sm text-[var(--text-primary)] transition-colors"
                       />
                     </label>
                   </div>
@@ -1823,7 +1823,7 @@ function WelcomePageInner() {
                 <button
                   type="button"
                   onClick={() => setEditingChipKey("dates")}
-                  className={`inline-flex items-center gap-1.5 rounded-xl border bg-white px-3 py-1.5 text-sm text-[#0e2a47] hover:border-[#1a6b7f] transition-colors ${
+                  className={`inline-flex items-center gap-1.5 rounded-xl border bg-white px-3 py-1.5 text-sm text-[var(--text-primary)] hover:border-[#1a6b7f] transition-colors ${
                     intent.dates.departure && intent.dates.return
                       ? "border-[#d4cfc5]"
                       : "border-dashed border-[#d4a94a]/60"
@@ -1865,7 +1865,7 @@ function WelcomePageInner() {
                   >
                     −
                   </button>
-                  <span className="text-sm font-semibold text-[#0e2a47] w-10 text-center">
+                  <span className="text-sm font-semibold text-[var(--text-primary)] w-10 text-center">
                     {intent.party.adults ?? 1}
                   </span>
                   <button
@@ -1895,7 +1895,7 @@ function WelcomePageInner() {
                 <button
                   type="button"
                   onClick={() => setEditingChipKey("adults")}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-[#d4cfc5] bg-white px-3 py-1.5 text-sm text-[#0e2a47] hover:border-[#1a6b7f] transition-colors"
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-[#d4cfc5] bg-white px-3 py-1.5 text-sm text-[var(--text-primary)] hover:border-[#1a6b7f] transition-colors"
                   aria-label="Edit adult count"
                 >
                   <span>👤</span>
@@ -1908,7 +1908,7 @@ function WelcomePageInner() {
 
               {/* Children — read-only display (count + ages) */}
               {intent.party.children?.length ? (
-                <span className="inline-flex items-center gap-1.5 rounded-xl border border-[#d4cfc5] bg-white px-3 py-1.5 text-sm text-[#0e2a47]">
+                <span className="inline-flex items-center gap-1.5 rounded-xl border border-[#d4cfc5] bg-white px-3 py-1.5 text-sm text-[var(--text-primary)]">
                   <span>👶</span>
                   <span className="font-medium">
                     {intent.party.children.length}{" "}
@@ -1919,7 +1919,7 @@ function WelcomePageInner() {
 
               {/* Style — read-only chip; user can edit in the wizard */}
               {intent.styleTags?.length ? (
-                <span className="inline-flex items-center gap-1.5 rounded-xl border border-[#d4cfc5] bg-white px-3 py-1.5 text-sm text-[#0e2a47]">
+                <span className="inline-flex items-center gap-1.5 rounded-xl border border-[#d4cfc5] bg-white px-3 py-1.5 text-sm text-[var(--text-primary)]">
                   <span>🎯</span>
                   <span className="font-medium">{intent.styleTags.join(", ")}</span>
                 </span>
@@ -1927,7 +1927,7 @@ function WelcomePageInner() {
 
               {/* Budget — read-only */}
               {intent.budgetTier && (
-                <span className="inline-flex items-center gap-1.5 rounded-xl border border-[#d4cfc5] bg-white px-3 py-1.5 text-sm text-[#0e2a47]">
+                <span className="inline-flex items-center gap-1.5 rounded-xl border border-[#d4cfc5] bg-white px-3 py-1.5 text-sm text-[var(--text-primary)]">
                   <span>💼</span>
                   <span className="font-medium">{intent.budgetTier}</span>
                 </span>
@@ -1935,7 +1935,7 @@ function WelcomePageInner() {
 
               {/* Occasion — read-only */}
               {intent.occasion && (
-                <span className="inline-flex items-center gap-1.5 rounded-xl border border-[#d4cfc5] bg-white px-3 py-1.5 text-sm text-[#0e2a47]">
+                <span className="inline-flex items-center gap-1.5 rounded-xl border border-[#d4cfc5] bg-white px-3 py-1.5 text-sm text-[var(--text-primary)]">
                   <span>✨</span>
                   <span className="font-medium">{intent.occasion}</span>
                 </span>
@@ -1943,7 +1943,7 @@ function WelcomePageInner() {
 
               {/* Constraints — read-only with full text */}
               {(intent.constraintTags?.length || intent.constraintText) && (
-                <span className="inline-flex items-center gap-1.5 rounded-xl border border-[#d4a94a]/40 bg-[#d4a94a]/5 px-3 py-1.5 text-sm text-[#0e2a47]">
+                <span className="inline-flex items-center gap-1.5 rounded-xl border border-[#d4a94a]/40 bg-[#d4a94a]/5 px-3 py-1.5 text-sm text-[var(--text-primary)]">
                   <span>⚠</span>
                   <span className="font-medium">
                     {[
@@ -1985,12 +1985,12 @@ function WelcomePageInner() {
                         updateIntent({ inspiration: v || undefined });
                         setEditingChipKey(null);
                       }}
-                      className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-3 py-2 text-sm text-[#0e2a47] placeholder-[#9ca3af] transition-colors"
+                      className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-3 py-2 text-sm text-[var(--text-primary)] placeholder-[#9ca3af] transition-colors"
                     />
                   </div>
                 ) : (
                   <span
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-[#d4cfc5] bg-white px-3 py-1.5 text-sm text-[#0e2a47]"
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-[#d4cfc5] bg-white px-3 py-1.5 text-sm text-[var(--text-primary)]"
                     data-testid="inspiration-chip"
                   >
                     <span>💡</span>
@@ -2006,7 +2006,7 @@ function WelcomePageInner() {
                     <button
                       type="button"
                       onClick={() => updateIntent({ inspiration: undefined })}
-                      className="text-[#6a7f8f] hover:text-[#4a6580] text-xs"
+                      className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] text-xs"
                       aria-label="Remove inspiration"
                     >
                       ×
@@ -2076,10 +2076,10 @@ function WelcomePageInner() {
                   className="mb-6 rounded-2xl border border-[#d4cfc5] bg-white px-5 py-4"
                   data-testid="leg-allocator"
                 >
-                  <p className="text-xs font-bold text-[#0e2a47] uppercase tracking-widest mb-1">
+                  <p className="text-xs font-bold text-[var(--text-primary)] uppercase tracking-widest mb-1">
                     Nights per stop
                   </p>
-                  <p className="text-xs text-[#6a7f8f] mb-3">
+                  <p className="text-xs text-[var(--text-muted)] mb-3">
                     {totalNights > 0
                       ? `We've split ${totalNights} night${totalNights === 1 ? "" : "s"} evenly. Tap +/− to adjust.`
                       : "Set how many nights you'll spend at each stop."}
@@ -2091,7 +2091,7 @@ function WelcomePageInner() {
                         className="flex items-center justify-between gap-3"
                         data-testid={`leg-allocator-row-${i}`}
                       >
-                        <span className="text-sm text-[#0e2a47] font-medium truncate">
+                        <span className="text-sm text-[var(--text-primary)] font-medium truncate">
                           {d.name}
                         </span>
                         <span className="flex items-center gap-1.5 shrink-0">
@@ -2105,7 +2105,7 @@ function WelcomePageInner() {
                             −
                           </button>
                           <span
-                            className="text-sm w-16 text-center font-medium text-[#0e2a47]"
+                            className="text-sm w-16 text-center font-medium text-[var(--text-primary)]"
                             data-testid={`leg-allocator-value-${i}`}
                           >
                             {split[i] ?? 0} night{(split[i] ?? 0) === 1 ? "" : "s"}
@@ -2133,10 +2133,10 @@ function WelcomePageInner() {
 
             {intent.clarifications.length > 0 && (
               <div className="mb-6 rounded-2xl border border-[#d4a94a]/40 bg-[#d4a94a]/5 px-5 py-4">
-                <p className="text-xs font-bold text-[#0e2a47] uppercase tracking-widest mb-2">
+                <p className="text-xs font-bold text-[var(--text-primary)] uppercase tracking-widest mb-2">
                   A few things we&apos;ll ask in the next steps
                 </p>
-                <ul className="text-sm text-[#4a6580] flex flex-col gap-1.5">
+                <ul className="text-sm text-[var(--text-secondary)] flex flex-col gap-1.5">
                   {intent.clarifications.map((c, i) => (
                     <li key={i}>· {c}</li>
                   ))}
@@ -2157,7 +2157,7 @@ function WelcomePageInner() {
                 setEditingChipKey(null);
                 setDestEditDraft("");
               }}
-              className="w-full text-sm text-[#6a7f8f] hover:text-[#4a6580] underline-offset-4 hover:underline transition-colors"
+              className="w-full text-sm text-[var(--text-muted)] hover:text-[var(--text-secondary)] underline-offset-4 hover:underline transition-colors"
             >
               Start over
             </button>
@@ -2186,7 +2186,7 @@ function WelcomePageInner() {
             disabled={parserPhase === "parsing"}
             placeholder="e.g. Two of us, Portugal and Spain for two weeks in June, love food and history, no hiking, my wife has a knee issue."
             rows={4}
-            className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-2xl px-5 py-4 text-base text-[#0e2a47] placeholder-[#9ca3af] transition-colors mb-4"
+            className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-2xl px-5 py-4 text-base text-[var(--text-primary)] placeholder-[#9ca3af] transition-colors mb-4"
             data-testid="parser-textarea"
             autoFocus
           />
@@ -2201,7 +2201,7 @@ function WelcomePageInner() {
                 type="button"
                 onClick={() => setParserText(sample)}
                 disabled={parserPhase === "parsing"}
-                className="text-xs text-[#1a6b7f] hover:text-[#0e2a47] underline-offset-4 hover:underline transition-colors disabled:opacity-40"
+                className="text-xs text-[#1a6b7f] hover:text-[var(--text-primary)] underline-offset-4 hover:underline transition-colors disabled:opacity-40"
               >
                 · {sample}
               </button>
@@ -2224,7 +2224,7 @@ function WelcomePageInner() {
           <button
             onClick={() => setParserPhase("structured")}
             disabled={parserPhase === "parsing"}
-            className="w-full text-sm text-[#6a7f8f] hover:text-[#4a6580] underline-offset-4 hover:underline transition-colors py-2"
+            className="w-full text-sm text-[var(--text-muted)] hover:text-[var(--text-secondary)] underline-offset-4 hover:underline transition-colors py-2"
             data-testid="use-structured-form"
           >
             Or step by step →
@@ -2273,7 +2273,7 @@ function WelcomePageInner() {
             <button
               type="button"
               onClick={useDestinationAsTyped}
-              className="mt-3 text-sm text-[#1a6b7f] hover:text-[#0e2a47] underline-offset-4 hover:underline transition-colors"
+              className="mt-3 text-sm text-[#1a6b7f] hover:text-[var(--text-primary)] underline-offset-4 hover:underline transition-colors"
               data-testid="use-destination-anyway"
             >
               Use &ldquo;{destination.trim()}&rdquo; anyway →
@@ -2340,9 +2340,9 @@ function WelcomePageInner() {
   };
 
   const darkInput =
-    "w-full bg-white border border-[#b8b3a9] focus:border-[#1a6b7f] outline-none rounded-xl px-5 py-4 text-[#0e2a47] text-lg placeholder-[#9ca3af] transition-colors";
+    "w-full bg-white border border-[#b8b3a9] focus:border-[#1a6b7f] outline-none rounded-xl px-5 py-4 text-[var(--text-primary)] text-lg placeholder-[#9ca3af] transition-colors";
   const underlineInput =
-    "w-full bg-transparent border-b-2 border-[#d4cfc5] focus:border-[#1a6b7f] outline-none text-3xl font-semibold text-[#0e2a47] placeholder-[#9ca3af] py-3 transition-colors";
+    "w-full bg-transparent border-b-2 border-[#d4cfc5] focus:border-[#1a6b7f] outline-none text-3xl font-semibold text-[var(--text-primary)] placeholder-[#9ca3af] py-3 transition-colors";
 
   return (
     <main className="min-h-screen bg-[#f8f6f1] flex flex-col">
@@ -2359,11 +2359,11 @@ function WelcomePageInner() {
       <div className="flex items-center justify-between px-6 pt-5 pb-2">
         <button
           onClick={() => goTo(step - 1)}
-          className="text-[#4a6580] hover:text-[#0e2a47] transition-colors text-sm font-medium"
+          className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors text-sm font-medium"
         >
           ← Back
         </button>
-        <span className="text-[#6a7f8f] text-sm">{step} / {TOTAL_WIZARD_STEPS}</span>
+        <span className="text-[var(--text-muted)] text-sm">{step} / {TOTAL_WIZARD_STEPS}</span>
       </div>
 
       {/* Step content */}
@@ -2371,17 +2371,17 @@ function WelcomePageInner() {
         <div className="w-full max-w-xl mx-auto animate-step" key={animKey}>
 
           <div className="mb-10">
-            <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight leading-tight mb-3 text-[#0e2a47]">
+            <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight leading-tight mb-3 text-[var(--text-primary)]">
               {headings[step]}
             </h1>
-            <p className="text-[#4a6580] text-lg">{subs[step]}</p>
+            <p className="text-[var(--text-secondary)] text-lg">{subs[step]}</p>
           </div>
 
           {/* Step 1: Destination (editable) + Dates */}
           {step === 1 && (
             <div className="flex flex-col gap-6">
               <div>
-                <label className="block text-sm font-semibold text-[#4a6580] uppercase tracking-widest mb-3">
+                <label className="block text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-widest mb-3">
                   Destination
                 </label>
                 <PlacesAutocomplete
@@ -2398,14 +2398,14 @@ function WelcomePageInner() {
                   <button
                     type="button"
                     onClick={useDestinationAsTyped}
-                    className="mt-2 text-sm text-[#1a6b7f] hover:text-[#0e2a47] underline-offset-4 hover:underline transition-colors"
+                    className="mt-2 text-sm text-[#1a6b7f] hover:text-[var(--text-primary)] underline-offset-4 hover:underline transition-colors"
                   >
                     Use &ldquo;{destination.trim()}&rdquo; anyway →
                   </button>
                 )}
               </div>
               <div>
-                <label className="block text-sm font-semibold text-[#4a6580] uppercase tracking-widest mb-3">
+                <label className="block text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-widest mb-3">
                   Departure
                 </label>
                 <input
@@ -2417,7 +2417,7 @@ function WelcomePageInner() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-[#4a6580] uppercase tracking-widest mb-3">
+                <label className="block text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-widest mb-3">
                   Return
                 </label>
                 <input
@@ -2449,7 +2449,7 @@ function WelcomePageInner() {
               />
               <button
                 onClick={() => { setHotel(""); handleContinue(); }}
-                className="self-start text-sm text-[#6a7f8f] hover:text-[#0e2a47] transition-colors"
+                className="self-start text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
               >
                 I haven&apos;t booked yet — skip →
               </button>
@@ -2507,7 +2507,7 @@ function WelcomePageInner() {
                   setLegHotels(new Array(parsedLegs.length).fill(""));
                   handleContinue();
                 }}
-                className="self-start text-sm text-[#6a7f8f] hover:text-[#0e2a47] transition-colors"
+                className="self-start text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
               >
                 I haven&apos;t booked any of these — skip →
               </button>
@@ -2518,43 +2518,43 @@ function WelcomePageInner() {
           {step === 3 && (
             <div className="flex flex-col gap-8">
               <div>
-                <label className="block text-sm font-semibold text-[#4a6580] uppercase tracking-widest mb-4">
+                <label className="block text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-widest mb-4">
                   Who&apos;s coming?
                 </label>
 
                 {/* Adults + Children steppers side by side */}
                 <div className="flex gap-8 mb-5">
                   <div className="flex flex-col gap-2">
-                    <span className="text-xs font-semibold text-[#6a7f8f] uppercase tracking-widest">Adults</span>
+                    <span className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-widest">Adults</span>
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => setAdultCount((c) => Math.max(1, c - 1))}
-                        className="w-8 h-8 rounded-xl border border-[#d4cfc5] bg-white text-[#4a6580] hover:text-[#0e2a47] hover:border-[#b8b3a9] transition-colors text-lg leading-none flex items-center justify-center"
+                        className="w-8 h-8 rounded-xl border border-[#d4cfc5] bg-white text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[#b8b3a9] transition-colors text-lg leading-none flex items-center justify-center"
                       >
                         −
                       </button>
-                      <span className="w-6 text-center font-bold text-[#0e2a47] text-sm">{adultCount}</span>
+                      <span className="w-6 text-center font-bold text-[var(--text-primary)] text-sm">{adultCount}</span>
                       <button
                         onClick={() => setAdultCount((c) => c + 1)}
-                        className="w-8 h-8 rounded-xl border border-[#d4cfc5] bg-white text-[#4a6580] hover:text-[#0e2a47] hover:border-[#b8b3a9] transition-colors text-lg leading-none flex items-center justify-center"
+                        className="w-8 h-8 rounded-xl border border-[#d4cfc5] bg-white text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[#b8b3a9] transition-colors text-lg leading-none flex items-center justify-center"
                       >
                         +
                       </button>
                     </div>
                   </div>
                   <div className="flex flex-col gap-2">
-                    <span className="text-xs font-semibold text-[#6a7f8f] uppercase tracking-widest">Children</span>
+                    <span className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-widest">Children</span>
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => { if (childrenAges.length > 0) removeChild(childrenAges.length - 1); }}
-                        className="w-8 h-8 rounded-xl border border-[#d4cfc5] bg-white text-[#4a6580] hover:text-[#0e2a47] hover:border-[#b8b3a9] transition-colors text-lg leading-none flex items-center justify-center"
+                        className="w-8 h-8 rounded-xl border border-[#d4cfc5] bg-white text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[#b8b3a9] transition-colors text-lg leading-none flex items-center justify-center"
                       >
                         −
                       </button>
-                      <span className="w-6 text-center font-bold text-[#0e2a47] text-sm">{childrenAges.length}</span>
+                      <span className="w-6 text-center font-bold text-[var(--text-primary)] text-sm">{childrenAges.length}</span>
                       <button
                         onClick={addChild}
-                        className="w-8 h-8 rounded-xl border border-[#d4cfc5] bg-white text-[#4a6580] hover:text-[#0e2a47] hover:border-[#b8b3a9] transition-colors text-lg leading-none flex items-center justify-center"
+                        className="w-8 h-8 rounded-xl border border-[#d4cfc5] bg-white text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[#b8b3a9] transition-colors text-lg leading-none flex items-center justify-center"
                       >
                         +
                       </button>
@@ -2567,7 +2567,7 @@ function WelcomePageInner() {
                   <div className="flex flex-col gap-3">
                     {childrenAges.map((age, idx) => (
                       <div key={idx} className="flex items-center gap-3 flex-wrap">
-                        <span className="text-xs font-semibold text-[#6a7f8f] w-14 shrink-0">Child {idx + 1}</span>
+                        <span className="text-xs font-semibold text-[var(--text-muted)] w-14 shrink-0">Child {idx + 1}</span>
                         <div className="flex gap-1.5 flex-wrap">
                           {CHILD_AGE_RANGES.map((range) => (
                             <button
@@ -2575,8 +2575,8 @@ function WelcomePageInner() {
                               onClick={() => updateChildAge(idx, range)}
                               className={`px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all ${
                                 age === range
-                                  ? "border-[#1a6b7f] bg-[#1a6b7f]/10 text-[#0e2a47]"
-                                  : "border-[#e8e4de] bg-white text-[#4a6580] hover:border-[#b8b3a9] hover:text-[#0e2a47]"
+                                  ? "border-[#1a6b7f] bg-[#1a6b7f]/10 text-[var(--text-primary)]"
+                                  : "border-[#e8e4de] bg-white text-[var(--text-secondary)] hover:border-[#b8b3a9] hover:text-[var(--text-primary)]"
                               }`}
                             >
                               {range}
@@ -2594,7 +2594,7 @@ function WelcomePageInner() {
                   and family travellers, where the chip section is hidden. */}
               <p
                 aria-live="polite"
-                className="text-[#0e2a47] text-base font-medium -mt-2"
+                className="text-[var(--text-primary)] text-base font-medium -mt-2"
                 data-testid="trip-type-label"
               >
                 {tripTypeLabel(adultCount, childrenAges, travelCompany)}
@@ -2609,7 +2609,7 @@ function WelcomePageInner() {
                 if (validIds.length <= 1) return null;
                 return (
                   <div>
-                    <label className="block text-sm font-semibold text-[#4a6580] uppercase tracking-widest mb-4">
+                    <label className="block text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-widest mb-4">
                       Trip type
                     </label>
                     <div className="flex flex-wrap gap-3">
@@ -2621,8 +2621,8 @@ function WelcomePageInner() {
                             onClick={() => setTravelCompany(travelCompany === id ? "" : id)}
                             className={`flex items-center gap-2 px-4 py-3 rounded-2xl border text-sm font-semibold transition-all ${
                               travelCompany === id
-                                ? "border-[#1a6b7f] bg-[#1a6b7f]/10 text-[#0e2a47]"
-                                : "border-[#e8e4de] bg-white text-[#4a6580] hover:border-[#b8b3a9] hover:text-[#0e2a47]"
+                                ? "border-[#1a6b7f] bg-[#1a6b7f]/10 text-[var(--text-primary)]"
+                                : "border-[#e8e4de] bg-white text-[var(--text-secondary)] hover:border-[#b8b3a9] hover:text-[var(--text-primary)]"
                             }`}
                           >
                             <span>{opt.emoji}</span>
@@ -2636,10 +2636,10 @@ function WelcomePageInner() {
               })()}
 
               <div>
-                <label className="block text-sm font-semibold text-[#4a6580] uppercase tracking-widest mb-1">
+                <label className="block text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-widest mb-1">
                   What&apos;s your travel style?
                 </label>
-                <p className="text-[#6a7f8f] text-sm mb-4">
+                <p className="text-[var(--text-muted)] text-sm mb-4">
                   Pick up to {MAX_STYLE_SELECTIONS}.
                 </p>
                 <div className="flex flex-wrap gap-2">
@@ -2653,10 +2653,10 @@ function WelcomePageInner() {
                         disabled={maxed}
                         className={`px-4 py-2 rounded-xl border text-sm font-semibold transition-all ${
                           selected
-                            ? "border-[#1a6b7f] bg-[#1a6b7f]/10 text-[#0e2a47]"
+                            ? "border-[#1a6b7f] bg-[#1a6b7f]/10 text-[var(--text-primary)]"
                             : maxed
-                            ? "border-[#e8e4de] bg-white text-[#6a7f8f] cursor-not-allowed"
-                            : "border-[#e8e4de] bg-white text-[#4a6580] hover:border-[#b8b3a9] hover:text-[#0e2a47]"
+                            ? "border-[#e8e4de] bg-white text-[var(--text-muted)] cursor-not-allowed"
+                            : "border-[#e8e4de] bg-white text-[var(--text-secondary)] hover:border-[#b8b3a9] hover:text-[var(--text-primary)]"
                         }`}
                       >
                         {style}
@@ -2667,7 +2667,7 @@ function WelcomePageInner() {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-[#4a6580] uppercase tracking-widest mb-4">
+                <label className="block text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-widest mb-4">
                   What&apos;s your budget?
                 </label>
                 <div className="flex flex-col gap-2">
@@ -2681,10 +2681,10 @@ function WelcomePageInner() {
                           : "border-[#e8e4de] bg-white hover:border-[#b8b3a9]"
                       }`}
                     >
-                      <span className={`text-sm font-bold ${budgetTier === opt.id ? "text-[#0e2a47]" : "text-[#4a6580]"}`}>
+                      <span className={`text-sm font-bold ${budgetTier === opt.id ? "text-[var(--text-primary)]" : "text-[var(--text-secondary)]"}`}>
                         {opt.label}
                       </span>
-                      <span className="text-xs text-[#6a7f8f]">{opt.description}</span>
+                      <span className="text-xs text-[var(--text-muted)]">{opt.description}</span>
                     </button>
                   ))}
                 </div>
@@ -2697,11 +2697,11 @@ function WelcomePageInner() {
               <div>
                 <label
                   htmlFor="trip-constraints"
-                  className="block text-sm font-semibold text-[#4a6580] uppercase tracking-widest mb-1"
+                  className="block text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-widest mb-1"
                 >
                   Anything we should know?
                 </label>
-                <p className="text-[#6a7f8f] text-sm mb-4">
+                <p className="text-[var(--text-muted)] text-sm mb-4">
                   Optional. Allergies, mobility, dietary, religious — anything we should respect.
                 </p>
                 <textarea
@@ -2710,7 +2710,7 @@ function WelcomePageInner() {
                   onChange={(e) => setConstraintText(e.target.value)}
                   placeholder="e.g. one of us has a knee issue, no long walks; severe peanut allergy"
                   rows={3}
-                  className="w-full bg-white border border-[#b8b3a9] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-[#0e2a47] text-sm placeholder-[#9ca3af] transition-colors mb-3"
+                  className="w-full bg-white border border-[#b8b3a9] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-[var(--text-primary)] text-sm placeholder-[#9ca3af] transition-colors mb-3"
                   data-testid="constraint-textarea"
                 />
                 <div className="flex flex-wrap gap-2">
@@ -2724,8 +2724,8 @@ function WelcomePageInner() {
                         aria-pressed={selected}
                         className={`px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all ${
                           selected
-                            ? "border-[#1a6b7f] bg-[#1a6b7f]/10 text-[#0e2a47]"
-                            : "border-[#e8e4de] bg-white text-[#4a6580] hover:border-[#b8b3a9] hover:text-[#0e2a47]"
+                            ? "border-[#1a6b7f] bg-[#1a6b7f]/10 text-[var(--text-primary)]"
+                            : "border-[#e8e4de] bg-white text-[var(--text-secondary)] hover:border-[#b8b3a9] hover:text-[var(--text-primary)]"
                         }`}
                       >
                         {chip}
@@ -2760,7 +2760,7 @@ function WelcomePageInner() {
                 if (!fewerThanHalf) return null;
                 return (
                   <p
-                    className="text-sm text-[#4a6580] italic px-2"
+                    className="text-sm text-[var(--text-secondary)] italic px-2"
                     data-testid="inspiration-empty-state"
                   >
                     We heard &lsquo;{trimmed}&rsquo; — leaning into it where we can.
@@ -2774,7 +2774,7 @@ function WelcomePageInner() {
                   role="status"
                   aria-live="polite"
                   data-testid="stream-refresh-note"
-                  className="rounded-xl border border-[#1a6b7f]/25 bg-[#1a6b7f]/5 px-4 py-2.5 text-sm text-[#0e2a47]"
+                  className="rounded-xl border border-[#1a6b7f]/25 bg-[#1a6b7f]/5 px-4 py-2.5 text-sm text-[var(--text-primary)]"
                 >
                   Updated preferences — refreshing your picks.
                 </div>
@@ -2783,18 +2783,18 @@ function WelcomePageInner() {
               {previewLoading && parsedActivities.length === 0 && (
                 <div className="rounded-2xl border border-[#e8e4de] bg-white p-6 min-h-[140px] flex items-center">
                   <div className="flex flex-col gap-1">
-                    <div className="flex items-center gap-3 text-[#4a6580]">
+                    <div className="flex items-center gap-3 text-[var(--text-secondary)]">
                       <div className="w-4 h-4 rounded-full border-2 border-[#1a6b7f] border-t-transparent animate-spin flex-shrink-0" />
                       <span>{previewLoadingLabel(destination, travelCompany)}</span>
                     </div>
-                    <p className="text-xs text-[#6a7f8f] ml-7">Activities will appear as we find them — rate each one as it arrives.</p>
+                    <p className="text-xs text-[var(--text-muted)] ml-7">Activities will appear as we find them — rate each one as it arrives.</p>
                   </div>
                 </div>
               )}
 
               {/* Rating progress counter */}
               {!previewLoading && parsedActivities.length > 0 && Object.keys(activityFeedback).length > 0 && (
-                <p className="text-xs text-[#6a7f8f] text-right">
+                <p className="text-xs text-[var(--text-muted)] text-right">
                   {Object.keys(activityFeedback).length} of {parsedActivities.length} rated
                 </p>
               )}
@@ -2826,7 +2826,7 @@ function WelcomePageInner() {
 
               {/* Inline loading indicator while more cards are incoming */}
               {previewLoading && parsedActivities.length > 0 && (
-                <div className="flex items-center gap-3 px-2 py-3 text-[#6a7f8f] text-sm">
+                <div className="flex items-center gap-3 px-2 py-3 text-[var(--text-muted)] text-sm">
                   <div className="w-3.5 h-3.5 rounded-full border-2 border-[#6a7f8f] border-t-transparent animate-spin flex-shrink-0" />
                   <span>Found {parsedActivities.length} of ~6 activities...</span>
                 </div>
@@ -2848,10 +2848,10 @@ function WelcomePageInner() {
                 !email && (
                   <div
                     data-testid="signup-tier2-prompt"
-                    className="rounded-xl border border-[#1a6b7f]/25 bg-[#1a6b7f]/5 px-4 py-3 text-sm text-[#0e2a47]"
+                    className="rounded-xl border border-[#1a6b7f]/25 bg-[#1a6b7f]/5 px-4 py-3 text-sm text-[var(--text-primary)]"
                   >
                     <span className="font-semibold">Loving these picks?</span>{" "}
-                    <span className="text-[#4a6580]">
+                    <span className="text-[var(--text-secondary)]">
                       Save your email at the end so this trip doesn&apos;t
                       vanish when you close the tab.
                     </span>
@@ -2870,7 +2870,7 @@ function WelcomePageInner() {
                   users are still in "trip-shaping" mode here. */}
               {hardExcludedActivities.length > 0 && (
                 <div className="rounded-2xl border border-[#e8e4de] bg-white px-5 py-4">
-                  <p className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-3">
+                  <p className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest mb-3">
                     Skipped activities
                   </p>
                   <div className="flex flex-wrap gap-2 mb-2">
@@ -2878,25 +2878,25 @@ function WelcomePageInner() {
                       <button
                         key={entry.activityId}
                         onClick={() => handleRemoveExclusion(entry.activityId)}
-                        className="flex items-center gap-2 rounded-xl border border-[#d4cfc5] px-3 py-1.5 text-sm text-[#4a6580] hover:border-red-500/30 hover:text-red-400 transition-colors"
+                        className="flex items-center gap-2 rounded-xl border border-[#d4cfc5] px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:border-red-500/30 hover:text-red-400 transition-colors"
                       >
                         {entry.activityName}
-                        <span className="text-[#6a7f8f] text-xs">×</span>
+                        <span className="text-[var(--text-muted)] text-xs">×</span>
                       </button>
                     ))}
                   </div>
-                  <p className="text-xs text-[#6a7f8f]">Tap to restore an activity.</p>
+                  <p className="text-xs text-[var(--text-muted)]">Tap to restore an activity.</p>
                 </div>
               )}
 
               {/* Itinerary preview — read-only, day-by-day. Loading state
                   while /api/itinerary/generate streams the response. */}
               <div data-testid="itinerary-preview">
-                <h2 className="text-xs font-bold text-[#4a6580] uppercase tracking-widest mb-3">
+                <h2 className="text-xs font-bold text-[var(--text-secondary)] uppercase tracking-widest mb-3">
                   Your trip plan
                 </h2>
                 {itineraryPreviewLoading && !itineraryPreview && (
-                  <div className="rounded-2xl border border-[#e8e4de] bg-white p-6 flex items-center gap-3 text-[#4a6580]">
+                  <div className="rounded-2xl border border-[#e8e4de] bg-white p-6 flex items-center gap-3 text-[var(--text-secondary)]">
                     <div className="w-4 h-4 rounded-full border-2 border-[#1a6b7f] border-t-transparent animate-spin" />
                     <span>
                       Building your day-by-day itinerary for {destination}…
@@ -2904,7 +2904,7 @@ function WelcomePageInner() {
                   </div>
                 )}
                 {itineraryPreviewError && !itineraryPreview && (
-                  <div className="rounded-2xl border border-[#e8e4de] bg-[#f0ede8] p-5 text-sm text-[#4a6580]">
+                  <div className="rounded-2xl border border-[#e8e4de] bg-[#f0ede8] p-5 text-sm text-[var(--text-secondary)]">
                     Couldn&apos;t load your trip preview. You can still save
                     your trip below — we&apos;ll generate the itinerary
                     after you sign in.
@@ -2986,10 +2986,10 @@ function WelcomePageInner() {
                   banner from Maya's escalation pattern. Sits BELOW the
                   preview so the user has already seen the value. */}
               <div className="rounded-2xl border border-[#1a6b7f]/30 bg-[#1a6b7f]/5 p-5">
-                <p className="text-sm font-bold text-[#0e2a47] mb-1">
+                <p className="text-sm font-bold text-[var(--text-primary)] mb-1">
                   Save your trip to keep it.
                 </p>
-                <p className="text-xs text-[#4a6580] mb-4">
+                <p className="text-xs text-[var(--text-secondary)] mb-4">
                   We&apos;ll save your itinerary, transport advice, and trip
                   summary to your account.
                 </p>

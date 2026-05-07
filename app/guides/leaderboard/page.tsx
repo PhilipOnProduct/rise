@@ -6,7 +6,7 @@ import { getLevel, LEVEL_BADGE } from "@/lib/guides";
 type GuideEntry = { id: string; name: string; points: number; tip_count: number };
 
 const LEVEL_COLORS: Record<string, string> = {
-  Explorer: "text-[#6a7f8f] bg-[#f0ede8]",
+  Explorer: "text-[var(--text-muted)] bg-[#f0ede8]",
   Local:    "text-blue-400 bg-blue-500/10",
   Insider:  "text-purple-400 bg-purple-500/10",
   Legend:   "text-yellow-400 bg-yellow-500/10",
@@ -28,13 +28,13 @@ export default function LeaderboardPage() {
 
         <div className="mb-10">
           <h1 className="text-4xl font-extrabold tracking-tight mb-2">🏆 Leaderboard</h1>
-          <p className="text-[#4a6580]">Top local guides ranked by points.</p>
+          <p className="text-[var(--text-secondary)]">Top local guides ranked by points.</p>
         </div>
 
         {/* How to earn */}
         <div className="bg-white border border-[#e8e4de] rounded-2xl p-6 mb-8">
-          <p className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-4">How to earn points</p>
-          <div className="flex flex-col gap-2 text-sm text-[#0e2a47]">
+          <p className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest mb-4">How to earn points</p>
+          <div className="flex flex-col gap-2 text-sm text-[var(--text-primary)]">
             <div className="flex justify-between">
               <span>📝 Submit a tip</span>
               <span className="text-[#1a6b7f] font-bold">+10 pts</span>
@@ -48,15 +48,15 @@ export default function LeaderboardPage() {
               <span className="text-[#1a6b7f] font-bold">+25 pts</span>
             </div>
           </div>
-          <p className="mt-4 text-xs text-[#6a7f8f]">
+          <p className="mt-4 text-xs text-[var(--text-muted)]">
             🌱 Explorer · 📍 Local (50+) · 🔑 Insider (200+) · ⭐ Legend (500+)
           </p>
         </div>
 
-        {loading && <p className="text-[#6a7f8f] text-sm">Loading…</p>}
+        {loading && <p className="text-[var(--text-muted)] text-sm">Loading…</p>}
 
         {!loading && guides.length === 0 && (
-          <p className="text-[#6a7f8f] text-sm">
+          <p className="text-[var(--text-muted)] text-sm">
             No guides yet. <a href="/guides/add" className="text-[#1a6b7f] hover:underline">Be the first!</a>
           </p>
         )}
@@ -75,20 +75,20 @@ export default function LeaderboardPage() {
                     i < 3 ? "border-[#d4cfc5]" : "border-[#e8e4de]"
                   }`}>
                   <div className="w-8 text-center text-xl">
-                    {rankEmoji ?? <span className="text-sm text-[#6a7f8f]">#{i + 1}</span>}
+                    {rankEmoji ?? <span className="text-sm text-[var(--text-muted)]">#{i + 1}</span>}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-0.5">
-                      <span className="font-bold text-[#0e2a47]">{guide.name}</span>
+                      <span className="font-bold text-[var(--text-primary)]">{guide.name}</span>
                       <span className={`rounded-lg px-2 py-0.5 text-xs font-semibold ${levelColor}`}>
                         {badge} {level}
                       </span>
                     </div>
-                    <p className="text-xs text-[#6a7f8f]">{guide.tip_count} tip{guide.tip_count !== 1 ? "s" : ""}</p>
+                    <p className="text-xs text-[var(--text-muted)]">{guide.tip_count} tip{guide.tip_count !== 1 ? "s" : ""}</p>
                   </div>
                   <div className="text-right">
                     <span className="text-xl font-extrabold text-[#1a6b7f]">{guide.points}</span>
-                    <p className="text-xs text-[#6a7f8f]">pts</p>
+                    <p className="text-xs text-[var(--text-muted)]">pts</p>
                   </div>
                 </div>
               );

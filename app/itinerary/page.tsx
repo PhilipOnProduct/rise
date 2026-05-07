@@ -255,7 +255,7 @@ function AddSuggestionCard({
         </span>
         <div className="flex-1 min-w-0">
           <h3 className="font-semibold text-[#1a6b7f] text-sm leading-snug">{suggestion.title}</h3>
-          <p className="text-sm text-[#4a6580] mt-1 leading-relaxed">{suggestion.description}</p>
+          <p className="text-sm text-[var(--text-secondary)] mt-1 leading-relaxed">{suggestion.description}</p>
           {conflict && (
             <p className="text-xs text-amber-500/80 mt-2">{conflict}</p>
           )}
@@ -270,7 +270,7 @@ function AddSuggestionCard({
         </button>
         <button
           onClick={onReject}
-          className="text-xs font-semibold text-[#6a7f8f] hover:text-[#0e2a47] transition-colors"
+          className="text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
         >
           Not quite, try again →
         </button>
@@ -301,7 +301,7 @@ function TripShapeBar({ days, loading, activeDayNumber, onDayClick, barRef }: Tr
       {loading ? (
         <div className="flex items-center gap-2 px-6 py-4">
           <div className="w-4 h-4 rounded-full border-2 border-[#1a6b7f] border-t-transparent animate-spin flex-shrink-0" />
-          <span className="text-xs text-[#6a7f8f]">Building your itinerary…</span>
+          <span className="text-xs text-[var(--text-muted)]">Building your itinerary…</span>
         </div>
       ) : (
         // overflow-x: auto only on the inner container — the sole permitted horizontal scroll
@@ -324,7 +324,7 @@ function TripShapeBar({ days, loading, activeDayNumber, onDayClick, barRef }: Tr
                   title={`${day.label} — ${day.activities.length} activities`}
                 >
                   <span className={`text-xs font-semibold transition-colors whitespace-nowrap ${
-                    isActive ? "text-[#1a6b7f]" : "text-[#4a6580] group-hover:text-[#0e2a47]"
+                    isActive ? "text-[#1a6b7f]" : "text-[var(--text-secondary)] group-hover:text-[var(--text-primary)]"
                   }`}>
                     {day.label}
                   </span>
@@ -336,7 +336,7 @@ function TripShapeBar({ days, loading, activeDayNumber, onDayClick, barRef }: Tr
                     />
                   </div>
                   <span className={`text-[10px] transition-colors whitespace-nowrap ${
-                    isActive ? "text-[#1a6b7f] font-medium" : "text-[#6a7f8f]"
+                    isActive ? "text-[#1a6b7f] font-medium" : "text-[var(--text-muted)]"
                   }`}>
                     {day.activities.length} {day.activities.length === 1 ? "activity" : "activities"}
                   </span>
@@ -423,7 +423,7 @@ function TravelConnectorRow({ connector }: { connector: TravelConnector }) {
 
   // Normal state
   return (
-    <div className="mx-1 my-1.5 text-xs text-[#4a6580] flex items-center gap-2 flex-wrap px-2 py-1 border-l-2 border-[#e8e4de]">
+    <div className="mx-1 my-1.5 text-xs text-[var(--text-secondary)] flex items-center gap-2 flex-wrap px-2 py-1 border-l-2 border-[#e8e4de]">
       {segments.map((s, i) => (
         <span key={i}>
           {i > 0 && <span className="text-[#d4cfc5] mr-2">·</span>}
@@ -458,7 +458,7 @@ function ActivityCard({ activity, onRemove, onSwap, swapping, swapError, swapSug
           {onSwap && (
             <button
               onClick={onSwap}
-              className="w-7 h-7 rounded-lg bg-[#f0ede8] border border-[#d4cfc5] text-[#6a7f8f] hover:text-[#0e2a47] hover:border-[#b8b3a9] transition-colors flex items-center justify-center text-xs"
+              className="w-7 h-7 rounded-lg bg-[#f0ede8] border border-[#d4cfc5] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[#b8b3a9] transition-colors flex items-center justify-center text-xs"
               title="Swap"
             >
               ⇄
@@ -467,7 +467,7 @@ function ActivityCard({ activity, onRemove, onSwap, swapping, swapError, swapSug
           {onRemove && (
             <button
               onClick={onRemove}
-              className="w-7 h-7 rounded-lg bg-[#f0ede8] border border-[#d4cfc5] text-[#6a7f8f] hover:text-red-400 hover:border-red-500/30 transition-colors flex items-center justify-center text-xs"
+              className="w-7 h-7 rounded-lg bg-[#f0ede8] border border-[#d4cfc5] text-[var(--text-muted)] hover:text-red-400 hover:border-red-500/30 transition-colors flex items-center justify-center text-xs"
               title="Remove"
             >
               ×
@@ -479,7 +479,7 @@ function ActivityCard({ activity, onRemove, onSwap, swapping, swapError, swapSug
       {/* Loading overlay while swap is in progress */}
       {swapping && !swapSuggestion && (
         <div className="absolute inset-0 bg-white/80 rounded-2xl flex items-center justify-center z-10">
-          <div className="flex items-center gap-2 text-[#4a6580] text-sm">
+          <div className="flex items-center gap-2 text-[var(--text-secondary)] text-sm">
             <div className="w-3.5 h-3.5 rounded-full border-2 border-gray-500 border-t-transparent animate-spin" />
             <span>Finding an alternative...</span>
           </div>
@@ -504,7 +504,7 @@ function ActivityCard({ activity, onRemove, onSwap, swapping, swapError, swapSug
             </span>
             <div className="flex-1 min-w-0">
               <h3 className="font-semibold text-[#1a6b7f] text-sm leading-snug">{swapSuggestion.title}</h3>
-              <p className="text-sm text-[#4a6580] mt-1 leading-relaxed">{swapSuggestion.description}</p>
+              <p className="text-sm text-[var(--text-secondary)] mt-1 leading-relaxed">{swapSuggestion.description}</p>
               {swapSuggestion.conflict && (
                 <p className="text-xs text-amber-500/80 mt-2">{swapSuggestion.conflict}</p>
               )}
@@ -519,7 +519,7 @@ function ActivityCard({ activity, onRemove, onSwap, swapping, swapError, swapSug
             </button>
             <button
               onClick={onRejectSwap}
-              className="text-xs font-semibold text-[#6a7f8f] hover:text-[#0e2a47] transition-colors"
+              className="text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
             >
               Not quite, try again →
             </button>
@@ -532,12 +532,12 @@ function ActivityCard({ activity, onRemove, onSwap, swapping, swapError, swapSug
           {categoryIcon}
         </span>
         <div className="flex-1 min-w-0">
-          <h3 className="font-semibold text-[#0e2a47] text-sm leading-snug">{activity.name}</h3>
+          <h3 className="font-semibold text-[var(--text-primary)] text-sm leading-snug">{activity.name}</h3>
           {activity.description && (
-            <p className="text-sm text-[#4a6580] mt-1 leading-relaxed">{activity.description}</p>
+            <p className="text-sm text-[var(--text-secondary)] mt-1 leading-relaxed">{activity.description}</p>
           )}
           <div className="flex items-center gap-3 mt-2.5">
-            <span className="text-[11px] font-medium text-[#6a7f8f] capitalize">
+            <span className="text-[11px] font-medium text-[var(--text-muted)] capitalize">
               {activity.category}
             </span>
           </div>
@@ -645,9 +645,9 @@ function DaySection({
     >
       {/* Day header */}
       <div className="flex items-baseline gap-3 mb-5">
-        <h2 className="text-xl font-extrabold tracking-tight text-[#0e2a47]">{day.label}</h2>
+        <h2 className="text-xl font-extrabold tracking-tight text-[var(--text-primary)]">{day.label}</h2>
         {day.date && (
-          <span className="text-sm text-[#6a7f8f]">
+          <span className="text-sm text-[var(--text-muted)]">
             {new Date(day.date).toLocaleDateString("en-GB", {
               weekday: "short",
               day: "numeric",
@@ -655,7 +655,7 @@ function DaySection({
             })}
           </span>
         )}
-        <span className="text-xs text-[#6a7f8f] ml-auto">
+        <span className="text-xs text-[var(--text-muted)] ml-auto">
           {day.activities.length === 0
             ? "No activities"
             : `${day.activities.length} ${day.activities.length === 1 ? "activity" : "activities"}`}
@@ -688,7 +688,7 @@ function DaySection({
               {/* Block subheading */}
               <div className="flex items-center gap-2 mb-2.5">
                 <span className="text-sm" aria-hidden>{emoji}</span>
-                <span className="text-xs font-semibold text-[#4a6580] uppercase tracking-wider">{label}</span>
+                <span className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">{label}</span>
                 <div className="flex-1 h-px bg-[#e8e4de] ml-1" />
               </div>
 
@@ -740,7 +740,7 @@ function DaySection({
                 </div>
               ) : (
                 <div className="flex flex-col gap-2">
-                  <p className="text-sm text-[#6a7f8f] italic pl-1">Nothing planned yet.</p>
+                  <p className="text-sm text-[var(--text-muted)] italic pl-1">Nothing planned yet.</p>
                   <div className="pl-1">
                     <SuggestButton
                       onClick={() => onSuggestForBlock(day.day_number, block)}
@@ -1524,7 +1524,7 @@ export default function ItineraryViewPage() {
   if (error) {
     return (
       <main className="min-h-screen bg-[#f8f6f1] flex flex-col items-center justify-center gap-4 px-6">
-        <p className="text-[#0e2a47]">{error}</p>
+        <p className="text-[var(--text-primary)]">{error}</p>
         <button
           onClick={() => {
             setError(null);
@@ -1560,8 +1560,8 @@ export default function ItineraryViewPage() {
           <div className="pt-10 pb-2">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h1 className="text-3xl font-extrabold tracking-tight text-[#0e2a47]">{destination}</h1>
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[#6a7f8f] text-sm mt-1">
+                <h1 className="text-3xl font-extrabold tracking-tight text-[var(--text-primary)]">{destination}</h1>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[var(--text-muted)] text-sm mt-1">
                   {departureDate && returnDate && (
                     <span>{formatDateRange(departureDate, returnDate)}</span>
                   )}
@@ -1572,7 +1572,7 @@ export default function ItineraryViewPage() {
                   </span>
                 </div>
                 {hotel && (
-                  <p className="text-[#6a7f8f] text-sm mt-0.5">
+                  <p className="text-[var(--text-muted)] text-sm mt-0.5">
                     Staying at {hotel}
                   </p>
                 )}
@@ -1582,8 +1582,8 @@ export default function ItineraryViewPage() {
               <div className="relative flex-shrink-0">
                 {showRegenConfirm ? (
                   <div className="bg-white border border-[#e8e4de] rounded-xl shadow-sm p-3 text-sm">
-                    <p className="text-[#0e2a47] font-medium mb-2">Regenerate entire itinerary?</p>
-                    <p className="text-[#6a7f8f] text-xs mb-3">This replaces all your current plans.</p>
+                    <p className="text-[var(--text-primary)] font-medium mb-2">Regenerate entire itinerary?</p>
+                    <p className="text-[var(--text-muted)] text-xs mb-3">This replaces all your current plans.</p>
                     <div className="flex gap-2">
                       <button
                         onClick={handleRegenerate}
@@ -1593,7 +1593,7 @@ export default function ItineraryViewPage() {
                       </button>
                       <button
                         onClick={() => setShowRegenConfirm(false)}
-                        className="px-3 py-1.5 rounded-lg text-[#6a7f8f] text-xs font-semibold hover:text-[#0e2a47] transition-colors"
+                        className="px-3 py-1.5 rounded-lg text-[var(--text-muted)] text-xs font-semibold hover:text-[var(--text-primary)] transition-colors"
                       >
                         Cancel
                       </button>
@@ -1603,7 +1603,7 @@ export default function ItineraryViewPage() {
                   <button
                     onClick={() => setShowRegenConfirm(true)}
                     disabled={regenerating}
-                    className="text-xs font-semibold text-[#6a7f8f] hover:text-[#1a6b7f] transition-colors disabled:opacity-50 flex items-center gap-1.5 mt-2"
+                    className="text-xs font-semibold text-[var(--text-muted)] hover:text-[#1a6b7f] transition-colors disabled:opacity-50 flex items-center gap-1.5 mt-2"
                     title="Regenerate itinerary"
                   >
                     {regenerating ? (
@@ -1637,7 +1637,7 @@ export default function ItineraryViewPage() {
                   )}
                 </button>
               ) : (
-                <span className="text-xs text-[#6a7f8f]">
+                <span className="text-xs text-[var(--text-muted)]">
                   Travel times calculated
                   {connectors.some((c) => c.gap_flagged) && (
                     <span className="text-amber-600 ml-1">
@@ -1724,15 +1724,15 @@ export default function ItineraryViewPage() {
                         data-testid={`itinerary-transition-day-${day.day_number}`}
                         className="rounded-2xl border border-dashed border-[#d4cfc5] bg-[#f5f2ec] p-5 mb-3"
                       >
-                        <p className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest mb-1">
+                        <p className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest mb-1">
                           Day {day.day_number}
                           {day.date ? ` · ${day.date}` : ""} · Travel day
                         </p>
-                        <p className="text-sm text-[#4a6580]">
+                        <p className="text-sm text-[var(--text-secondary)]">
                           {day.activities?.[0]?.name ?? `Travel to ${legName}`}
                         </p>
                         {day.activities?.[0]?.description && (
-                          <p className="text-xs text-[#6a7f8f] mt-1">
+                          <p className="text-xs text-[var(--text-muted)] mt-1">
                             {day.activities[0].description}
                           </p>
                         )}

@@ -21,7 +21,7 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={dmSans.variable}>
-      <body className="antialiased bg-[#f8f6f1] text-[#0e2a47]">
+      <body className="antialiased bg-[#f8f6f1] text-[var(--text-primary)]">
         <ApiLimitBanner />
         <Nav />
         {children}

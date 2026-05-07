@@ -35,10 +35,10 @@ export default function FeedbackPage() {
             </svg>
           </div>
           <h1 className="text-3xl font-extrabold tracking-tight mb-3">Thanks!</h1>
-          <p className="text-[#4a6580] mb-8">Your feedback has been received.</p>
+          <p className="text-[var(--text-secondary)] mb-8">Your feedback has been received.</p>
           <button
             onClick={() => router.back()}
-            className="text-sm text-[#6a7f8f] hover:text-[#0e2a47] transition-colors"
+            className="text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
           >
             ← Go back
           </button>
@@ -54,24 +54,24 @@ export default function FeedbackPage() {
         <div className="mb-10">
           <p className="text-[#1a6b7f] text-sm font-semibold tracking-widest uppercase mb-3">Rise</p>
           <h1 className="text-4xl font-extrabold tracking-tight mb-2">Send feedback</h1>
-          <p className="text-[#4a6580]">Let us know what's working, what isn't, or what you'd like to see.</p>
+          <p className="text-[var(--text-secondary)]">Let us know what's working, what isn't, or what you'd like to see.</p>
         </div>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-5">
           <div>
-            <label className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest block mb-2">
+            <label className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest block mb-2">
               Page
             </label>
             <input
               type="text"
               value={page}
               onChange={(e) => setPage(e.target.value)}
-              className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-5 py-4 text-[#0e2a47] text-sm transition-colors"
+              className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-5 py-4 text-[var(--text-primary)] text-sm transition-colors"
             />
           </div>
 
           <div>
-            <label className="text-xs font-bold text-[#6a7f8f] uppercase tracking-widest block mb-2">
+            <label className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest block mb-2">
               Feedback
             </label>
             <textarea
@@ -80,7 +80,7 @@ export default function FeedbackPage() {
               value={feedback}
               onChange={(e) => setFeedback(e.target.value)}
               placeholder="What's on your mind?"
-              className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-5 py-4 text-[#0e2a47] placeholder-[#9ca3af] resize-none transition-colors"
+              className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-5 py-4 text-[var(--text-primary)] placeholder-[#9ca3af] resize-none transition-colors"
             />
           </div>
 

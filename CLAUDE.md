@@ -381,7 +381,10 @@ create index idx_connectors_traveler on travel_connectors(traveler_id);
 - **Background:** `#f8f6f1` (page), `white` (cards), `#f0ede8` (subtle fills)
 - **Borders:** `#e8e4de` (card borders), `#d4cfc5` (dividers/separators), `#c8c3bb` (kanban column borders)
 - **Accent:** `#1a6b7f` (teal) — buttons, active states, focus rings, links
-- **Text:** `#0e2a47` (primary), `#4a6580` (secondary/headings), `#6a7f8f` (muted/labels)
+- **Text:** Three tokens defined as CSS custom properties in `app/globals.css` `:root` and consumed via Tailwind arbitrary values. Do NOT introduce new ad-hoc grey shades for text — pick the nearest token by perceptual lightness.
+  - `--text-primary: #0e2a47` → `text-[var(--text-primary)]` — headings, strong text, body emphasis
+  - `--text-secondary: #4a6580` → `text-[var(--text-secondary)]` — body copy, labels, sub-headings
+  - `--text-muted: #5a6f7f` → `text-[var(--text-muted)]` — hints, timestamps, metadata, placeholders. Bumped from `#6a7f8f` for AA contrast on cream `#f8f6f1`.
 - **Border radius:** `rounded-2xl` for cards and primary buttons, `rounded-xl` for inputs
 - **Font:** DM Sans — already applied globally via `layout.tsx`. Don't add other fonts.
 - Primary buttons: `bg-[#1a6b7f] text-white font-bold rounded-2xl hover:bg-[#155a6b]`

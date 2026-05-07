@@ -32,11 +32,11 @@ export default function FeedbackAdminPage() {
 
         <div className="mb-10">
           <h1 className="text-4xl font-extrabold tracking-tight">User feedback</h1>
-          <p className="text-[#6a7f8f] mt-1">{loading ? "Loading…" : `${entries.length} entries`}</p>
+          <p className="text-[var(--text-muted)] mt-1">{loading ? "Loading…" : `${entries.length} entries`}</p>
         </div>
 
         {!loading && entries.length === 0 && (
-          <p className="text-[#6a7f8f] text-sm">No feedback yet.</p>
+          <p className="text-[var(--text-muted)] text-sm">No feedback yet.</p>
         )}
 
         <div className="flex flex-col gap-3">
@@ -44,9 +44,9 @@ export default function FeedbackAdminPage() {
             <div key={entry.id} className="bg-white border border-[#e8e4de] rounded-2xl px-5 py-4">
               <div className="flex items-start justify-between gap-4 mb-2">
                 <span className="text-xs font-mono text-[#1a6b7f]/70 truncate">{entry.page}</span>
-                <span className="shrink-0 text-xs text-[#6a7f8f]">{formatDate(entry.created_at)}</span>
+                <span className="shrink-0 text-xs text-[var(--text-muted)]">{formatDate(entry.created_at)}</span>
               </div>
-              <p className="text-sm text-[#0e2a47] whitespace-pre-wrap">{entry.feedback}</p>
+              <p className="text-sm text-[var(--text-primary)] whitespace-pre-wrap">{entry.feedback}</p>
             </div>
           ))}
         </div>
