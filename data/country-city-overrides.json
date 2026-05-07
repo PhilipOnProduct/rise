@@ -1,0 +1,46 @@
+{
+  "$schema_version": "1",
+  "_doc": "PHI-57 — per-country whitelist nudges layered on top of Places candidates. Format: { surface: [...] } cities to surface when relevant; { deprioritize: [...] } cities to push down. Names should match the locality the Places API returns (case-insensitive match on the locality name in lib/destination-recommender.ts).",
+  "countries": {
+    "GB": {
+      "surface": ["London", "Edinburgh", "Bath", "York", "Liverpool", "Manchester", "Cotswolds", "Lake District"],
+      "deprioritize": []
+    },
+    "IT": {
+      "surface": ["Rome", "Florence", "Venice", "Milan", "Naples", "Bologna", "Tuscany", "Amalfi Coast", "Cinque Terre"],
+      "deprioritize": []
+    },
+    "JP": {
+      "surface": ["Tokyo", "Kyoto", "Osaka", "Hiroshima", "Sapporo", "Hakone", "Nara"],
+      "deprioritize": []
+    },
+    "TH": {
+      "surface": ["Bangkok", "Chiang Mai", "Phuket", "Koh Samui", "Krabi", "Pai", "Ayutthaya"],
+      "deprioritize": []
+    },
+    "US": {
+      "surface": ["New York", "San Francisco", "Los Angeles", "Chicago", "New Orleans", "Seattle", "Austin", "Boston", "Washington"],
+      "deprioritize": []
+    },
+    "FR": {
+      "surface": ["Paris", "Nice", "Lyon", "Bordeaux", "Marseille", "Provence", "Loire Valley", "Annecy"],
+      "deprioritize": []
+    },
+    "ES": {
+      "surface": ["Barcelona", "Madrid", "Seville", "Granada", "Valencia", "San Sebastián", "Mallorca", "Bilbao"],
+      "deprioritize": []
+    },
+    "GR": {
+      "surface": ["Athens", "Santorini", "Mykonos", "Crete", "Naxos", "Thessaloniki", "Corfu"],
+      "deprioritize": []
+    },
+    "MX": {
+      "surface": ["Mexico City", "Oaxaca", "Tulum", "Mérida", "Puebla", "San Miguel de Allende", "Guadalajara"],
+      "deprioritize": []
+    },
+    "AU": {
+      "surface": ["Sydney", "Melbourne", "Brisbane", "Cairns", "Perth", "Tasmania", "Byron Bay", "Adelaide"],
+      "deprioritize": []
+    }
+  }
+}

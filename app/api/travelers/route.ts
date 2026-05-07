@@ -173,6 +173,10 @@ export async function PATCH(req: NextRequest) {
     hotel,
     constraintTags,
     constraintText,
+    // PHI-57: when the user starts country-level (e.g. "we want to go to
+    // the UK") we persist the country alongside the resolved city for
+    // cohort analysis. Optional — flat-string fields don't break legs.
+    country,
   } = body;
 
   if (!id) {
@@ -203,6 +207,13 @@ export async function PATCH(req: NextRequest) {
     updates.constraint_text =
       typeof constraintText === "string" && constraintText.trim().length > 0
         ? constraintText.trim()
+        : null;
+  // PHI-57: persisted alongside legs[] for cohort analysis. Soft-store as
+  // a string column; not part of the trip schema and not validated.
+  if (country !== undefined)
+    updates.country =
+      typeof country === "string" && country.trim().length > 0
+        ? country.trim()
         : null;
 
   // PHI-33 PR2: trip-shape updates go through deriveLegs so we always end

@@ -618,6 +618,14 @@ function WelcomePageInner() {
   const [atlasSuggestedCities, setAtlasSuggestedCities] = useState<Set<string>>(
     new Set(),
   );
+  // PHI-57: country-level destination state. When the user types a
+  // country (Places result type === "country"), step 3.5 surfaces 4
+  // AI-recommended cities/regions personalised to their preferences.
+  const [countryRecommendations, setCountryRecommendations] = useState<
+    { name: string; kind: "city" | "region"; why: string; lat?: number; lng?: number }[]
+  >([]);
+  const [countryRecsLoading, setCountryRecsLoading] = useState(false);
+  const [countryRecsError, setCountryRecsError] = useState<string | null>(null);
   // Follow-up #4: resolved places for parser output. Keyed by destination
   // name as the parser returned it. Populated in the background while the
   // user is reviewing chips, so when they accept we already have lat/lng/id
@@ -1270,6 +1278,67 @@ function WelcomePageInner() {
   const hardExcludedActivities = Object.values(activityFeedback).filter(
     (f) => f.feedbackType === "chip_selected" && f.chip?.type === "hard_exclusion"
   );
+
+  // PHI-57: derived — destination resolved to a country (vs city/region).
+  // Prefer the parser's resolvedPlaces lookup (free-form path); fall back
+  // to the structured-form destinationPlace state when the user came in
+  // via the autocomplete on /welcome step 0.
+  const resolvedDestinationKind =
+    resolvedPlaces[destination]?.type ?? destinationPlace?.type;
+  const isCountryDestination = resolvedDestinationKind === "country";
+  // Persist country alongside resolved city. Best-effort, fire-and-forget.
+  function patchCountry(country: string) {
+    if (!travelerId) return;
+    void fetch("/api/travelers", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: travelerId, country }),
+    }).catch(() => {});
+  }
+  // PHI-57: load 4 AI city recommendations for the current country.
+  async function fetchCountryRecommendations() {
+    setCountryRecsLoading(true);
+    setCountryRecsError(null);
+    try {
+      const res = await fetch("/api/destinations/cities", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          country: destination,
+          preferences: {
+            travelCompany,
+            styleTags: travelerTypes,
+            budgetTier,
+            travelerCount: adultCount + childrenAges.length,
+            childrenAges,
+          },
+        }),
+      });
+      if (!res.ok) {
+        setCountryRecsError("Couldn't load suggestions — try a city directly.");
+        setCountryRecommendations([]);
+        return;
+      }
+      const data = (await res.json()) as {
+        recommendations?: { name: string; kind: "city" | "region"; why: string; lat?: number; lng?: number }[];
+      };
+      setCountryRecommendations(data.recommendations ?? []);
+    } catch {
+      setCountryRecsError("Couldn't load suggestions — try a city directly.");
+      setCountryRecommendations([]);
+    } finally {
+      setCountryRecsLoading(false);
+    }
+  }
+  // PHI-57: pick a recommended city → resolve it, set destination, advance.
+  function pickRecommendedCity(name: string) {
+    patchCountry(destination);
+    setDestination(name);
+    setDestinationVerified(true);
+    void resolveParsedDestinations([{ name }]);
+    setCountryRecommendations([]);
+    goTo(4);
+  }
 
   // Write preferences to DB when advancing from step 3 to step 4
   async function savePreferencesToDb() {
@@ -2372,6 +2441,15 @@ function WelcomePageInner() {
   async function handleContinue() {
     if (step === 5) { await handleFinish(); return; }
     if (step === 3) { await savePreferencesToDb(); }
+    // PHI-57: when the destination is a country (not a city), insert
+    // step 3.5 — AI city recommendations — between preferences and the
+    // activity preview. We use step 35 as a sentinel; goTo from 35 → 4
+    // happens when the user picks a recommendation.
+    if (step === 3 && isCountryDestination) {
+      goTo(35);
+      void fetchCountryRecommendations();
+      return;
+    }
     goTo(step + 1);
   }
 
@@ -2379,6 +2457,7 @@ function WelcomePageInner() {
     1: "When are you going?",
     2: "Where are you staying?",
     3: "Tell us about yourself.",
+    35: `Where in ${destination}?`,
     4: `Activities for your ${destination} trip.`,
     5: "Save your trip plan.",
   };
@@ -2387,6 +2466,7 @@ function WelcomePageInner() {
     1: `Great choice. Now let's lock in the dates for ${destination}.`,
     2: "Your hotel helps us give better local advice — skip if you haven\u2019t booked yet.",
     3: "A few quick questions so we can personalise your experience.",
+    35: "Pick a city or region \u2014 we'll personalise the rest from there.",
     4: "Rate what excites you \u2014 and what doesn\u2019t. It shapes your itinerary.",
     5: "Your activity plan, transport advice, and trip summary are ready. Create your account to save everything.",
   };
@@ -2410,12 +2490,14 @@ function WelcomePageInner() {
       {/* Header */}
       <div className="flex items-center justify-between px-6 pt-5 pb-2">
         <button
-          onClick={() => goTo(step - 1)}
+          onClick={() => goTo(step === 35 ? 3 : step - 1)}
           className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors text-sm font-medium"
         >
           ← Back
         </button>
-        <span className="text-[var(--text-muted)] text-sm">{step} / {TOTAL_WIZARD_STEPS}</span>
+        <span className="text-[var(--text-muted)] text-sm">
+          {step === 35 ? "3.5" : step} / {TOTAL_WIZARD_STEPS}
+        </span>
       </div>
 
       {/* Step content */}
@@ -2789,6 +2871,65 @@ function WelcomePageInner() {
             </div>
           )}
 
+          {/* PHI-57: Step 3.5 — AI city recommendations when the user
+              entered a country instead of a city. Single Haiku call;
+              re-rank-on-revisit handled by re-firing fetchCountryRecommendations
+              when the user navigates back from a later step. */}
+          {step === 35 && (
+            <div className="flex flex-col gap-4">
+              <p className="text-sm text-[var(--text-secondary)]">
+                You picked <span className="font-semibold">{destination}</span> as a country. Here are 4 cities or regions that fit your profile.
+              </p>
+              {countryRecsLoading && (
+                <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
+                  <div className="w-3 h-3 rounded-full border-2 border-[#1a6b7f] border-t-transparent animate-spin" />
+                  <span>Picking the best fit…</span>
+                </div>
+              )}
+              {!countryRecsLoading && countryRecsError && (
+                <p className="text-sm text-red-500">{countryRecsError}</p>
+              )}
+              {!countryRecsLoading && countryRecommendations.length > 0 && (
+                <div className="flex flex-col gap-2.5">
+                  {countryRecommendations.map((rec) => (
+                    <button
+                      key={rec.name}
+                      type="button"
+                      onClick={() => pickRecommendedCity(rec.name)}
+                      className="text-left bg-white border border-[#e8e4de] rounded-2xl px-4 py-3 hover:border-[#1a6b7f] transition-colors"
+                    >
+                      <div className="flex items-baseline justify-between gap-3">
+                        <span className="font-semibold text-[var(--text-primary)]">{rec.name}</span>
+                        <span className="text-[10px] uppercase tracking-widest font-semibold text-[#1a6b7f]">
+                          {rec.kind}
+                        </span>
+                      </div>
+                      <p className="text-xs text-[var(--text-secondary)] mt-1 leading-relaxed">{rec.why}</p>
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="mt-2">
+                <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-widest mb-2">
+                  Or pick a city yourself
+                </p>
+                <PlacesAutocomplete
+                  value=""
+                  onChange={() => {}}
+                  onSelect={(place) => {
+                    const name = place.split(",")[0].trim();
+                    if (!name) return;
+                    pickRecommendedCity(name);
+                  }}
+                  placeholder={`e.g. a city in ${destination}`}
+                  types={["(cities)"]}
+                  theme="light"
+                  className="w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-3 py-2 text-sm text-[var(--text-primary)] placeholder-[#9ca3af] transition-colors"
+                />
+              </div>
+            </div>
+          )}
+
           {/* Step 4: AI Preview with activity cards */}
           {step === 4 && (
             <div className="flex flex-col gap-4">
@@ -3088,7 +3229,10 @@ function WelcomePageInner() {
             </div>
           )}
 
-          {/* Continue / finish button */}
+          {/* Continue / finish button — hidden on step 3.5 since the
+              user advances by picking a recommendation card or typing
+              into the free-text fallback. */}
+          {step !== 35 && (
           <button
             onClick={handleContinue}
             disabled={!canContinue[step] || saving}
@@ -3108,6 +3252,7 @@ function WelcomePageInner() {
                 : `Continue with ${Object.keys(activityFeedback).length} rated →`
               : "Continue →"}
           </button>
+          )}
 
         </div>
       </div>
