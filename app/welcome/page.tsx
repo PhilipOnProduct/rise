@@ -349,6 +349,9 @@ function logActivityEvent(payload: {
   // because the route auto-buckets unknown fields into the jsonb column.
   // The success-metric query joins thumbs_up rate against this field.
   inspiration?: string | null;
+  // PHI-52: which strength branch the prompt took for this trip's activity-gen.
+  // "family" if any child in party, else "adult". Null when no inspiration.
+  inspirationStrength?: "adult" | "family" | null;
 }) {
   fetch("/api/activity-feedback", {
     method: "POST",
@@ -1157,6 +1160,7 @@ function WelcomePageInner() {
       activityName: activity.name,
       activityCategory: activity.category,
       inspiration: inspiration.trim() || null,
+      inspirationStrength: inspiration.trim() ? (childrenAges.length > 0 ? "family" : "adult") : null,
     });
   }
 
@@ -1183,6 +1187,7 @@ function WelcomePageInner() {
       activityName: activity.name,
       activityCategory: activity.category,
       inspiration: inspiration.trim() || null,
+      inspirationStrength: inspiration.trim() ? (childrenAges.length > 0 ? "family" : "adult") : null,
     });
   }
 
@@ -1210,6 +1215,7 @@ function WelcomePageInner() {
       chipsSource: chipsEntry?.source ?? "fallback",
       firstChipLabel: chipsEntry?.chips[0]?.label ?? "",
       inspiration: inspiration.trim() || null,
+      inspirationStrength: inspiration.trim() ? (childrenAges.length > 0 ? "family" : "adult") : null,
     });
   }
 
@@ -1233,6 +1239,7 @@ function WelcomePageInner() {
       activityName: activity.name,
       activityCategory: activity.category,
       inspiration: inspiration.trim() || null,
+      inspirationStrength: inspiration.trim() ? (childrenAges.length > 0 ? "family" : "adult") : null,
     });
   }
 
@@ -1250,6 +1257,7 @@ function WelcomePageInner() {
       activityName: entry.activityName,
       activityCategory: entry.activityCategory,
       inspiration: inspiration.trim() || null,
+      inspirationStrength: inspiration.trim() ? (childrenAges.length > 0 ? "family" : "adult") : null,
     });
   }
 

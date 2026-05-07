@@ -105,14 +105,32 @@ Other multi-leg rules:
 - Do NOT generate activities for transition days. The client will render a travel-only card for the day a user moves between legs.
 - Life-impacting constraints apply to EVERY relevant card on EVERY leg. Multi-leg trips have more cards, so attention drift is the failure mode — re-check before emitting each card. The reminder block at the end of the user message is non-negotiable.`;
 
-// ── PHI-51: Shared inspiration injection ─────────────────────────────────
+// ── PHI-51 / PHI-52: Shared inspiration injection ────────────────────────
 //
 // Single source of truth for the multi-item generator soft-bias string.
 // Imported by /api/itinerary/generate as well — DO NOT duplicate this
 // string. Hard constraint per PRD: hallucination guard verbatim, lean
-// "where natural", target one or two strong themed moments per leg.
-export function buildInspirationMultiItemInjection(inspiration: string): string {
-  return `Inspiration: the traveller wants this trip to lean into '${inspiration}' where natural. Don't force it. Only suggest theme-relevant items if a real, high-quality option exists in the destination. One or two strong themed moments per leg is the goal — not every activity.`;
+// "where natural".
+//
+// PHI-52: `strength` selects between adult and family weighting. Adult
+// branch is byte-identical to the PHI-51 baseline (one or two strong
+// themed moments per leg). Family branch (any child present) bumps to
+// three to four themed moments woven through the day with one strong
+// anchor — Elena's note from refinement: a family with a child wants the
+// theme threaded; two adults want a strong moment plus a normal trip.
+// Selection rule lives in the caller: `childrenAges.length > 0 ? "family"
+// : "adult"`. No per-inspiration age-band mapping in v1.
+export type InspirationStrength = "adult" | "family";
+
+export function buildInspirationMultiItemInjection(
+  inspiration: string,
+  strength: InspirationStrength = "adult"
+): string {
+  const tail =
+    strength === "family"
+      ? "Three to four themed moments per leg, woven naturally through the day, with one strong anchor moment — not every activity."
+      : "One or two strong themed moments per leg is the goal — not every activity.";
+  return `Inspiration: the traveller wants this trip to lean into '${inspiration}' where natural. Don't force it. Only suggest theme-relevant items if a real, high-quality option exists in the destination. ${tail}`;
 }
 
 // ── User-message builder ──────────────────────────────────────────────────
@@ -274,10 +292,13 @@ export function buildActivityGenUserMessage(args: ActivityGenInputs): string {
       ? `\n\nReminder (non-negotiable): the life-impacting constraints above apply to EVERY relevant card across EVERY leg. Re-check before emitting each card. Never silently drop a constraint just because the card list is long. If a card cannot satisfy a life-impacting constraint, drop the card — not the constraint.`
       : "";
 
-  // PHI-51: optional creative-inspiration soft bias.
+  // PHI-51 / PHI-52: optional creative-inspiration soft bias. Strength
+  // toggles to "family" weighting when any child is present in the party.
+  const inspirationStrength: InspirationStrength =
+    Array.isArray(childrenAges) && childrenAges.length > 0 ? "family" : "adult";
   const inspirationBlock =
     typeof inspiration === "string" && inspiration.trim().length > 0
-      ? `\n\n${buildInspirationMultiItemInjection(inspiration.trim())}`
+      ? `\n\n${buildInspirationMultiItemInjection(inspiration.trim(), inspirationStrength)}`
       : "";
 
   return (

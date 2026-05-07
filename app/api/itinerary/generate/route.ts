@@ -162,12 +162,15 @@ export async function POST(req: NextRequest) {
   const composition = buildCompositionSegment(travelerCount, childrenAges);
   const compositionStr = composition ? `\nTraveller composition: ${composition}` : "";
 
-  // PHI-51: shared multi-item soft-bias string. Same text used by the
-  // activity-gen onboarding stream (lib/activity-gen-prompt.ts). Empty
-  // string when no inspiration was extracted.
+  // PHI-51 / PHI-52: shared multi-item soft-bias string. Same text used
+  // by the activity-gen onboarding stream (lib/activity-gen-prompt.ts).
+  // Strength flips to "family" when any child is present in the party so
+  // themed trips with kids surface 3–4 themed moments instead of 1–2.
+  const inspirationStrength: "adult" | "family" =
+    Array.isArray(childrenAges) && childrenAges.length > 0 ? "family" : "adult";
   const inspirationStr =
     typeof inspiration === "string" && inspiration.trim().length > 0
-      ? `\n\n${buildInspirationMultiItemInjection(inspiration.trim())}`
+      ? `\n\n${buildInspirationMultiItemInjection(inspiration.trim(), inspirationStrength)}`
       : "";
 
   // PHI-37: multi-leg block. When 2+ legs, the prompt generates a plan
