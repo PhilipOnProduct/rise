@@ -1,8 +1,8 @@
 import { supabase } from "@/lib/supabase";
-import { calculateAnthropicCost, calculateGoogleCost } from "@/lib/api-costs";
+import { calculateAnthropicCost, calculateGoogleCost, calculateOpenMeteoCost } from "@/lib/api-costs";
 
 type LogParams = {
-  provider: "anthropic" | "google";
+  provider: "anthropic" | "google" | "open-meteo";
   apiType: string;
   feature?: string;
   inputTokens?: number;
@@ -23,7 +23,9 @@ export async function logApiUsage(params: LogParams): Promise<{ allowed: boolean
   const cost =
     params.provider === "anthropic"
       ? calculateAnthropicCost(params.model ?? "claude-sonnet-4-6", params.inputTokens ?? 0, params.outputTokens ?? 0)
-      : calculateGoogleCost(params.apiType);
+      : params.provider === "google"
+      ? calculateGoogleCost(params.apiType)
+      : calculateOpenMeteoCost();
 
   // Insert usage row (fire-and-forget style — don't block the response)
   const { error } = await supabase.from("api_usage").insert({

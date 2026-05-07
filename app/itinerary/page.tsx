@@ -9,6 +9,7 @@ import type {
   ItineraryDay,
   TimeBlock,
 } from "@/types/itinerary";
+import { WeatherAlternative } from "@/app/components/WeatherAlternative";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -58,6 +59,9 @@ type RawItem = {
   cuisine?: string;
   vibe?: string;
   price_tier?: string;
+  // PHI-53: outdoor flag and paired wet-weather alternative.
+  is_outdoor?: boolean;
+  alternative?: { title: string; description: string; type: ActivityCategory } | null;
 };
 
 type RawDay = {
@@ -123,6 +127,14 @@ function mapRawDays(rawDays: RawDay[]): ItineraryDay[] {
       time: item.time_block,
       sequence: idx,
       category: item.type,
+      ...(typeof item.is_outdoor === "boolean" && { is_outdoor: item.is_outdoor }),
+      ...(item.alternative && {
+        alternative: {
+          title: item.alternative.title,
+          description: item.alternative.description,
+          type: item.alternative.type,
+        },
+      }),
     })),
     // PHI-37: pass through leg metadata so the UI can render leg headers
     // and transition days. Absent on single-leg trips.
@@ -445,9 +457,12 @@ type ActivityCardProps = {
   swapSuggestion?: { title: string; description: string; type: string; conflict: string | null } | null;
   onAcceptSwap?: () => void;
   onRejectSwap?: () => void;
+  /** PHI-53: when true, render the AI's wet-weather alternative inline. */
+  showWeatherAlternative?: boolean;
+  onAlternativeEngage?: () => void;
 };
 
-function ActivityCard({ activity, onRemove, onSwap, swapping, swapError, swapSuggestion, onAcceptSwap, onRejectSwap }: ActivityCardProps) {
+function ActivityCard({ activity, onRemove, onSwap, swapping, swapError, swapSuggestion, onAcceptSwap, onRejectSwap, showWeatherAlternative, onAlternativeEngage }: ActivityCardProps) {
   const categoryIcon = CATEGORY_ICON[activity.category];
 
   return (
@@ -541,6 +556,14 @@ function ActivityCard({ activity, onRemove, onSwap, swapping, swapError, swapSug
               {activity.category}
             </span>
           </div>
+          {/* PHI-53: wet-weather alternative — only on outdoor activities
+              when the parent has decided this day is rainy. */}
+          {showWeatherAlternative && activity.is_outdoor && activity.alternative && (
+            <WeatherAlternative
+              alternative={activity.alternative}
+              onEngage={onAlternativeEngage}
+            />
+          )}
         </div>
       </div>
     </div>
@@ -612,6 +635,8 @@ function DaySection({
   blockSuggestion,
   onAcceptAdd,
   onRejectAdd,
+  showWeatherAlternative,
+  onAlternativeEngage,
 }: {
   day: ItineraryDay;
   scrollMarginTop: number;
@@ -629,6 +654,11 @@ function DaySection({
   blockSuggestion: { block: TimeBlock; item: RawItem; conflict: string | null } | null;
   onAcceptAdd: () => void;
   onRejectAdd: () => void;
+  // PHI-53: pre-computed by parent — true when this day's date is in
+  // bad_day_dates, OR null forecast (fail-open). When true, ActivityCard
+  // surfaces the AI's alternative for outdoor items inline.
+  showWeatherAlternative: boolean;
+  onAlternativeEngage: (activityId: string, alternativeTitle: string) => void;
 }) {
   const sorted = sortActivities(day.activities);
   const grouped = groupByBlock(sorted);
@@ -712,6 +742,12 @@ function DaySection({
                           swapSuggestion={suggestion ? { title: suggestion.item.title, description: suggestion.item.description, type: suggestion.item.type, conflict: suggestion.conflict } : null}
                           onAcceptSwap={onAcceptSwap}
                           onRejectSwap={onRejectSwap}
+                          showWeatherAlternative={showWeatherAlternative}
+                          onAlternativeEngage={
+                            activity.alternative
+                              ? () => onAlternativeEngage(activity.id, activity.alternative!.title)
+                              : undefined
+                          }
                         />
                       </div>
                     );
@@ -793,6 +829,12 @@ export default function ItineraryViewPage() {
   // snapshot. Empty for single-leg trips, in which case the page renders
   // the day list flat (existing behaviour).
   const [legs, setLegs] = useState<NonNullable<StoredTraveler["legs"]>>([]);
+  // PHI-53: trip-date forecast result. null = forecast unavailable
+  // (fail-open: render alternatives universally for outdoor activities).
+  // [] = forecast available, no bad days. ["YYYY-MM-DD", ...] = these
+  // days meet the rain threshold and outdoor activities should surface
+  // their alternative inline.
+  const [badDayDates, setBadDayDates] = useState<string[] | null>(null);
   const [swappingId, setSwappingId] = useState<string | null>(null);
   const [swapErrorId, setSwapErrorId] = useState<string | null>(null);
   const [swapSuggestion, setSwapSuggestion] = useState<{
@@ -918,6 +960,13 @@ export default function ItineraryViewPage() {
 
         // 2. Fall back to localStorage cache
         const cached = localStorage.getItem("rise_itinerary");
+        // PHI-53: restore the bad-day forecast cache too. null = fail-open.
+        try {
+          const cachedBad = localStorage.getItem("rise_bad_day_dates");
+          if (cachedBad !== null) {
+            setBadDayDates(JSON.parse(cachedBad));
+          }
+        } catch { /* ignore */ }
         if (cached) {
           try {
             const parsed = JSON.parse(cached) as RawDay[];
@@ -968,7 +1017,7 @@ export default function ItineraryViewPage() {
         return;
       }
 
-      const data = await res.json() as { days?: RawDay[] };
+      const data = await res.json() as { days?: RawDay[]; bad_day_dates?: string[] | null };
       if (!data.days?.length) {
         setError("Couldn't generate your itinerary. Please try again.");
         setLoading(false);
@@ -976,6 +1025,16 @@ export default function ItineraryViewPage() {
       }
 
       localStorage.setItem("rise_itinerary", JSON.stringify(data.days));
+      // PHI-53: bad_day_dates is null when forecast is unavailable (fail-open
+      // — show alternatives universally) or an array of "YYYY-MM-DD" strings
+      // for the days that meet the rain threshold.
+      if (data.bad_day_dates !== undefined) {
+        localStorage.setItem(
+          "rise_bad_day_dates",
+          JSON.stringify(data.bad_day_dates),
+        );
+        setBadDayDates(data.bad_day_dates);
+      }
       const mapped = mapRawDays(data.days);
       setDays(mapped);
 
@@ -1458,6 +1517,21 @@ export default function ItineraryViewPage() {
     handleSuggestForBlock(dayNumber, block);
   }
 
+  // PHI-53: track when the user expands a wet-weather alternative card.
+  // Logs to activity_feedback.metadata via the existing route's auto-bucket.
+  function logWeatherAlternativeEngage(activityId: string, alternativeTitle: string) {
+    void fetch("/api/activity-feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        event: "weather_alternative_engaged",
+        activityId,
+        activityName: alternativeTitle,
+        activityCategory: "alternative",
+      }),
+    }).catch(() => {});
+  }
+
   // ── Regenerate handler ──────────────────────────────────────────────────
 
   async function handleRegenerate() {
@@ -1673,6 +1747,11 @@ export default function ItineraryViewPage() {
               const isMultiLeg =
                 legs.length >= 2 &&
                 days.some((d) => typeof d.leg_index === "number");
+              // PHI-53: a day is "rainy" iff its date is in bad_day_dates.
+              // null badDayDates = forecast unavailable → fail-open (show
+              // alternatives universally on outdoor activities).
+              const dayIsRainy = (date: string) =>
+                badDayDates === null || badDayDates.includes(date);
               if (!isMultiLeg) {
                 return days.map((day) => (
                   <DaySection
@@ -1693,6 +1772,8 @@ export default function ItineraryViewPage() {
                     blockSuggestion={blockSuggestion?.dayNumber === day.day_number ? blockSuggestion : null}
                     onAcceptAdd={acceptAdd}
                     onRejectAdd={rejectAdd}
+                    showWeatherAlternative={dayIsRainy(day.date)}
+                    onAlternativeEngage={logWeatherAlternativeEngage}
                   />
                 ));
               }
@@ -1755,6 +1836,8 @@ export default function ItineraryViewPage() {
                         blockSuggestion={blockSuggestion?.dayNumber === day.day_number ? blockSuggestion : null}
                         onAcceptAdd={acceptAdd}
                         onRejectAdd={rejectAdd}
+                        showWeatherAlternative={dayIsRainy(day.date)}
+                        onAlternativeEngage={logWeatherAlternativeEngage}
                       />
                     )}
                   </div>

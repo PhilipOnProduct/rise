@@ -2,6 +2,12 @@ export type ActivityCategory = "activity" | "restaurant" | "transport" | "note";
 
 export type TimeBlock = "morning" | "afternoon" | "evening";
 
+export type WeatherAlternativeData = {
+  title: string;
+  description: string;
+  type: ActivityCategory;
+};
+
 export type Activity = {
   id: string;
   name: string;
@@ -11,6 +17,12 @@ export type Activity = {
   /** Position within the time block, 0-indexed */
   sequence: number;
   category: ActivityCategory;
+  /** PHI-53: AI-classified outdoor flag — wet-weather alternative is rendered
+   *  only when this is true AND the day's date is in bad_day_dates. */
+  is_outdoor?: boolean;
+  /** PHI-53: paired wet-weather indoor/covered alternative. Only populated
+   *  when is_outdoor is true and the AI found a real in-destination option. */
+  alternative?: WeatherAlternativeData;
 };
 
 export type ItineraryDay = {

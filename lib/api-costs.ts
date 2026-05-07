@@ -18,6 +18,10 @@ const GOOGLE_PRICING: Record<string, number> = {
   "geocoding":          0.005,
 };
 
+// PHI-53: Open-Meteo free tier — no API key, $0 per call. Tracked for
+// visibility/quota-watching but contributes nothing to cost calculations.
+const OPEN_METEO_PRICING = 0;
+
 export function calculateAnthropicCost(
   model: string,
   inputTokens: number,
@@ -33,4 +37,8 @@ export function calculateAnthropicCost(
 
 export function calculateGoogleCost(apiType: string): number {
   return GOOGLE_PRICING[apiType] ?? 0.01;
+}
+
+export function calculateOpenMeteoCost(): number {
+  return OPEN_METEO_PRICING;
 }

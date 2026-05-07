@@ -4,6 +4,8 @@ import { logAiInteraction } from "@/lib/ai-logger";
 import { logApiUsage, checkApiLimit } from "@/lib/log-api-usage";
 import { buildCompositionSegment } from "@/lib/composition";
 import { buildInspirationMultiItemInjection } from "@/lib/activity-gen-prompt";
+import { fetchForecast, badDayDates } from "@/lib/weather";
+import { geocodeCity } from "@/lib/travel-connectors";
 import type { TripLeg } from "@/lib/trip-schema";
 
 const client = new Anthropic();
@@ -79,6 +81,12 @@ type BookingMeta = {
   search_query: string;
 };
 
+type WeatherAlternative = {
+  title: string;
+  description: string;
+  type: "activity" | "restaurant" | "transport" | "note";
+};
+
 type ItineraryItem = {
   id: string;
   title: string;
@@ -91,6 +99,9 @@ type ItineraryItem = {
   cuisine?: string;
   vibe?: string;
   price_tier?: string;
+  // PHI-53: AI-classified outdoor flag and paired wet-weather alternative.
+  is_outdoor?: boolean;
+  alternative?: WeatherAlternative;
 };
 
 type ItineraryDay = {
@@ -255,8 +266,15 @@ Each item object:
   "type": "activity" | "restaurant" | "transport",
   "time_block": "morning" | "afternoon" | "evening",
   "status": "idea",
-  "source": "ai_generated"
+  "source": "ai_generated",
+  "is_outdoor": false,
+  "alternative": null
 }
+
+is_outdoor / alternative rules (PHI-53):
+- "is_outdoor" is REQUIRED on every item. Set true if the primary experience happens outside (parks, viewpoints, walks, beaches, outdoor markets, gardens, hikes, ferry rides, open-top tours). Set false for museums, indoor restaurants, covered venues, theatres, shopping malls.
+- When "is_outdoor" is true, "alternative" MUST be a real, in-destination indoor or covered option that fits the same time slot if weather is bad. Shape: { "title": "...", "description": "One sentence.", "type": "activity" | "restaurant" | "transport" | "note" }. Apply the standard hallucination guard: only suggest a real, high-quality option that exists in the destination — never invent venues. If no genuine indoor alternative exists for that slot, set "alternative" to null and accept the outdoor recommendation as standalone.
+- When "is_outdoor" is false, set "alternative" to null. Do not generate alternatives for indoor items.
 
 For items where type is "restaurant", include these additional fields:
 {
@@ -343,7 +361,32 @@ Rules:
       model: MODEL, inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens,
     });
 
-    return NextResponse.json({ days: days_data });
+    // PHI-53: forecast fetch is fire-and-forget for client display. Fail
+    // open: if Open-Meteo is down or the trip is beyond the 16-day
+    // horizon, badDays is null and the client falls back to showing
+    // alternatives universally for outdoor activities.
+    let badDays: string[] | null = null;
+    try {
+      const coords = await geocodeCity(destination);
+      if (coords) {
+        const forecast = await fetchForecast(
+          coords.lat,
+          coords.lng,
+          departureDate,
+          returnDate,
+        );
+        await logApiUsage({
+          provider: "open-meteo",
+          apiType: "forecast",
+          feature: "itinerary-generate",
+        });
+        badDays = badDayDates(forecast);
+      }
+    } catch (err) {
+      console.warn("[itinerary-generate] forecast failed (fail-open):", err);
+    }
+
+    return NextResponse.json({ days: days_data, bad_day_dates: badDays });
   } catch (err) {
     console.error("[itinerary-generate]", err);
     return NextResponse.json({ error: "Failed to generate itinerary" }, { status: 500 });
