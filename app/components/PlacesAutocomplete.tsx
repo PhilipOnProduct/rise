@@ -15,12 +15,27 @@ type Props = {
   placeholder?: string;
   types?: string[];
   locationBias?: { lat: number; lng: number } | null;
+  /** PHI-56 / PHI-57: ISO-3166 region code (e.g. "GB", "JP") for country-biased
+   *  searches. Restricts suggestions to that country only. */
+  countryCode?: string;
   className?: string;
   style?: React.CSSProperties;
   autoFocus?: boolean;
   onEnter?: () => void;
   theme?: "dark" | "light";
 };
+
+// PHI-56: legacy "(cities)" callers used to pass this string. The new
+// Places API doesn't accept it; map it to the equivalent strict primary
+// types so country queries no longer surface granular sub-city matches
+// (e.g. "Hoyland, Barnsley" for "United Kingdom").
+const CITY_PRIMARY_TYPES = ["locality", "administrative_area_level_1"] as const;
+function coercePrimaryTypes(types: string[] | undefined): string[] {
+  if (!types || types.length === 0) return [...CITY_PRIMARY_TYPES];
+  return types.flatMap((t) =>
+    t === "(cities)" ? [...CITY_PRIMARY_TYPES] : [t],
+  );
+}
 
 // Module-level singleton so the script loads only once per page
 let mapsLoadPromise: Promise<void> | null = null;
@@ -50,6 +65,7 @@ export default function PlacesAutocomplete({
   placeholder = "",
   types,
   locationBias,
+  countryCode,
   className = "",
   style,
   autoFocus,
@@ -60,6 +76,10 @@ export default function PlacesAutocomplete({
   const [open, setOpen] = useState(false);
   const [activeIdx, setActiveIdx] = useState(-1);
   const [ready, setReady] = useState(false);
+  // PHI-56: distinguish "haven't searched yet" from "searched and got
+  // zero results." The empty-state row appears only when the latter is
+  // true so we don't show "We couldn't find that" before the first call.
+  const [searched, setSearched] = useState(false);
   const tokenRef = useRef<google.maps.places.AutocompleteSessionToken | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Only show suggestions after the user has actively typed — prevents the
@@ -87,6 +107,7 @@ export default function PlacesAutocomplete({
     if (!ready || !hasTypedRef.current || value.trim().length < 2) {
       setSuggestions([]);
       setOpen(false);
+      setSearched(false);
       return;
     }
 
@@ -94,10 +115,19 @@ export default function PlacesAutocomplete({
 
     debounceRef.current = setTimeout(async () => {
       try {
-        const request = {
+        // PHI-56: tighten primary types so country queries ("united
+        // kingdom", "japan") no longer return random villages whose
+        // address happens to contain the country name. Default is
+        // locality + administrative_area_level_1; legacy "(cities)"
+        // callers are translated.
+        const includedPrimaryTypes = coercePrimaryTypes(types);
+        const request: google.maps.places.AutocompleteRequest = {
           input: value,
           sessionToken: tokenRef.current ?? undefined,
-          ...(types?.length && { includedPrimaryTypes: types }),
+          // PHI-56: avoid mixed-language output ("Verenigd Koninkrijk").
+          language: "en",
+          includedPrimaryTypes,
+          ...(countryCode && { includedRegionCodes: [countryCode] }),
           ...(locationBias && {
             locationBias: {
               center: new google.maps.LatLng(locationBias.lat, locationBias.lng),
@@ -124,18 +154,23 @@ export default function PlacesAutocomplete({
           .filter((s): s is Suggestion => s !== null);
 
         setSuggestions(mapped);
-        setOpen(mapped.length > 0);
+        // PHI-56: open the dropdown even when results are empty so the
+        // empty-state row can render. Without this the user sees nothing
+        // when they type a country.
+        setOpen(true);
+        setSearched(true);
         setActiveIdx(-1);
       } catch {
         setSuggestions([]);
-        setOpen(false);
+        setOpen(true);
+        setSearched(true);
       }
     }, 200);
 
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [value, ready, types, locationBias]);
+  }, [value, ready, types, locationBias, countryCode]);
 
   const handleSelect = useCallback(
     (s: Suggestion) => {
@@ -190,7 +225,7 @@ export default function PlacesAutocomplete({
         style={style}
       />
 
-      {open && suggestions.length > 0 && (
+      {open && (suggestions.length > 0 || searched) && (
         <div className={`absolute z-50 w-full mt-2 rounded-2xl overflow-hidden shadow-2xl ${
           theme === "light"
             ? "bg-white border border-[#d4cfc5]"
@@ -213,6 +248,20 @@ export default function PlacesAutocomplete({
               )}
             </button>
           ))}
+          {/* PHI-56: empty-state row when the query (especially a
+              country query) returned no city or region match. */}
+          {suggestions.length === 0 && searched && (
+            <div
+              data-testid="autocomplete-empty"
+              className={`px-5 py-3.5 text-sm ${
+                theme === "light"
+                  ? "text-[var(--text-muted)]"
+                  : "text-gray-400"
+              }`}
+            >
+              We couldn&apos;t find that — try a city or region.
+            </div>
+          )}
         </div>
       )}
     </div>
