@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { logAiInteraction } from "@/lib/ai-logger";
 import { logApiUsage, checkApiLimit } from "@/lib/log-api-usage";
 import { buildCompositionSegment } from "@/lib/composition";
+import { matchFranchise, buildAtlasAnchorSegment } from "@/lib/themed-atlas";
 
 const client = new Anthropic();
 const MODEL = "claude-sonnet-4-6";
@@ -111,10 +112,23 @@ export async function POST(req: NextRequest) {
     `If the item being replaced is from another city, ignore it — suggest something local to ${destination}.`;
 
   // PHI-51: single-slot soft-bias clause. Empty string when no inspiration set.
-  const inspirationClause =
-    typeof inspiration === "string" && inspiration.trim().length > 0
-      ? `\n\n${buildInspirationEditInjection(inspiration.trim())}`
-      : "";
+  const trimmedInspiration: string =
+    typeof inspiration === "string" ? inspiration.trim() : "";
+  const inspirationClause = trimmedInspiration.length
+    ? `\n\n${buildInspirationEditInjection(trimmedInspiration)}`
+    : "";
+
+  // PHI-54: when the slot edit lands on an atlas-matched trip, inject
+  // the deterministic anchor list for the destination alongside the
+  // soft-bias clause. Hallucination guard remains.
+  let atlasClause = "";
+  if (trimmedInspiration.length && typeof destination === "string") {
+    const franchise = matchFranchise(trimmedInspiration);
+    if (franchise) {
+      const seg = buildAtlasAnchorSegment(franchise, destination);
+      if (seg) atlasClause = `\n\n${seg}`;
+    }
+  }
 
   let prompt: string;
   if (mode === "swap") {
@@ -127,6 +141,7 @@ export async function POST(req: NextRequest) {
       `It should feel like a natural alternative or upgrade to what it's replacing.` +
       locationConstraint +
       inspirationClause +
+      atlasClause +
       avoidClause;
   } else {
     prompt =
@@ -136,6 +151,7 @@ export async function POST(req: NextRequest) {
       `It should complement what's already planned and feel like it belongs in the itinerary.` +
       locationConstraint +
       inspirationClause +
+      atlasClause +
       avoidClause;
   }
 

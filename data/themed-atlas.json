@@ -1,0 +1,147 @@
+{
+  "$schema_version": "1",
+  "_doc": "PHI-54 — curated atlas of franchises and inspirations with real, locatable POIs. Edit Philip-curated PRs only. POIs must be verifiable; lat/lng plausible within the destination. Coverage: 2 seed franchises (HP, LOTR). Expand to the full 10 in follow-up PRs.",
+  "franchises": [
+    {
+      "name": "Harry Potter",
+      "aliases": ["HP", "Wizarding World", "Hogwarts", "JK Rowling"],
+      "destinations": [
+        {
+          "city": "London",
+          "country": "United Kingdom",
+          "pois": [
+            {
+              "name": "Warner Bros Studio Tour London — The Making of Harry Potter",
+              "lat": 51.6924,
+              "lng": -0.4185,
+              "type": "attraction",
+              "blurb": "Original sets, costumes, and props from all eight films at the Leavesden studios."
+            },
+            {
+              "name": "Platform 9¾ — King's Cross Station",
+              "lat": 51.5320,
+              "lng": -0.1238,
+              "type": "landmark",
+              "blurb": "The trolley-through-the-wall photo spot beside the King's Cross concourse."
+            },
+            {
+              "name": "Leadenhall Market",
+              "lat": 51.5128,
+              "lng": -0.0838,
+              "type": "landmark",
+              "blurb": "Filming location for Diagon Alley exterior shots in the Philosopher's Stone."
+            },
+            {
+              "name": "House of MinaLima",
+              "lat": 51.5145,
+              "lng": -0.1330,
+              "type": "attraction",
+              "blurb": "Gallery and shop run by the graphic designers behind the films' iconic prop art."
+            }
+          ]
+        },
+        {
+          "city": "Edinburgh",
+          "country": "United Kingdom",
+          "pois": [
+            {
+              "name": "The Elephant House (exterior)",
+              "lat": 55.9472,
+              "lng": -3.1908,
+              "type": "landmark",
+              "blurb": "JK Rowling drafted early Potter chapters here; the cafe interior is currently closed but the exterior remains a pilgrimage point."
+            },
+            {
+              "name": "Greyfriars Kirkyard",
+              "lat": 55.9474,
+              "lng": -3.1916,
+              "type": "landmark",
+              "blurb": "Historic graveyard whose headstones include a Thomas Riddell Esquire — a likely source for Voldemort's name."
+            },
+            {
+              "name": "Victoria Street",
+              "lat": 55.9483,
+              "lng": -3.1937,
+              "type": "landmark",
+              "blurb": "Curved cobblestone street widely cited as Rowling's inspiration for Diagon Alley."
+            }
+          ]
+        },
+        {
+          "city": "Glenfinnan",
+          "country": "United Kingdom",
+          "pois": [
+            {
+              "name": "Glenfinnan Viaduct",
+              "lat": 56.8732,
+              "lng": -5.4332,
+              "type": "landmark",
+              "blurb": "The 21-arch viaduct featured in the Hogwarts Express scenes; Jacobite Steam Train crosses it daily in season."
+            }
+          ]
+        }
+      ],
+      "suggested_legs": [
+        { "city": "London", "country": "United Kingdom", "nights": 3 },
+        { "city": "Edinburgh", "country": "United Kingdom", "nights": 2 }
+      ]
+    },
+    {
+      "name": "Lord of the Rings",
+      "aliases": ["LOTR", "Tolkien", "Middle Earth", "Middle-earth", "The Hobbit"],
+      "destinations": [
+        {
+          "city": "Matamata",
+          "country": "New Zealand",
+          "pois": [
+            {
+              "name": "Hobbiton Movie Set",
+              "lat": -37.8721,
+              "lng": 175.6829,
+              "type": "attraction",
+              "blurb": "The original Shire set kept intact for guided tours, including 44 hobbit holes and the Green Dragon Inn."
+            }
+          ]
+        },
+        {
+          "city": "Wellington",
+          "country": "New Zealand",
+          "pois": [
+            {
+              "name": "Weta Workshop Tour",
+              "lat": -41.3225,
+              "lng": 174.8246,
+              "type": "attraction",
+              "blurb": "Behind-the-scenes tour of the special-effects studio that built the films' creatures, weapons, and prosthetics."
+            },
+            {
+              "name": "Mount Victoria Lookout",
+              "lat": -41.2975,
+              "lng": 174.7944,
+              "type": "landmark",
+              "blurb": "Filming location for Hobbits-hiding-from-Black-Rider scene; panoramic city and harbour views."
+            }
+          ]
+        },
+        {
+          "city": "Queenstown",
+          "country": "New Zealand",
+          "pois": [
+            {
+              "name": "Glenorchy and the Dart River",
+              "lat": -44.9994,
+              "lng": 168.3960,
+              "type": "landmark",
+              "blurb": "Lothlórien and Isengard backdrops; jet-boat or horse-trekking tours run from the lakefront."
+            }
+          ]
+        }
+      ],
+      "suggested_legs": [
+        { "city": "Wellington", "country": "New Zealand", "nights": 2 },
+        { "city": "Matamata", "country": "New Zealand", "nights": 1 },
+        { "city": "Queenstown", "country": "New Zealand", "nights": 3 }
+      ]
+    }
+  ]
+}

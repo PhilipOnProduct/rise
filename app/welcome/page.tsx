@@ -612,6 +612,12 @@ function WelcomePageInner() {
   const [parserText, setParserText] = useState("");
   const [parsedIntent, setParsedIntent] = useState<TripIntent | null>(null);
   const [parserError, setParserError] = useState<string | null>(null);
+  // PHI-54: cities seeded from the curated atlas (case-insensitive). Used
+  // to render a "suggested" tag on those destination chips so the user
+  // knows they were proposed by Rise rather than typed.
+  const [atlasSuggestedCities, setAtlasSuggestedCities] = useState<Set<string>>(
+    new Set(),
+  );
   // Follow-up #4: resolved places for parser output. Keyed by destination
   // name as the parser returned it. Populated in the background while the
   // user is reviewing chips, so when they accept we already have lat/lng/id
@@ -1433,19 +1439,49 @@ function WelcomePageInner() {
         setParserPhase("landing");
         return;
       }
-      const data = (await res.json()) as { intent: TripIntent };
-      setParsedIntent(data.intent);
+      const data = (await res.json()) as {
+        intent: TripIntent;
+        suggestedLegs?: { city: string; country: string; nights: number; source: "atlas" }[];
+      };
+      // PHI-54: if the atlas matched the inspiration AND the parser
+      // didn't already extract destinations the user mentioned, fold the
+      // suggested legs into intent.destinations so they render on the
+      // chip-confirm screen with a "suggested" tag. User can remove
+      // freely. Never overwrite user-typed destinations.
+      let intent = data.intent;
+      if (
+        data.suggestedLegs &&
+        data.suggestedLegs.length > 0 &&
+        intent.destinations.length === 0
+      ) {
+        intent = {
+          ...intent,
+          destinations: data.suggestedLegs.map((l) => ({
+            name: l.city,
+            kind: "place" as const,
+          })),
+        };
+        setAtlasSuggestedCities(
+          new Set(data.suggestedLegs.map((l) => l.city.toLowerCase())),
+        );
+      } else {
+        setAtlasSuggestedCities(new Set());
+      }
+      setParsedIntent(intent);
       setParserPhase("confirming");
       logOnboardingEvent(
-        data.intent.clarifications.length > 0
+        intent.clarifications.length > 0
           ? "freeform_required_clarification"
           : "freeform_parsed_clean",
-        { clarifications: data.intent.clarifications.length }
+        {
+          clarifications: intent.clarifications.length,
+          atlasMatched: !!data.suggestedLegs,
+        }
       );
       // Follow-up #4: kick off place resolution in the background while the
       // user reviews the chips. Parallel + fire-and-forget; failures fall
       // through to the unverified-name path on accept.
-      void resolveParsedDestinations(data.intent.destinations);
+      void resolveParsedDestinations(intent.destinations);
     } catch (e: unknown) {
       setParserError(e instanceof Error ? e.message : "Network error.");
       setParserPhase("landing");
@@ -1753,6 +1789,9 @@ function WelcomePageInner() {
                       </div>
                     );
                   }
+                  // PHI-54: surface a "suggested" badge on chips that
+                  // were seeded from the curated atlas (vs. user-typed).
+                  const isAtlasSuggested = atlasSuggestedCities.has(d.name.toLowerCase());
                   return (
                     <button
                       key={i}
@@ -1769,6 +1808,11 @@ function WelcomePageInner() {
                         {d.name}
                         {d.kind ? ` (${d.kind})` : ""}
                       </span>
+                      {isAtlasSuggested && (
+                        <span className="ml-1 text-[10px] uppercase tracking-widest font-semibold text-[#1a6b7f] bg-[#1a6b7f]/10 px-1.5 py-0.5 rounded-full">
+                          suggested
+                        </span>
+                      )}
                     </button>
                   );
                 })

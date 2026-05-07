@@ -6,6 +6,7 @@ import { buildCompositionSegment } from "@/lib/composition";
 import { buildInspirationMultiItemInjection } from "@/lib/activity-gen-prompt";
 import { fetchForecast, badDayDates } from "@/lib/weather";
 import { geocodeCity } from "@/lib/travel-connectors";
+import { matchFranchise, buildAtlasAnchorSegment } from "@/lib/themed-atlas";
 import type { TripLeg } from "@/lib/trip-schema";
 
 const client = new Anthropic();
@@ -179,10 +180,31 @@ export async function POST(req: NextRequest) {
   // themed trips with kids surface 3–4 themed moments instead of 1–2.
   const inspirationStrength: "adult" | "family" =
     Array.isArray(childrenAges) && childrenAges.length > 0 ? "family" : "adult";
-  const inspirationStr =
-    typeof inspiration === "string" && inspiration.trim().length > 0
-      ? `\n\n${buildInspirationMultiItemInjection(inspiration.trim(), inspirationStrength)}`
-      : "";
+  const trimmedInspiration =
+    typeof inspiration === "string" ? inspiration.trim() : "";
+  const inspirationStr = trimmedInspiration.length
+    ? `\n\n${buildInspirationMultiItemInjection(trimmedInspiration, inspirationStrength)}`
+    : "";
+
+  // PHI-54: deterministic atlas anchor segment when the inspiration
+  // matches a curated franchise. Additive on top of soft-bias.
+  let atlasStr = "";
+  if (trimmedInspiration.length) {
+    const franchise = matchFranchise(trimmedInspiration);
+    if (franchise) {
+      const cities = Array.isArray(legs) && legs.length >= 2
+        ? legs.map((l) => l.place?.name ?? "")
+        : destination
+          ? [destination]
+          : [];
+      const segments: string[] = [];
+      for (const city of cities) {
+        const seg = buildAtlasAnchorSegment(franchise, city);
+        if (seg) segments.push(seg);
+      }
+      if (segments.length > 0) atlasStr = `\n\n${segments.join("\n\n")}`;
+    }
+  }
 
   // PHI-37: multi-leg block. When 2+ legs, the prompt generates a plan
   // tagged with leg_index per day plus an explicit transition day between
@@ -241,7 +263,7 @@ Travel dates: ${departureDate} to ${returnDate}.
 ${companyStr}
 ${hotelStr}
 ${styleStr}
-${budgetStr}${compositionStr}${inspirationStr}${feedbackSegment}${multiLegBlock}
+${budgetStr}${compositionStr}${inspirationStr}${atlasStr}${feedbackSegment}${multiLegBlock}
 
 Return ONLY a valid JSON array — no markdown, no explanation, no code fences. The array must have exactly ${days} elements, one per day.
 

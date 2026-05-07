@@ -16,6 +16,7 @@
 
 import type { TripLeg } from "@/lib/trip-schema";
 import { buildCompositionSegment } from "@/lib/composition";
+import { matchFranchise, buildAtlasAnchorSegment } from "@/lib/themed-atlas";
 
 // ── SYSTEM ─────────────────────────────────────────────────────────────────
 //
@@ -296,14 +297,39 @@ export function buildActivityGenUserMessage(args: ActivityGenInputs): string {
   // toggles to "family" weighting when any child is present in the party.
   const inspirationStrength: InspirationStrength =
     Array.isArray(childrenAges) && childrenAges.length > 0 ? "family" : "adult";
-  const inspirationBlock =
-    typeof inspiration === "string" && inspiration.trim().length > 0
-      ? `\n\n${buildInspirationMultiItemInjection(inspiration.trim(), inspirationStrength)}`
-      : "";
+  const trimmedInspiration =
+    typeof inspiration === "string" ? inspiration.trim() : "";
+  const inspirationBlock = trimmedInspiration.length
+    ? `\n\n${buildInspirationMultiItemInjection(trimmedInspiration, inspirationStrength)}`
+    : "";
+
+  // PHI-54: when the inspiration matches the curated atlas, prepend a
+  // deterministic anchor segment listing real, locatable POIs for the
+  // current destination (or each leg). The atlas is additive — soft-bias
+  // still runs. Hallucination guard remains verbatim.
+  let atlasBlock = "";
+  if (trimmedInspiration.length) {
+    const franchise = matchFranchise(trimmedInspiration);
+    if (franchise) {
+      const cities = isMultiLeg
+        ? legs!.map((l) => l.place?.name ?? "")
+        : destination
+          ? [destination]
+          : [];
+      const segments: string[] = [];
+      for (const city of cities) {
+        const seg = buildAtlasAnchorSegment(franchise, city);
+        if (seg) segments.push(seg);
+      }
+      if (segments.length > 0) {
+        atlasBlock = `\n\n${segments.join("\n\n")}`;
+      }
+    }
+  }
 
   return (
     `${headline}${profileBlock}${legsBlock}\n` +
     `Budget: ${BUDGET_LABEL[budgetTier ?? "comfortable"] ?? "comfortable"}. Style: ${styleList.join(", ")}.\n` +
-    `Every suggestion must genuinely suit this profile — not generic activities any visitor might do.${reminderBlock}${inspirationBlock}`
+    `Every suggestion must genuinely suit this profile — not generic activities any visitor might do.${reminderBlock}${inspirationBlock}${atlasBlock}`
   );
 }

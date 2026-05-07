@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { logAiInteraction } from "@/lib/ai-logger";
 import { logApiUsage, checkApiLimit } from "@/lib/log-api-usage";
 import { TRIP_INTENT_TOOL, coerceTripIntent } from "@/lib/trip-intent";
+import { matchFranchise, suggestLegs } from "@/lib/themed-atlas";
 
 /**
  * PHI-34 / RISE-301 — Free-form trip description parser
@@ -140,9 +141,27 @@ export async function POST(req: NextRequest) {
     console.error("[parse-trip] Logging failed:", err);
   }
 
+  // PHI-54: when the parser extracted an inspiration that matches the
+  // curated atlas, surface the franchise's default leg structure so the
+  // chip-confirm screen can render editable destination chips. The user
+  // can remove or add legs — atlas legs are NEVER auto-applied.
+  let suggestedLegs: { city: string; country: string; nights: number; source: "atlas" }[] = [];
+  if (intent.inspiration) {
+    const franchise = matchFranchise(intent.inspiration);
+    if (franchise) {
+      suggestedLegs = suggestLegs(franchise).map((l) => ({
+        city: l.city,
+        country: l.country,
+        nights: l.nights,
+        source: "atlas" as const,
+      }));
+    }
+  }
+
   return NextResponse.json(
     {
       intent,
+      suggestedLegs: suggestedLegs.length > 0 ? suggestedLegs : undefined,
       tokensIn: response.usage.input_tokens,
       tokensOut: response.usage.output_tokens,
     },
