@@ -2213,7 +2213,7 @@ function WelcomePageInner() {
             </p>
           )}
           <button
-            onClick={submitFreeForm}
+            onClick={() => submitFreeForm()}
             disabled={parserPhase === "parsing" || !parserText.trim()}
             className="w-full text-white font-semibold text-lg py-5 hover:opacity-90 transition-opacity disabled:opacity-30 disabled:cursor-not-allowed mb-3"
             style={{ backgroundColor: "#1a6b7f", borderRadius: 50 }}
