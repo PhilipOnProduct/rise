@@ -58,8 +58,11 @@ export const config = {
      * - _next/static  (Next.js static files)
      * - _next/image   (Next.js image optimisation)
      * - favicon.ico
-     * - /api/auth     (the auth endpoint itself)
+     * - /api/auth     (the site-password endpoint itself)
+     * - /auth/callback (PHI-59: Supabase magic-link landing — must be
+     *   reachable behind the site-password gate so the email link works
+     *   even on a fresh device that never set the site_auth cookie)
      */
-    "/((?!_next/static|_next/image|favicon\\.ico|api/auth).*)",
+    "/((?!_next/static|_next/image|favicon\\.ico|api/auth|auth/callback).*)",
   ],
 };

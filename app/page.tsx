@@ -17,7 +17,7 @@ export default function Home() {
           Rise
         </a>
         <a
-          href="/welcome"
+          href="/signin"
           className="text-sm font-medium hover:opacity-70 transition-opacity"
           style={{ color: "#4a6580" }}
         >

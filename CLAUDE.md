@@ -26,6 +26,7 @@ For persona-based discussion (Sarah PM, Maya Designer, Luca Tech Lead, Elena Tra
 | Database | Supabase (Postgres + JS client) |
 | AI | Anthropic API — `claude-sonnet-4-6` for most features |
 | Hosting | Vercel (Edge middleware for password protection) |
+| Auth | Supabase Auth (magic link) via `@supabase/ssr` — cookie-based sessions |
 | Font | DM Sans via `next/font/google` |
 | Maps | Google Maps JS API (New Places API, Routes API) |
 
@@ -34,7 +35,7 @@ For persona-based discussion (Sarah PM, Maya Designer, Luca Tech Lead, Elena Tra
 ## Current Features
 
 ### Traveller flows
-- **Onboarding wizard** (`/welcome`) — 6-step flow: Step 0 full-screen landing (destination) → Step 1 destination + dates → Step 2 hotel (optional — Places autocomplete biased to destination; "I haven't booked yet — skip →" link skips with null hotel; Continue always enabled) → Step 3 travel preferences (company + traveler count + children's ages + style tags + budget tier) → Step 4 AI activity preview (streaming, personalised using Step 3 preferences) → Step 5 account creation (name/email inputs have explicit `name` and `autoComplete` attributes to prevent browser autofill cross-contamination). Preferences are written to Supabase via partial upsert when the user advances from Step 3 to Step 4. Saves to Supabase `travelers` table and `localStorage` (`rise_traveler`, `rise_onboarded`). Step 3 has four sections: (1) "Who's coming?" — two side-by-side steppers for Adults (default 2, min 1) and Children (default 0, min 0); when children > 0, age range rows appear below (each child gets "Child N" label + four selectable buttons: Under 2, 2–4, 5–8, 9–12). (2) "Trip type" — dynamic company selector derived from composition: 1 adult + no children → auto-set "solo" (hidden); 2 adults + no children → show Couple / Friend group; 3+ adults + no children → show Friend group / Family; any children → auto-set "family" (hidden). Label hidden when only one option or auto-set. Invalid selection cleared on composition change. (3) Travel style tags — personalised by group type: universal core (Cultural, Food-led, Relaxed, Adventure, Off the beaten track, History) plus group-specific tags (e.g. Romantic for couples, Kid-friendly/Beach/Educational for families, Nightlife/Active/Festivals for friends, Budget-savvy/Slow travel for solo). Tags cleared on company change if no longer available. (4) Budget tier. Children input is available for any trip type. State uses `adultCount` and `childrenAges` array; `travelerCount` is computed as `adultCount + childrenAges.length` at save time.
+- **Onboarding wizard** (`/welcome`) — 6-step flow: Step 0 full-screen landing (destination) → Step 1 destination + dates → Step 2 hotel (optional — Places autocomplete biased to destination; "I haven't booked yet — skip →" link skips with null hotel; Continue always enabled) → Step 3 travel preferences (company + traveler count + children's ages + style tags + budget tier) → Step 4 AI activity preview (streaming, personalised using Step 3 preferences) → Step 5 account creation (PHI-59: clicking "Send magic link →" PATCHes name + email onto the existing traveler row, saves the local snapshot, calls `supabase.auth.signInWithOtp({email, emailRedirectTo: /auth/callback?next=/dashboard&travelerId=<id>})`, and routes to `/auth/check-email`. The callback links `travelers.auth_user_id` once the user clicks the email. If the OTP send fails, we fall back to `/itinerary` so the user still sees their trip. Name/email inputs have explicit `name` and `autoComplete` attributes to prevent browser autofill cross-contamination). Preferences are written to Supabase via partial upsert when the user advances from Step 3 to Step 4. Saves to Supabase `travelers` table and `localStorage` (`rise_traveler`, `rise_onboarded`). Step 3 has four sections: (1) "Who's coming?" — two side-by-side steppers for Adults (default 2, min 1) and Children (default 0, min 0); when children > 0, age range rows appear below (each child gets "Child N" label + four selectable buttons: Under 2, 2–4, 5–8, 9–12). (2) "Trip type" — dynamic company selector derived from composition: 1 adult + no children → auto-set "solo" (hidden); 2 adults + no children → show Couple / Friend group; 3+ adults + no children → show Friend group / Family; any children → auto-set "family" (hidden). Label hidden when only one option or auto-set. Invalid selection cleared on composition change. (3) Travel style tags — personalised by group type: universal core (Cultural, Food-led, Relaxed, Adventure, Off the beaten track, History) plus group-specific tags (e.g. Romantic for couples, Kid-friendly/Beach/Educational for families, Nightlife/Active/Festivals for friends, Budget-savvy/Slow travel for solo). Tags cleared on company change if no longer available. (4) Budget tier. Children input is available for any trip type. State uses `adultCount` and `childrenAges` array; `travelerCount` is computed as `adultCount + childrenAges.length` at save time.
 - **Dashboard** (`/dashboard`) — Shows trip summary (destination, dates, nights, hotel, activities) read from `localStorage`. Links to itinerary, transport, profile, and guides.
 - **Day-by-day itinerary** (`/itinerary`) — Day-view timeline with one column per trip day, grouped by three time blocks (morning / afternoon / evening) with emoji subheadings and divider lines. AI pre-populates suggestions on first load via `/api/itinerary/generate`; persisted to `localStorage` (`rise_itinerary`). The generate API receives the user's hotel name and injects it into the prompt so activities reference the correct accommodation. Page header shows destination, date range, total days/activities, hotel name, and a "↻ Regenerate" button (with confirmation step). Sticky TripShapeBar highlights the active day via IntersectionObserver. Editing surface: (1) Remove (×) with 5-second undo toast — activity held in state, auto-dismissed after timeout; (2) Swap (⇄) — calls `/api/itinerary/edit` with mode=`swap`, shows new suggestion in place of old item for review ("Looks good ✓" / "Not quite, try again →"), inline error message on API failure; (3) "+ Suggest something" button below each time block and in empty slots — calls `/api/itinerary/edit` with mode=`add`, shows suggestion card for accept/reject review. Action buttons (swap/remove) are always visible on mobile (`opacity-100`), hover-revealed on desktop (`sm:opacity-0 sm:group-hover:opacity-100`). Old item stays visible with loading overlay during API call; new item only committed to state after user confirms. Retry accumulates `rejectedTitles` across attempts. Conflict warning from API shown as amber text. The edit API enforces a hard location constraint — suggestions must be in the destination city, never from another city even if wrong-city items appear in context.
 - **Travel connectors** (`/api/itinerary/travel`, `lib/travel-connectors.ts`) — Inter-activity travel time/cost data displayed between every sequential activity pair in the itinerary timeline. User-initiated via "🗺 Calculate travel times" button in the itinerary header. Flow: (1) geocode destination city for location bias; (2) resolve each activity name to coordinates via Google Places Text Search (New); (3) compute walk/transit/drive routes via Google Routes API for each adjacent pair; (4) calculate gap from estimated time positions (block ranges: morning 09:00–12:00, afternoon 13:00–17:00, evening 18:00–21:00, split evenly per activity count); (5) apply family walk-time modifier (1.5× for children Under 2 or 2–4); (6) flag tight connections where fastest travel mode exceeds the gap. All data stored server-side in `travel_connectors` Supabase table, keyed by `traveler_id`. Persists across sessions — loaded on page revisit, only recomputed on explicit trigger. Swap/add/remove trigger targeted refresh of only the affected connectors (1–2 pairs), not the full day. Regenerate clears all connectors. Connector UI: `TravelConnectorRow` component renders between activity cards — compact row showing `🚶 12 min · 🚇 8 min · 🚕 ~2.1 km`. Three visual states: (1) normal — muted text with left-border accent; (2) flagged — amber background with "⚠ Tight connection" heading and flag reason; (3) error — red background, "Travel data unavailable". Zero-duration modes filtered from display. Within-block pairs get a 15-minute minimum gap floor to prevent false flags on short neighbourhood walks. Gap flags stored in DB and logged to `ai_logs` (feature `"travel-connectors"`) for admin visibility as a prompt quality signal — high flag rates across itineraries indicate the AI's neighbourhood-clustering instruction is failing. Admin summary endpoint at `/api/itinerary/travel/admin`. Google API costs: Places Text Search $0.032/req, Routes Compute $0.005/req; full 5-day computation ~$0.70, swap refresh ~$0.06.
@@ -44,6 +45,7 @@ For persona-based discussion (Sarah PM, Maya Designer, Luca Tech Lead, Elena Tra
 - **Travel profile & restaurant recommendations** (`/profile`) — Collects traveller type, destination, dates, company, budget, dietary wishes. Streams personalised restaurant picks from Claude.
 - **User feedback** (`/feedback`) — Full-page form. Page field auto-filled with current URL (editable). Saves to `user_feedback` Supabase table. Confirmation screen after submit.
 - **Floating feedback button** — Fixed bottom-right on every page except `/welcome` and `/team*`. Opens a popup with textarea + send. Auto-captures current pathname. Shows "Thanks!" confirmation then closes.
+- **Magic-link auth** (PHI-59, `/signin`, `/auth/callback`, `/auth/check-email`) — Passwordless Supabase Auth via `@supabase/ssr` with cookie-based sessions. `/signin` collects email and calls `signInWithOtp({email, emailRedirectTo: /auth/callback?next=/dashboard})`; the user is redirected to `/auth/check-email?email=<...>` with a 30-second resend cooldown and link-expiry hints. `/auth/callback` is a Route Handler (GET) that calls `supabase.auth.exchangeCodeForSession(code)`, then — if the link carried a `travelerId` (set during welcome Step 5) — links the row via `update travelers set auth_user_id = <user.id> where id = <travelerId> and auth_user_id is null` (best-effort; failure doesn't lock the user out of their account). On success redirects to `next` (default `/dashboard`); on missing/expired code redirects to `/signin?error=expired`. Allowlisted in `middleware.ts` so the email link works even without the `site_auth` cookie. Coexists with `SITE_PASSWORD` middleware as orthogonal layers — site password gates platform access, Supabase Auth gates per-user account features. **Email template requires manual setup in Supabase dashboard** — DM Sans body, teal `#1a6b7f` CTA, subject "Sign in to Rise". Default 1h link expiry. New users are auto-created (`shouldCreateUser` defaults to `true`). No new Anthropic API calls. Claim flow for legacy localStorage-only travellers is deferred to PHI-B; RLS hardening to PHI-C.
 
 ### Local guide flows
 - **Browse guides** (`/guides`) — City search landing page.
@@ -97,7 +99,11 @@ rise/
 │   ├── page.tsx                  # Homepage — 100vh, hero in upper 70%, landmark skyline in bottom 30%
 │   ├── layout.tsx                # Root layout — DM Sans font, ApiLimitBanner, Nav, FeedbackButton
 │   ├── globals.css               # Light theme CSS variables, fadeSlideUp animation, date picker fix
-│   ├── welcome/page.tsx          # 6-step onboarding wizard (step 0 = landing, steps 1–5 = wizard)
+│   ├── welcome/page.tsx          # 6-step onboarding wizard (step 0 = landing, steps 1–5 = wizard); Step 5 sends Supabase magic link
+│   ├── signin/page.tsx           # PHI-59: returning-user magic-link sign-in
+│   ├── auth/
+│   │   ├── callback/route.ts     # PHI-59: GET handler — exchanges OTP code for session, links travelers.auth_user_id
+│   │   └── check-email/page.tsx  # PHI-59: interstitial after magic link sent (email shown, 30s resend cooldown)
 │   ├── dashboard/page.tsx        # Trip summary dashboard
 │   ├── itinerary/page.tsx        # Day-view itinerary — drag/drop, remove, AI swap/add, conflict banner, travel connectors; passes travelerCount/childrenAges to edit API
 │   ├── profile/page.tsx          # Travel profile + restaurant recs
@@ -156,7 +162,9 @@ rise/
 │       ├── FeedbackButton.tsx    # Floating feedback button (hidden on /welcome and /team*)
 │       └── PlacesAutocomplete.tsx  # Google Places (New API) autocomplete input
 ├── lib/
-│   ├── supabase.ts               # Shared Supabase client — always import from here
+│   ├── supabase.ts               # Legacy DB-only Supabase client (no auth context). For non-auth reads/writes.
+│   ├── supabase-server.ts        # PHI-59: SSR client for Server Components / Route Handlers (cookie-aware)
+│   ├── supabase-browser.ts       # PHI-59: browser client for "use client" components (cookie-aware singleton)
 │   ├── ai-logger.ts              # Claude call wrapper with Supabase logging
 │   ├── api-costs.ts              # Pricing constants + calculateAnthropicCost/calculateGoogleCost
 │   ├── log-api-usage.ts          # logApiUsage() + checkApiLimit() — usage tracking and limit enforcement
@@ -177,7 +185,7 @@ rise/
 
 | Table | Purpose |
 |---|---|
-| `travelers` | Onboarding data — destination, dates, hotel, activities, account, traveler_count (int), children_ages (text[]), travel_company (text), style_tags (text[]), budget_tier (text). Name and email are nullable (collected at step 5, after row creation). |
+| `travelers` | Onboarding data — destination, dates, hotel, activities, account, traveler_count (int), children_ages (text[]), travel_company (text), style_tags (text[]), budget_tier (text), auth_user_id (uuid, FK → auth.users.id, PHI-59). Name and email are nullable (collected at step 5, after row creation). `auth_user_id` is null until the user clicks the magic link; nullable so existing localStorage-only travellers keep working. |
 | `guides` | Local guide profiles — email, name, points |
 | `tips` | Guide tips — city, content, view count, guide_id |
 | `tip_ratings` | One row per rating event — tip_id, value |
@@ -201,6 +209,13 @@ rise/
 alter table travelers
   add column if not exists traveler_count integer,
   add column if not exists children_ages text[];
+```
+
+**PHI-59 migration — link travelers to Supabase auth users** (run once, idempotent):
+```sql
+alter table travelers
+  add column if not exists auth_user_id uuid references auth.users(id);
+create index if not exists idx_travelers_auth_user on travelers(auth_user_id);
 ```
 
 **Required SQL for `objectives` table** (run in Supabase dashboard if not yet created):
@@ -448,9 +463,13 @@ function dbErr(err: unknown): string {
 | `rise_activity_feedback` | `ActivityFeedbackEntry[]` — thumbs-ups and chip selections from the activity preview; consumed by itinerary generation |
 
 ### Auth / middleware
-- Password protection is handled entirely in `middleware.ts` + `app/api/auth/route.ts`.
-- The auth cookie is `site_auth`; its value equals `SITE_PASSWORD`.
-- The matcher excludes `_next/static`, `_next/image`, `favicon.ico`, and `api/auth` so the auth endpoint is always reachable.
+- **Two orthogonal layers** (PHI-59):
+  - **Site password gate** — `middleware.ts` + `app/api/auth/route.ts`. Cookie `site_auth` is an HMAC token (see `lib/auth.ts`); not the password itself. Gates platform access during private beta.
+  - **Supabase Auth (per-user)** — `@supabase/ssr` cookie-based sessions. Gates per-user account features. New users sign up via welcome Step 5 magic link; returning users via `/signin`. Sessions live in httpOnly cookies and refresh transparently.
+- The middleware matcher excludes `_next/static`, `_next/image`, `favicon.ico`, `api/auth`, and **`auth/callback`** (PHI-59 — magic-link landing must work behind the site-password gate so a user clicking the email on a fresh device doesn't lose their `code` query param).
+- Use `getSupabaseServerClient()` from `lib/supabase-server.ts` in Server Components / Route Handlers when you need `auth.uid()`; use `getSupabaseBrowserClient()` from `lib/supabase-browser.ts` in client components. The legacy `supabase` export in `lib/supabase.ts` carries no auth context and is fine for non-RLS reads/writes (admin tables, anonymous-session writes, AI logs). Once PHI-C lands RLS, most callers will need to migrate.
+- Email template (subject, body, CTA) is configured in the **Supabase dashboard**, not in code. It must use DM Sans body + teal `#1a6b7f` CTA per PRD; replace the default Supabase boilerplate before exposing to real users.
+- `signInWithOtp` defaults to `shouldCreateUser: true` — both signin and signup go through the same flow; new users are auto-created in `auth.users` on first verification.
 
 ---
 

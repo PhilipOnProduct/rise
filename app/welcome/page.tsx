@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import PlacesAutocomplete from "@/app/components/PlacesAutocomplete";
 import type { TripIntent } from "@/lib/trip-intent";
 import { newLegId, type PlaceRef, type TripLeg } from "@/lib/trip-schema";
+import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 
 const TOTAL_WIZARD_STEPS = 5; // steps 1–5
 
@@ -1402,6 +1403,11 @@ function WelcomePageInner() {
     logOnboardingEvent("signup_initiated_after_itinerary", {
       hasActivityFeedback: Object.keys(activityFeedback).length,
     });
+    // PHI-59: Step 5 no longer creates the account directly. We persist
+    // name + email on the existing traveler row, save the local snapshot,
+    // then send a magic link. The /auth/callback handler links the row
+    // to auth.users.id once the user clicks the email.
+    let resolvedTravelerId = travelerId;
     try {
       if (travelerId) {
         await fetch("/api/travelers", {
@@ -1410,7 +1416,8 @@ function WelcomePageInner() {
           body: JSON.stringify({ id: travelerId, name, email }),
         });
       } else {
-        // PHI-37 slice 1: send full legs[] when multi-leg.
+        // Fallback: partial-write at step 3 didn't land. Create the row
+        // now with full payload so we have something to link to.
         const legs = buildLegsForApi();
         const res = await fetch("/api/travelers", {
           method: "POST",
@@ -1419,9 +1426,6 @@ function WelcomePageInner() {
             name,
             email,
             destination,
-            // Follow-up #4: include resolved place data on signup-time
-            // create so the leg's place_id / lat / lng are persisted on
-            // first write rather than left for a later enrichment pass.
             ...(destinationPlace?.id && { destinationPlaceId: destinationPlace.id }),
             ...(destinationPlace?.lat != null && { destinationLat: destinationPlace.lat }),
             ...(destinationPlace?.lng != null && { destinationLng: destinationPlace.lng }),
@@ -1440,7 +1444,8 @@ function WelcomePageInner() {
         });
         if (res.ok) {
           const data = await res.json();
-          setTravelerId(data.id ?? null);
+          resolvedTravelerId = data.id ?? null;
+          setTravelerId(resolvedTravelerId);
         }
       }
     } catch {}
@@ -1448,7 +1453,7 @@ function WelcomePageInner() {
     // can render leg headers + transition-day chrome without a refetch.
     const legsForStorage = buildLegsForApi();
     const travelerData = {
-      id: travelerId,
+      id: resolvedTravelerId,
       name,
       email,
       destination,
@@ -1460,8 +1465,6 @@ function WelcomePageInner() {
       childrenAges: childrenAges.length > 0 ? childrenAges : null,
       travelerTypes,
       budgetTier,
-      // PHI-35: include constraints in the persisted snapshot so downstream
-      // (itinerary generation, future AI calls) can keep respecting them.
       constraintTags: constraintTags.length > 0 ? constraintTags : null,
       constraintText: constraintText.trim() || null,
       activities: [],
@@ -1469,11 +1472,37 @@ function WelcomePageInner() {
     };
     localStorage.setItem("rise_traveler", JSON.stringify(travelerData));
     localStorage.setItem("rise_onboarded", "true");
-    // Persist activity feedback so itinerary generation can use it
     const feedbackArray = Object.values(activityFeedback);
     localStorage.setItem("rise_activity_feedback", JSON.stringify(feedbackArray));
+
+    // PHI-59: send magic link, then route to the check-email interstitial.
+    // emailRedirectTo points at /auth/callback (allowlisted in middleware
+    // so the email link works behind the SITE_PASSWORD gate). travelerId
+    // is preserved through the link so the callback can write it onto
+    // travelers.auth_user_id once the session is established.
+    const supabaseAuth = getSupabaseBrowserClient();
+    const callbackUrl = new URL("/auth/callback", window.location.origin);
+    callbackUrl.searchParams.set("next", "/dashboard");
+    if (resolvedTravelerId) {
+      callbackUrl.searchParams.set("travelerId", resolvedTravelerId);
+    }
+    const { error: otpErr } = await supabaseAuth.auth.signInWithOtp({
+      email: email.trim().toLowerCase(),
+      options: { emailRedirectTo: callbackUrl.toString() },
+    });
     setSaving(false);
-    router.push("/itinerary");
+    if (otpErr) {
+      console.error("[welcome] magic link failed:", otpErr.message);
+      // Don't strand the user — fall back to the legacy local-only path
+      // so they still see their itinerary. Account-link can happen later
+      // from the homepage Sign in CTA.
+      router.push("/itinerary");
+      return;
+    }
+    const checkEmailParams = new URLSearchParams();
+    checkEmailParams.set("email", email.trim());
+    if (resolvedTravelerId) checkEmailParams.set("travelerId", resolvedTravelerId);
+    router.push(`/auth/check-email?${checkEmailParams.toString()}`);
   }
 
   // ── Step 0: Full-screen landing ────────────────────────────────────────────
@@ -3239,9 +3268,11 @@ function WelcomePageInner() {
             className="mt-10 w-full rounded-2xl bg-[#1a6b7f] text-white font-bold text-lg py-5 hover:bg-[#155a6b] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           >
             {saving
-              ? "Saving your trip…"
+              ? step === TOTAL_WIZARD_STEPS
+                ? "Sending magic link…"
+                : "Saving your trip…"
               : step === TOTAL_WIZARD_STEPS
-              ? "Let's go →"
+              ? "Send magic link →"
               : step === 4
               ? previewLoading
                 ? "Loading activities…"
