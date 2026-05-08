@@ -1,6 +1,7 @@
 import LandingHero from "@/app/components/LandingHero";
 import SpecimenCards from "@/app/components/SpecimenCards";
 import LandmarkSkyline from "@/app/components/LandmarkSkyline";
+import HomeNavAuth from "@/app/components/HomeNavAuth";
 
 export default function Home() {
   return (
@@ -16,13 +17,7 @@ export default function Home() {
         >
           Rise
         </a>
-        <a
-          href="/signin"
-          className="text-sm font-medium hover:opacity-70 transition-opacity"
-          style={{ color: "#4a6580" }}
-        >
-          Sign in
-        </a>
+        <HomeNavAuth />
       </nav>
 
       <div className="flex-1 flex flex-col items-center justify-center gap-6 md:gap-8 px-6 pb-4">
