@@ -681,6 +681,74 @@ function WelcomePageInner() {
   // (which would re-fire the stream on every thumbs-up).
   const activityFeedbackCountRef = useRef(0);
 
+  // PHI-64: detect an existing Supabase session so we can skip the
+  // "Send magic link" form on step 5. authedUser carries the signed-in
+  // user's id + email + a best-effort name (from auth metadata or a prior
+  // traveler row). When non-null, step 5 saves the trip and routes
+  // straight to /dashboard instead of mailing a magic link.
+  type AuthedUser = { id: string; email: string; existingName: string | null };
+  const [authedUser, setAuthedUser] = useState<AuthedUser | null>(null);
+  // Guard so the auto-finish on step 5 only fires once per session.
+  const autoFinishedRef = useRef(false);
+
+  useEffect(() => {
+    const supabase = getSupabaseBrowserClient();
+    let cancelled = false;
+
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (cancelled || !session?.user) return;
+
+      const meta = (session.user.user_metadata ?? {}) as Record<string, unknown>;
+      const metaName =
+        (typeof meta.full_name === "string" && meta.full_name.trim()) ||
+        (typeof meta.name === "string" && meta.name.trim()) ||
+        null;
+
+      let existingName: string | null = metaName || null;
+      if (!existingName) {
+        // Best-effort: a returning user who signed up earlier will have
+        // their name on a previous traveler row linked by auth_user_id.
+        const { data } = await supabase
+          .from("travelers")
+          .select("name")
+          .eq("auth_user_id", session.user.id)
+          .not("name", "is", null)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (data && typeof (data as { name?: unknown }).name === "string") {
+          const n = (data as { name: string }).name.trim();
+          if (n) existingName = n;
+        }
+      }
+      if (cancelled) return;
+
+      const sessionEmail = session.user.email ?? "";
+      setAuthedUser({ id: session.user.id, email: sessionEmail, existingName });
+      // Pre-fill name/email if the user hasn't typed anything yet. Functional
+      // setState avoids overwriting an in-progress edit.
+      if (existingName) setName((prev) => (prev.trim().length > 0 ? prev : existingName!));
+      if (sessionEmail) setEmail((prev) => (prev.trim().length > 0 ? prev : sessionEmail));
+    })();
+
+    // If the session expires mid-flow we drop authedUser and the standard
+    // anonymous step-5 form takes over.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        if (!session?.user) {
+          setAuthedUser(null);
+          autoFinishedRef.current = false;
+        }
+      },
+    );
+
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
+  }, []);
+
   useEffect(() => {
     if (departureDate) setReturnDate(addDays(departureDate, 7));
   }, [departureDate]);
@@ -950,6 +1018,21 @@ function WelcomePageInner() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
+
+  // PHI-64: auto-finish on step 5 when the user is already signed in AND
+  // we already know their name (from auth metadata or a prior traveler
+  // row). Fires once per session — the ref guard prevents loops if the
+  // PATCH/redirect hasn't completed before a re-render. If the session
+  // expires mid-flow the guard is reset by onAuthStateChange.
+  useEffect(() => {
+    if (step !== 5) return;
+    if (!authedUser?.existingName) return;
+    if (autoFinishedRef.current) return;
+    if (saving) return;
+    autoFinishedRef.current = true;
+    void handleFinish();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, authedUser]);
 
   // Generate dynamic chips for each card in the background as soon as they're parsed.
   // On thumbs-down, fallback chips are shown immediately; dynamic chips replace them
@@ -1403,17 +1486,25 @@ function WelcomePageInner() {
     logOnboardingEvent("signup_initiated_after_itinerary", {
       hasActivityFeedback: Object.keys(activityFeedback).length,
     });
+    // PHI-64: when the visitor is already signed in, the canonical email
+    // is the session email — never overwrite it with whatever sits in
+    // the (hidden) email state. Name comes from the form when collected,
+    // else from auth metadata / a prior traveler row.
+    const finalEmail = authedUser?.email || email;
+    const finalName = name.trim().length > 0 ? name : (authedUser?.existingName ?? "");
     // PHI-59: Step 5 no longer creates the account directly. We persist
     // name + email on the existing traveler row, save the local snapshot,
     // then send a magic link. The /auth/callback handler links the row
     // to auth.users.id once the user clicks the email.
+    // PHI-64: when the user is already signed in we skip the magic link
+    // entirely and route straight to /dashboard after persisting.
     let resolvedTravelerId = travelerId;
     try {
       if (travelerId) {
         await fetch("/api/travelers", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: travelerId, name, email }),
+          body: JSON.stringify({ id: travelerId, name: finalName, email: finalEmail }),
         });
       } else {
         // Fallback: partial-write at step 3 didn't land. Create the row
@@ -1423,8 +1514,8 @@ function WelcomePageInner() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            name,
-            email,
+            name: finalName,
+            email: finalEmail,
             destination,
             ...(destinationPlace?.id && { destinationPlaceId: destinationPlace.id }),
             ...(destinationPlace?.lat != null && { destinationLat: destinationPlace.lat }),
@@ -1454,8 +1545,8 @@ function WelcomePageInner() {
     const legsForStorage = buildLegsForApi();
     const travelerData = {
       id: resolvedTravelerId,
-      name,
-      email,
+      name: finalName,
+      email: finalEmail,
       destination,
       departureDate,
       returnDate,
@@ -1474,6 +1565,28 @@ function WelcomePageInner() {
     localStorage.setItem("rise_onboarded", "true");
     const feedbackArray = Object.values(activityFeedback);
     localStorage.setItem("rise_activity_feedback", JSON.stringify(feedbackArray));
+
+    // PHI-64: signed-in path — skip magic link and link the row directly.
+    // The auth/callback row-link uses the same `update + .is(auth_user_id, null)`
+    // pattern, so re-running it here is idempotent and respects any prior
+    // claim. Best-effort: if it fails the trip is still saved locally.
+    if (authedUser) {
+      try {
+        if (resolvedTravelerId) {
+          const supabaseAuth = getSupabaseBrowserClient();
+          await supabaseAuth
+            .from("travelers")
+            .update({ auth_user_id: authedUser.id })
+            .eq("id", resolvedTravelerId)
+            .is("auth_user_id", null);
+        }
+      } catch (e) {
+        console.error("[welcome] auth-link failed:", e);
+      }
+      setSaving(false);
+      router.push("/dashboard");
+      return;
+    }
 
     // PHI-59: send magic link, then route to the check-email interstitial.
     // emailRedirectTo points at /auth/callback (allowlisted in middleware
@@ -2453,6 +2566,13 @@ function WelcomePageInner() {
   // PHI-47: regex check at the gate; "x" no longer passes. Server mirrors.
   const emailValid = EMAIL_RE.test(email.trim());
 
+  // PHI-64: signed-in users only need a name (email comes from the
+  // session). If their session already supplied a name we auto-finish,
+  // so the gate only matters for the name-only branch.
+  const step5Ready = authedUser
+    ? name.trim().length > 0
+    : name.trim().length > 0 && emailValid;
+
   const canContinue: Record<number, boolean> = {
     // PHI-30: step 1 also requires destinationVerified — the user might
     // have re-opened the autocomplete here and started editing.
@@ -2464,7 +2584,7 @@ function WelcomePageInner() {
     2: true,
     3: travelCompany.length > 0 && allChildrenHaveAges,
     4: !previewLoading && Object.keys(activityFeedback).length > 0,
-    5: name.trim().length > 0 && emailValid,
+    5: step5Ready,
   };
 
   async function handleContinue() {
@@ -2482,13 +2602,27 @@ function WelcomePageInner() {
     goTo(step + 1);
   }
 
+  // PHI-64: when the user is already signed in, swap step 5 copy. With a
+  // known name we auto-finish (no input needed); otherwise we ask only
+  // for a display name. The anon path keeps its original copy.
+  const step5Heading = authedUser
+    ? authedUser.existingName
+      ? "Saving your trip…"
+      : "One last thing — what should we call you?"
+    : "Save your trip plan.";
+  const step5Sub = authedUser
+    ? authedUser.existingName
+      ? "We're tucking your itinerary into your account."
+      : "We'll save your itinerary, transport advice, and trip summary to your account."
+    : "Your activity plan, transport advice, and trip summary are ready. Create your account to save everything.";
+
   const headings: Record<number, string> = {
     1: "When are you going?",
     2: "Where are you staying?",
     3: "Tell us about yourself.",
     35: `Where in ${destination}?`,
     4: `Activities for your ${destination} trip.`,
-    5: "Save your trip plan.",
+    5: step5Heading,
   };
 
   const subs: Record<number, string> = {
@@ -2497,7 +2631,7 @@ function WelcomePageInner() {
     3: "A few quick questions so we can personalise your experience.",
     35: "Pick a city or region \u2014 we'll personalise the rest from there.",
     4: "Rate what excites you \u2014 and what doesn\u2019t. It shapes your itinerary.",
-    5: "Your activity plan, transport advice, and trip summary are ready. Create your account to save everything.",
+    5: step5Sub,
   };
 
   const darkInput =
@@ -3206,62 +3340,103 @@ function WelcomePageInner() {
 
               {/* Save Trip section — signup form, framed as the persistent
                   banner from Maya's escalation pattern. Sits BELOW the
-                  preview so the user has already seen the value. */}
-              <div className="rounded-2xl border border-[#1a6b7f]/30 bg-[#1a6b7f]/5 p-5">
-                <p className="text-sm font-bold text-[var(--text-primary)] mb-1">
-                  Save your trip to keep it.
-                </p>
-                <p className="text-xs text-[var(--text-secondary)] mb-4">
-                  We&apos;ll save your itinerary, transport advice, and trip
-                  summary to your account.
-                </p>
-                <div className="flex flex-col gap-3">
-                  <input
-                    type="text"
-                    placeholder="Your name"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    autoComplete="name"
-                    name="name"
-                    className={darkInput}
-                  />
-                  <div className="flex flex-col gap-1">
+                  preview so the user has already seen the value.
+                  PHI-64: signed-in users skip the form. If we already
+                  have their name, the auto-finish effect handles save +
+                  redirect; otherwise we show only a name input. */}
+              {authedUser ? (
+                authedUser.existingName ? (
+                  <div
+                    className="rounded-2xl border border-[#1a6b7f]/30 bg-[#1a6b7f]/5 p-5 flex items-center gap-3"
+                    data-testid="signed-in-saving"
+                  >
+                    <div className="w-4 h-4 rounded-full border-2 border-[#1a6b7f] border-t-transparent animate-spin shrink-0" />
+                    <p className="text-sm text-[var(--text-secondary)]">
+                      Saving your trip to {authedUser.email}…
+                    </p>
+                  </div>
+                ) : (
+                  <div
+                    className="rounded-2xl border border-[#1a6b7f]/30 bg-[#1a6b7f]/5 p-5"
+                    data-testid="signed-in-name-only"
+                  >
+                    <p className="text-sm font-bold text-[var(--text-primary)] mb-1">
+                      What should we call you?
+                    </p>
+                    <p className="text-xs text-[var(--text-secondary)] mb-4">
+                      You&apos;re signed in as {authedUser.email}. We just
+                      need a display name to finish saving your trip.
+                    </p>
                     <input
-                      type="email"
-                      placeholder="you@example.com"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      onBlur={() => setEmailTouched(true)}
-                      autoComplete="email"
-                      name="email"
-                      aria-invalid={emailTouched && !emailValid}
-                      aria-describedby={
-                        emailTouched && !emailValid ? "email-error" : undefined
-                      }
+                      type="text"
+                      placeholder="Your name"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      autoComplete="name"
+                      name="name"
                       className={darkInput}
-                      data-testid="signup-email"
+                      data-testid="signup-name"
                     />
-                    {/* PHI-47: only show after field has been blurred,
-                        so typing "p" doesn't immediately read as wrong. */}
-                    {emailTouched && email.trim().length > 0 && !emailValid && (
-                      <p
-                        id="email-error"
-                        role="alert"
-                        className="text-xs text-red-500"
-                      >
-                        That doesn&apos;t look like a valid email.
-                      </p>
-                    )}
+                  </div>
+                )
+              ) : (
+                <div className="rounded-2xl border border-[#1a6b7f]/30 bg-[#1a6b7f]/5 p-5">
+                  <p className="text-sm font-bold text-[var(--text-primary)] mb-1">
+                    Save your trip to keep it.
+                  </p>
+                  <p className="text-xs text-[var(--text-secondary)] mb-4">
+                    We&apos;ll save your itinerary, transport advice, and trip
+                    summary to your account.
+                  </p>
+                  <div className="flex flex-col gap-3">
+                    <input
+                      type="text"
+                      placeholder="Your name"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      autoComplete="name"
+                      name="name"
+                      className={darkInput}
+                    />
+                    <div className="flex flex-col gap-1">
+                      <input
+                        type="email"
+                        placeholder="you@example.com"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        onBlur={() => setEmailTouched(true)}
+                        autoComplete="email"
+                        name="email"
+                        aria-invalid={emailTouched && !emailValid}
+                        aria-describedby={
+                          emailTouched && !emailValid ? "email-error" : undefined
+                        }
+                        className={darkInput}
+                        data-testid="signup-email"
+                      />
+                      {/* PHI-47: only show after field has been blurred,
+                          so typing "p" doesn't immediately read as wrong. */}
+                      {emailTouched && email.trim().length > 0 && !emailValid && (
+                        <p
+                          id="email-error"
+                          role="alert"
+                          className="text-xs text-red-500"
+                        >
+                          That doesn&apos;t look like a valid email.
+                        </p>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
 
           {/* Continue / finish button — hidden on step 3.5 since the
               user advances by picking a recommendation card or typing
-              into the free-text fallback. */}
-          {step !== 35 && (
+              into the free-text fallback. PHI-64: also hidden on step 5
+              when a signed-in user has a known name (auto-finish runs). */}
+          {step !== 35 && !(step === 5 && authedUser?.existingName) && (
           <button
             onClick={handleContinue}
             disabled={!canContinue[step] || saving}
@@ -3269,10 +3444,14 @@ function WelcomePageInner() {
           >
             {saving
               ? step === TOTAL_WIZARD_STEPS
-                ? "Sending magic link…"
+                ? authedUser
+                  ? "Saving your trip…"
+                  : "Sending magic link…"
                 : "Saving your trip…"
               : step === TOTAL_WIZARD_STEPS
-              ? "Send magic link →"
+              ? authedUser
+                ? "Save trip →"
+                : "Send magic link →"
               : step === 4
               ? previewLoading
                 ? "Loading activities…"
