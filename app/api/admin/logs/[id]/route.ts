@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { getSupabaseAdminClient } from "@/lib/supabase-admin";
 import { isAdminRequest, adminForbiddenResponse } from "@/lib/auth";
 
 export async function PATCH(
@@ -14,7 +14,8 @@ export async function PATCH(
   if ("rating" in body) updates.rating = body.rating;
   if ("notes" in body) updates.notes = body.notes;
 
-  const { data, error } = await supabase
+  // PHI-61: ai_logs is admin-only — bypass RLS via the service-role client.
+  const { data, error } = await getSupabaseAdminClient()
     .from("ai_logs")
     .update(updates)
     .eq("id", id)

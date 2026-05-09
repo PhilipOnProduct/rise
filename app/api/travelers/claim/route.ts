@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
+import { getSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
   buildSingleLegTrip,
   type PlaceType,
@@ -81,13 +82,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "invalid action" }, { status: 400 });
   }
 
-  const supabase = await getSupabaseServerClient();
+  const ssr = await getSupabaseServerClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await ssr.auth.getUser();
   if (!user) {
     return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
   }
+  // PHI-61: claim has to read/write rows whose auth_user_id may still be
+  // NULL (pre-signup welcome rows). Those rows are invisible/uneditable
+  // through RLS, so we use the service-role admin client and enforce
+  // ownership in code (auth.uid() comes from the SSR auth check above).
+  const supabase = getSupabaseAdminClient();
 
   // The id that should end up primary after this request.
   let primaryId: string | null = null;

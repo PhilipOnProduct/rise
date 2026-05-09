@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
 import { logAiInteraction } from "@/lib/ai-logger";
 import { logApiUsage, checkApiLimit } from "@/lib/log-api-usage";
-import { supabase } from "@/lib/supabase";
+import { getSupabaseAdminClient } from "@/lib/supabase-admin";
 
 const client = new Anthropic();
 const MODEL = "claude-sonnet-4-6";
@@ -113,8 +113,9 @@ For booking_meta.search_query: use the restaurant's commonly known name plus ${d
       }
     }
 
-    // Persist to database immediately
-    const { error: dbError } = await supabase.from("itinerary_items").insert({
+    // Persist to database immediately. PHI-61: itinerary_items has no
+    // traveler_id column, so it isn't RLS-scoped — use the admin client.
+    const { error: dbError } = await getSupabaseAdminClient().from("itinerary_items").insert({
       item_id: alternative.id,
       title: alternative.title,
       description: alternative.description,

@@ -32,19 +32,25 @@ const DAYS = flag("days", 30);
 const RATIO_THRESHOLD = 2.5;
 
 // ── Supabase client ──────────────────────────────────────────────────────
+//
+// PHI-61: ai_logs is admin-only post-RLS-lockdown. The anon key would be
+// blocked once RLS lands on system tables, so this script requires the
+// service-role key. Falling back to the anon key is no longer supported —
+// fail loudly if the env var is missing.
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const SUPABASE_KEY =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
   console.error(
-    "Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY/NEXT_PUBLIC_SUPABASE_ANON_KEY in env."
+    "Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in env."
   );
   process.exit(1);
 }
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: { autoRefreshToken: false, persistSession: false },
+});
 
 // ── Types ────────────────────────────────────────────────────────────────
 

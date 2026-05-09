@@ -1,15 +1,21 @@
 /**
  * Travel connector API — compute and store travel times between itinerary activities.
  *
+ * GET  /api/itinerary/travel  — Fetch stored connectors for the signed-in user's primary traveler
  * POST /api/itinerary/travel  — Compute connectors (full or refresh after swap)
- * GET  /api/itinerary/travel?traveler_id=<uuid>  — Fetch stored connectors
+ *
+ * PHI-61: traveler_id is no longer accepted from the client. The signed-in
+ * user's primary `travelers` row is resolved server-side from `auth.uid()`.
+ * The route reads/writes `travel_connectors` and `itineraries` under RLS via
+ * the SSR client, then logs to the admin-only `ai_logs` table via the
+ * service-role admin client.
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { getSupabaseServerClient } from "@/lib/supabase-server";
 import { checkApiLimit } from "@/lib/log-api-usage";
 import { logAiInteraction } from "@/lib/ai-logger";
-import type { Activity, ItineraryDay, TimeBlock } from "@/types/itinerary";
+import type { Activity, ItineraryDay } from "@/types/itinerary";
 import {
   type Coords,
   type ConnectorRow,
@@ -21,12 +27,38 @@ import {
   buildConnectorRow,
 } from "@/lib/travel-connectors";
 
+type SsrClient = Awaited<ReturnType<typeof getSupabaseServerClient>>;
+
+async function resolveTravelerId(
+  supabase: SsrClient,
+  userId: string
+): Promise<string | null> {
+  const { data } = await supabase
+    .from("travelers")
+    .select("id, is_primary, claimed_at, created_at")
+    .eq("auth_user_id", userId)
+    .order("is_primary", { ascending: false })
+    .order("claimed_at", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return data?.id ?? null;
+}
+
 // ── GET — Fetch stored connectors ────────────────────────────────────────────
 
-export async function GET(req: NextRequest) {
-  const travelerId = req.nextUrl.searchParams.get("traveler_id");
+export async function GET() {
+  const supabase = await getSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
+  }
+
+  const travelerId = await resolveTravelerId(supabase, user.id);
   if (!travelerId) {
-    return NextResponse.json({ error: "traveler_id is required" }, { status: 400 });
+    return NextResponse.json({ connectors: [] });
   }
 
   const { data, error } = await supabase
@@ -47,7 +79,6 @@ export async function GET(req: NextRequest) {
 // ── POST — Compute or refresh connectors ─────────────────────────────────────
 
 type PostBody = {
-  traveler_id: string;
   refresh?: {
     day_number: number;
     swapped_activity_id: string;
@@ -56,12 +87,16 @@ type PostBody = {
 
 export async function POST(req: NextRequest) {
   const startTime = Date.now();
-  const body = (await req.json()) as PostBody;
-  const { traveler_id, refresh } = body;
-
-  if (!traveler_id) {
-    return NextResponse.json({ error: "traveler_id is required" }, { status: 400 });
+  const supabase = await getSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
   }
+
+  const body = (await req.json()) as PostBody;
+  const { refresh } = body;
 
   // Check Google API limit
   const limit = await checkApiLimit("google");
@@ -72,11 +107,16 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const travelerId = await resolveTravelerId(supabase, user.id);
+  if (!travelerId) {
+    return NextResponse.json({ error: "no traveler row for user" }, { status: 404 });
+  }
+
   // Fetch traveler for children_ages
   const { data: traveler } = await supabase
     .from("travelers")
     .select("children_ages")
-    .eq("id", traveler_id)
+    .eq("id", travelerId)
     .single();
 
   const childrenAges: string[] | null = traveler?.children_ages ?? null;
@@ -85,7 +125,7 @@ export async function POST(req: NextRequest) {
   const { data: itinerary, error: itinErr } = await supabase
     .from("itineraries")
     .select("*")
-    .eq("traveler_id", traveler_id)
+    .eq("traveler_id", travelerId)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -111,14 +151,15 @@ export async function POST(req: NextRequest) {
   }
 
   if (refresh) {
-    return handleRefresh(traveler_id, days, destination, childrenAges, refresh, startTime);
+    return handleRefresh(supabase, travelerId, days, destination, childrenAges, refresh, startTime);
   }
-  return handleFullCompute(traveler_id, days, destination, childrenAges, startTime);
+  return handleFullCompute(supabase, travelerId, days, destination, childrenAges, startTime);
 }
 
 // ── Full compute ─────────────────────────────────────────────────────────────
 
 async function handleFullCompute(
+  supabase: SsrClient,
   travelerId: string,
   days: ItineraryDay[],
   destination: string,
@@ -132,7 +173,8 @@ async function handleFullCompute(
   }
 
   // Resolve coordinates for all activities across all days
-  const allActivities: Activity[] = days.flatMap((d) => d.activities);
+  const _allActivities: Activity[] = days.flatMap((d) => d.activities);
+  void _allActivities;
   const coordMap = new Map<string, Coords | null>();
 
   // Parallel resolution — batch per day to avoid overwhelming the API
@@ -262,12 +304,13 @@ async function handleFullCompute(
 // ── Refresh after swap (only affected connectors) ────────────────────────────
 
 async function handleRefresh(
+  supabase: SsrClient,
   travelerId: string,
   days: ItineraryDay[],
   destination: string,
   childrenAges: string[] | null,
   refresh: { day_number: number; swapped_activity_id: string },
-  startTime: number,
+  _startTime: number,
 ) {
   const day = days.find((d) => d.day_number === refresh.day_number);
   if (!day) {

@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { getSupabaseAdminClient } from "@/lib/supabase-admin";
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
 
-  const { data, error } = await supabase
+  // PHI-61: profiles is a legacy table with no auth_user_id linkage. Writes
+  // run without a session — use the service-role admin client.
+  const { data, error } = await getSupabaseAdminClient()
     .from("profiles")
     .insert({
       name:           body.name           || null,

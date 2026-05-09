@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { getSupabaseAdminClient } from "@/lib/supabase-admin";
+
+// PHI-61: activity_feedback is anonymous telemetry — no auth context.
+const supabase = () => getSupabaseAdminClient();
 
 function dbErr(err: unknown): string {
   if (!err || typeof err !== "object") return String(err);
@@ -54,7 +57,7 @@ export async function POST(req: NextRequest) {
   }
   const hasMetadata = Object.keys(metadata).length > 0;
 
-  const { error } = await supabase.from("activity_feedback").insert({
+  const { error } = await supabase().from("activity_feedback").insert({
     event,
     activity_id: activityId ?? null,
     activity_name: activityName ?? null,

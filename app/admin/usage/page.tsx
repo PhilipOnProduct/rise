@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { supabase } from "@/lib/supabase";
+// PHI-61: admin reads now go through admin-gated API routes that wrap the
+// service-role client. The browser no longer talks to api_limits / api_usage
+// directly.
 
 type ProviderStatus = {
   allowed: boolean;
@@ -173,16 +175,16 @@ export default function UsagePage() {
   useEffect(() => {
     Promise.all([
       fetch("/api/usage/status").then((r) => r.json()),
-      supabase.from("api_limits").select("*"),
-      supabase.from("api_usage").select("*").order("created_at", { ascending: false }).limit(50),
-    ]).then(([statusData, limitsRes, usageRes]) => {
+      fetch("/api/usage/limits").then((r) => (r.ok ? r.json() : [])),
+      fetch("/api/admin/usage-log").then((r) => (r.ok ? r.json() : [])),
+    ]).then(([statusData, limitsData, usageData]) => {
       setStatus(statusData);
-      for (const row of (limitsRes.data ?? []) as { provider: string; monthly_limit_usd: string; warning_threshold_pct: number; hard_limit_enabled: boolean }[]) {
+      for (const row of (limitsData ?? []) as { provider: string; monthly_limit_usd: string; warning_threshold_pct: number; hard_limit_enabled: boolean }[]) {
         const s = { monthly_limit_usd: parseFloat(row.monthly_limit_usd), warning_threshold_pct: row.warning_threshold_pct, hard_limit_enabled: row.hard_limit_enabled };
         if (row.provider === "anthropic") setAnthropicSettings(s);
         if (row.provider === "google") setGoogleSettings(s);
       }
-      setUsageLog((usageRes.data ?? []) as UsageRow[]);
+      setUsageLog((usageData ?? []) as UsageRow[]);
       setLoading(false);
     });
   }, []);
