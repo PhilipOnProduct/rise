@@ -16,7 +16,7 @@ Issue tracking for Rise lives in **Linear**, not in the in-app `/team` kanban an
 | Backlog | **Backlog** | Captured. Sarah and Philip agree it's worth considering, but problem and outcome aren't framed yet. |
 | Refine | **Todo** | Sarah has framed the problem (one-line problem statement + intended outcome). Team discussion may still be needed; PRD may or may not exist yet. |
 | Implement | **In Progress** | PRD is written and contains a `## Hard constraints` and `## Codebase pointers` section. Claude Code (or Philip) has the prompt it needs to start. |
-| Done | **Done** | Shipped to Vercel **and** walked on the live deploy by the relevant role(s) — see TEAM.md "Testing on the live product". A closing comment records what was tested and what's deferred. |
+| Done | **Done** | `npm run build` passes clean **and** the change is walked end-to-end by the relevant role(s) — locally or on the Vercel deploy, either is fine — starting from the user's actual entry point (usually `/`), not the route the fix touched. See TEAM.md "Testing on the live product". A closing comment records what was tested and what's deferred. |
 
 Linear also has `In Review`, `Canceled`, and `Duplicate` — use them when literally accurate; don't force a card into them just because they exist.
 
@@ -81,9 +81,10 @@ Same flow applies for improvements and bugs — but those usually skip the PM co
 
 **Closing the loop (when Claude Code finishes):**
 
-1. Walk the change on the live Vercel deploy as the relevant role(s) — see TEAM.md "Testing on the live product".
-2. `save_comment` on the issue with three short paragraphs: **What changed** (one or two sentences on the diff), **What was tested** (which role(s) walked it on the live deploy and what they checked), **What's deferred** (known limitations, follow-ups, anything intentionally out of scope).
-3. Move the issue to **Done** with `save_issue`.
+1. Run `npm run build` and confirm it compiles cleanly with no prerender errors. This is non-negotiable — App Router routinely passes `npm run dev` while failing the build.
+2. Walk the change end-to-end as the relevant role(s) — locally (Claude Code's browser walk, the Cowork Chrome MCP, or the dev server in your own browser) or on the Vercel deploy. **Start from the user's actual entry point**, usually `/`, not the route the fix touched — see TEAM.md "Testing on the live product". When the URL is policy-blocked from the Cowork Chrome MCP, the local walk is the canonical record.
+3. `save_comment` on the issue with three short paragraphs: **What changed** (one or two sentences on the diff), **What was tested** (which role(s) walked it, where, and what they checked), **What's deferred** (known limitations, follow-ups, anything intentionally out of scope).
+4. Move the issue to **Done** with `save_issue`.
 
 If something needs a follow-up that's bigger than a comment, file a new Linear issue rather than reopening the original.
 

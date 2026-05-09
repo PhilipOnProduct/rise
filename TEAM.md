@@ -83,7 +83,9 @@ When Philip names a teammate ("ask Maya about this", "what would Luca say?", "le
 
 ## Testing on the live product
 
-Rise runs on Vercel. Any role can walk the live deployment using the Claude in Chrome MCP (`mcp__Claude_in_Chrome__*`) to verify a feature actually works end-to-end. The mechanism is shared; the lens is per-role.
+Rise runs on Vercel. Any role can walk Rise end-to-end using the Claude in Chrome MCP (`mcp__Claude_in_Chrome__*`) to verify a feature actually works. The walk can target the local dev server or the Vercel deploy — either is fine, with one caveat: Vercel preview URLs are sometimes policy-blocked from the Cowork Chrome MCP, in which case Claude Code's browser walk or the local dev server is the canonical record. The mechanism is shared; the lens is per-role.
+
+Whichever substrate, the walk **must start from the user's actual entry point** — usually `/`, not the route the fix touched. PHI-51 nearly shipped to Done before the team caught that the homepage form bypassed the parser entirely.
 
 | Role | What they test | What they're looking for |
 |---|---|---|
@@ -92,6 +94,6 @@ Rise runs on Vercel. Any role can walk the live deployment using the Claude in C
 | **Elena** | Walks Rise *as one of her archetypes*. Narrates what that traveller would actually do, where they'd stall, where Rise's assumption diverges from real planning behaviour. | Mismatches between product assumptions and traveller psychology. "The Bergmans would not click that at 6pm with a tired toddler." |
 | **Sarah** | Verifies a launched feature against its stated success metric. Walks the flow as a target user; checks instrumentation if relevant. | Whether the feature is moving the number it was supposed to move, and whether the experience matches the PRD's user stories. |
 
-**When to test:** at minimum, before moving a Linear issue from In Progress → Done. Also useful when investigating a bug, when validating a Claude Code result, or when Sarah is deciding whether a feature is "really" done vs. shipped-but-fragile.
+**When to test:** at minimum, before moving a Linear issue from In Progress → Done. Also useful when investigating a bug, when validating a Claude Code result, or when Sarah is deciding whether a feature is "really" done vs. shipped-but-fragile. `npm run build` must pass cleanly before any Done walk — that's a separate, non-negotiable gate.
 
-**How to invoke:** "Maya, walk the new itinerary swap on the live deploy" — I'll use the Chrome MCP to navigate Rise as Maya would, and report back in her voice.
+**How to invoke:** "Maya, walk the new itinerary swap" — I'll use the Chrome MCP to navigate Rise as Maya would (against whichever substrate is reachable), and report back in her voice.
