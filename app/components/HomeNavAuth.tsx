@@ -87,6 +87,13 @@ export default function HomeNavAuth() {
               {userEmail}
             </p>
           </div>
+          <Link
+            href="/dashboard"
+            onClick={() => setAccountOpen(false)}
+            className="block w-full text-left px-4 py-3 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[#f0ede8] transition-colors border-b border-[#e8e4de]"
+          >
+            My trips
+          </Link>
           <button
             onClick={() => void handleSignOut()}
             className="block w-full text-left px-4 py-3 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[#f0ede8] transition-colors"

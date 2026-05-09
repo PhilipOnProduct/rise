@@ -219,6 +219,13 @@ export default function Nav() {
                         {userEmail}
                       </p>
                     </div>
+                    <Link
+                      href="/dashboard"
+                      onClick={() => setAccountOpen(false)}
+                      className="block w-full text-left px-4 py-3 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[#f0ede8] transition-colors border-b border-[#e8e4de]"
+                    >
+                      My trips
+                    </Link>
                     <button
                       onClick={() => void handleSignOut()}
                       className="block w-full text-left px-4 py-3 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[#f0ede8] transition-colors"
@@ -296,6 +303,13 @@ export default function Nav() {
                 <p className="px-3 text-sm text-[var(--text-secondary)] break-words mb-2">
                   {userEmail}
                 </p>
+                <Link
+                  href="/dashboard"
+                  onClick={() => setMobileOpen(false)}
+                  className="block w-full text-left px-3 py-2.5 rounded-xl text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[#f0ede8] transition-colors"
+                >
+                  My trips
+                </Link>
                 <button
                   onClick={() => void handleSignOut()}
                   className="block w-full text-left px-3 py-2.5 rounded-xl text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[#f0ede8] transition-colors"
