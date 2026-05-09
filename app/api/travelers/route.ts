@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { getSupabaseAdminClient } from "@/lib/supabase-admin";
+import { getSupabaseServerClient } from "@/lib/supabase-server";
 import {
   buildSingleLegTrip,
   type PlaceType,
@@ -7,6 +8,14 @@ import {
   type TripLeg,
   validateTrip,
 } from "@/lib/trip-schema";
+
+// PHI-61: the welcome flow creates and updates traveler rows BEFORE the
+// magic link is clicked, so neither POST nor PATCH can rely on a Supabase
+// session. We use the service-role admin client to bypass RLS, then enforce
+// ownership in code: PATCH refuses to touch a row whose `auth_user_id` is
+// set to a different user than the caller (or to anyone, if the caller is
+// anonymous).
+const supabaseAdmin = () => getSupabaseAdminClient();
 
 function dbErr(err: unknown): string {
   if (!err || typeof err !== "object") return String(err);
@@ -105,7 +114,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "invalid email" }, { status: 400 });
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin()
     .from("travelers")
     .insert({
       name: name || null,
@@ -141,7 +150,7 @@ export async function POST(req: NextRequest) {
   // this new traveler. Best-effort — failure here doesn't fail signup.
   const sessionId = req.cookies.get("rise_session_id")?.value;
   if (sessionId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionId)) {
-    const { error: claimErr } = await supabase
+    const { error: claimErr } = await supabaseAdmin()
       .from("anonymous_sessions")
       .update({ claimed_at: new Date().toISOString() })
       .eq("id", sessionId)
@@ -240,7 +249,33 @@ export async function PATCH(req: NextRequest) {
     }
   }
 
-  const { data, error } = await supabase
+  // PHI-61: ownership check. Refuse the PATCH if the row is already linked
+  // to a different signed-in user. Pre-signup rows (auth_user_id IS NULL)
+  // remain editable by anyone holding the row id — this is the same
+  // capability-token model the welcome flow has always relied on.
+  const { data: existing, error: fetchErr } = await supabaseAdmin()
+    .from("travelers")
+    .select("auth_user_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (fetchErr) {
+    console.error("[travelers] PATCH fetch:", dbErr(fetchErr));
+    return NextResponse.json({ error: dbErr(fetchErr) }, { status: 500 });
+  }
+  if (!existing) {
+    return NextResponse.json({ error: "not_found" }, { status: 404 });
+  }
+  if (existing.auth_user_id) {
+    const ssr = await getSupabaseServerClient();
+    const {
+      data: { user },
+    } = await ssr.auth.getUser();
+    if (!user || user.id !== existing.auth_user_id) {
+      return NextResponse.json({ error: "not_owner" }, { status: 403 });
+    }
+  }
+
+  const { data, error } = await supabaseAdmin()
     .from("travelers")
     .update(updates)
     .eq("id", id)

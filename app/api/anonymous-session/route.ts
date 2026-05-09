@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { getSupabaseAdminClient } from "@/lib/supabase-admin";
+
+// PHI-61: anonymous_sessions is keyed by the rise_session_id cookie, not by
+// auth.uid(). The route runs entirely without a Supabase session, so we
+// use the service-role admin client.
+const supabase = () => getSupabaseAdminClient();
 import { buildSingleLegTrip, type PlaceType, type TripLeg } from "@/lib/trip-schema";
 
 /**
@@ -40,7 +45,7 @@ export async function GET(req: NextRequest) {
   const sessionId = getSessionId(req);
   if (!sessionId) return new NextResponse(null, { status: 204 });
 
-  const { data, error } = await supabase
+  const { data, error } = await supabase()
     .from("anonymous_sessions")
     .select("*")
     .eq("id", sessionId)
@@ -149,7 +154,7 @@ export async function PATCH(req: NextRequest) {
   if (body.itinerary !== undefined) payload.itinerary = body.itinerary ?? null;
 
   // Upsert — creates the row on first PATCH; merges on subsequent ones.
-  const { data, error } = await supabase
+  const { data, error } = await supabase()
     .from("anonymous_sessions")
     .upsert(payload, { onConflict: "id" })
     .select()

@@ -5,11 +5,14 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { getSupabaseAdminClient } from "@/lib/supabase-admin";
 import { isAdminRequest, adminForbiddenResponse } from "@/lib/auth";
 
 export async function GET(req: NextRequest) {
   if (!isAdminRequest(req)) return adminForbiddenResponse();
+  // PHI-61: travel_connectors is RLS-locked to the row owner; this admin
+  // summary needs cross-user reads, so use the service-role client.
+  const supabase = getSupabaseAdminClient();
   // Fetch all connectors and aggregate in JS (Supabase JS client doesn't support
   // filter(where ...) aggregation, so we pull rows and summarise).
   const { data, error } = await supabase

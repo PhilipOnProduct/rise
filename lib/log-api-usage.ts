@@ -1,5 +1,10 @@
-import { supabase } from "@/lib/supabase";
+import { getSupabaseAdminClient } from "@/lib/supabase-admin";
 import { calculateAnthropicCost, calculateGoogleCost, calculateOpenMeteoCost } from "@/lib/api-costs";
+
+// PHI-61: api_usage and api_limits are admin-only system tables. The
+// service-role client bypasses RLS so route handlers can log spend even
+// when the request is anonymous (welcome flow) or admin-gated.
+const supabase = () => getSupabaseAdminClient();
 
 type LogParams = {
   provider: "anthropic" | "google" | "open-meteo";
@@ -28,7 +33,7 @@ export async function logApiUsage(params: LogParams): Promise<{ allowed: boolean
       : calculateOpenMeteoCost();
 
   // Insert usage row (fire-and-forget style — don't block the response)
-  const { error } = await supabase.from("api_usage").insert({
+  const { error } = await supabase().from("api_usage").insert({
     provider: params.provider,
     api_type: params.apiType,
     feature: params.feature ?? null,
@@ -49,7 +54,7 @@ export async function checkApiLimit(provider: string): Promise<LimitCheck> {
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
-  const { data: usageData, error: usageErr } = await supabase
+  const { data: usageData, error: usageErr } = await supabase()
     .from("api_usage")
     .select("estimated_cost_usd")
     .eq("provider", provider)
@@ -63,7 +68,7 @@ export async function checkApiLimit(provider: string): Promise<LimitCheck> {
   );
 
   // Get limit
-  const { data: limitData } = await supabase
+  const { data: limitData } = await supabase()
     .from("api_limits")
     .select("monthly_limit_usd, warning_threshold_pct, hard_limit_enabled")
     .eq("provider", provider)

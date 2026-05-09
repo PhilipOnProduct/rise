@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase";
+// PHI-61: admin reads now go through admin-gated API routes that wrap the
+// service-role client server-side. The browser no longer talks to Supabase
+// directly here.
 
 type TeamDiscussion = {
   id: string;
@@ -68,15 +70,13 @@ export default function AdminPage() {
       .then((r) => r.json())
       .then((data) => { setLogs(data); setLoading(false); });
 
-    supabase
-      .from("team_conversations")
-      .select("id, title, created_at, prd, messages")
-      .eq("type", "team")
-      .order("created_at", { ascending: false })
-      .then(({ data, error }) => {
-        if (!error && data) setDiscussions(data as TeamDiscussion[]);
+    fetch("/api/admin/team-discussions")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => {
+        if (Array.isArray(data)) setDiscussions(data as TeamDiscussion[]);
         setDiscussionsLoading(false);
-      });
+      })
+      .catch(() => setDiscussionsLoading(false));
   }, []);
 
   async function updateLog(id: string, patch: Partial<Pick<Log, "rating" | "notes">>) {

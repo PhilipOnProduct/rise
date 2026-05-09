@@ -1,4 +1,4 @@
-import { supabase } from "@/lib/supabase";
+import { getSupabaseAdminClient } from "@/lib/supabase-admin";
 
 type LogEntry = {
   feature: string;
@@ -16,7 +16,8 @@ type LogEntry = {
 };
 
 export async function logAiInteraction(entry: LogEntry): Promise<void> {
-  const { error } = await supabase.from("ai_logs").insert(entry);
+  // PHI-61: ai_logs is admin-only — bypass RLS via the service-role client.
+  const { error } = await getSupabaseAdminClient().from("ai_logs").insert(entry);
   if (error) {
     console.error("[ai-logger] Failed to log interaction:", error.message);
   }

@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { supabase } from "@/lib/supabase";
+// PHI-61: admin reads/writes go through admin-gated API routes that wrap
+// the service-role client server-side. The browser no longer talks to
+// eval_test_cases / eval_results directly.
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -130,11 +132,10 @@ function TestCasesTab() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase
-      .from("eval_test_cases")
-      .select("*")
-      .order("created_at", { ascending: true })
-      .then(({ data }) => { setCases((data ?? []) as TestCase[]); setLoading(false); });
+    fetch("/api/admin/evals/cases")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => { setCases((data ?? []) as TestCase[]); setLoading(false); })
+      .catch(() => setLoading(false));
   }, []);
 
   if (loading) return <p className="text-sm text-[var(--text-muted)] py-4">Loading…</p>;
@@ -178,11 +179,10 @@ function RunEvalsTab() {
   const [judgeResult, setJudgeResult] = useState<JudgeResponse | null>(null);
 
   useEffect(() => {
-    supabase
-      .from("eval_test_cases")
-      .select("*")
-      .order("created_at", { ascending: true })
-      .then(({ data }) => { setCases((data ?? []) as TestCase[]); });
+    fetch("/api/admin/evals/cases")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => { setCases((data ?? []) as TestCase[]); })
+      .catch(() => {});
   }, []);
 
   const selected = cases.find((c) => c.id === selectedId) ?? null;
@@ -209,18 +209,21 @@ function RunEvalsTab() {
       const outputStr = JSON.stringify(data, null, 2);
       setOutput(outputStr);
 
-      // Save to eval_results
-      const { data: row } = await supabase
-        .from("eval_results")
-        .insert({
+      // Save to eval_results via admin API
+      const insertRes = await fetch("/api/admin/evals/results", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           test_case_id: tc.id,
           model: "claude-sonnet-4-6",
           prompt_used: `itinerary/generate with inputs: ${JSON.stringify(tc.inputs)}`,
           ai_output: outputStr,
-        })
-        .select("id")
-        .single();
-      if (row) setResultId(row.id);
+        }),
+      });
+      if (insertRes.ok) {
+        const row = await insertRes.json() as { id?: string };
+        if (row?.id) setResultId(row.id);
+      }
     } catch (err) {
       setOutput(`Error: ${err}`);
     }
@@ -230,10 +233,11 @@ function RunEvalsTab() {
   async function handleSaveHuman() {
     if (!resultId || humanScore == null) return;
     setSavingHuman(true);
-    await supabase
-      .from("eval_results")
-      .update({ human_score: humanScore, human_notes: humanNotes || null })
-      .eq("id", resultId);
+    await fetch("/api/admin/evals/results", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: resultId, human_score: humanScore, human_notes: humanNotes || null }),
+    });
     setSavingHuman(false);
     setHumanSaved(true);
   }
@@ -251,10 +255,11 @@ function RunEvalsTab() {
       setJudgeResult(data);
 
       if (resultId && data.score) {
-        await supabase
-          .from("eval_results")
-          .update({ llm_score: data.score, llm_reasoning: data.reasoning })
-          .eq("id", resultId);
+        await fetch("/api/admin/evals/results", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: resultId, llm_score: data.score, llm_reasoning: data.reasoning }),
+        });
       }
     } catch (err) {
       console.error("Judge error:", err);
@@ -390,12 +395,12 @@ function ResultsTab() {
 
   useEffect(() => {
     Promise.all([
-      supabase.from("eval_results").select("*").order("created_at", { ascending: false }).limit(50),
-      supabase.from("eval_test_cases").select("id, name"),
+      fetch("/api/admin/evals/results").then((r) => (r.ok ? r.json() : [])),
+      fetch("/api/admin/evals/cases").then((r) => (r.ok ? r.json() : [])),
     ]).then(([resData, caseData]) => {
-      setResults((resData.data ?? []) as EvalResult[]);
+      setResults((resData ?? []) as EvalResult[]);
       const map: Record<string, string> = {};
-      for (const c of (caseData.data ?? []) as { id: string; name: string }[]) map[c.id] = c.name;
+      for (const c of (caseData ?? []) as { id: string; name: string }[]) map[c.id] = c.name;
       setCases(map);
       setLoading(false);
     });
@@ -474,11 +479,10 @@ function ModelComparisonTab() {
   const [judging, setJudging] = useState(false);
 
   useEffect(() => {
-    supabase
-      .from("eval_test_cases")
-      .select("*")
-      .order("created_at", { ascending: true })
-      .then(({ data }) => setCases((data ?? []) as TestCase[]));
+    fetch("/api/admin/evals/cases")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => setCases((data ?? []) as TestCase[]))
+      .catch(() => {});
   }, []);
 
   const selected = cases.find((c) => c.id === selectedId);
@@ -509,19 +513,27 @@ function ModelComparisonTab() {
       setOutputA(a);
       setOutputB(b);
 
-      // Save both results
+      // Save both results via admin API
       await Promise.all([
-        supabase.from("eval_results").insert({
-          test_case_id: selected.id,
-          model: modelA,
-          prompt_used: `model-comparison: ${selected.name}`,
-          ai_output: a,
+        fetch("/api/admin/evals/results", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            test_case_id: selected.id,
+            model: modelA,
+            prompt_used: `model-comparison: ${selected.name}`,
+            ai_output: a,
+          }),
         }),
-        supabase.from("eval_results").insert({
-          test_case_id: selected.id,
-          model: modelB,
-          prompt_used: `model-comparison: ${selected.name}`,
-          ai_output: b,
+        fetch("/api/admin/evals/results", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            test_case_id: selected.id,
+            model: modelB,
+            prompt_used: `model-comparison: ${selected.name}`,
+            ai_output: b,
+          }),
         }),
       ]);
 
