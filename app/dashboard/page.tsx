@@ -2,6 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import {
+  firstLeg,
+  primaryDestinationName,
+  tripDateRange,
+  type Trip,
+  type TripLeg,
+} from "@/lib/trip-schema";
 
 type Activity = { id: number; name: string; category: string; description: string; emoji: string };
 type Traveler = {
@@ -14,6 +21,17 @@ type Traveler = {
   activities: Activity[];
 };
 
+type AccountTraveler = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  legs: TripLeg[] | null;
+  is_primary: boolean | null;
+  claimed_at: string | null;
+  created_at: string | null;
+  activities: Activity[] | null;
+};
+
 function formatDate(d: string) {
   if (!d) return "—";
   return new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
@@ -24,9 +42,34 @@ function nightCount(dep: string, ret: string) {
   return Math.round((new Date(ret).getTime() - new Date(dep).getTime()) / 86400000);
 }
 
+// PHI-60: convert an account row's legs[] into the flat shape the rest
+// of the app reads from localStorage. Single-trip readers stay on the
+// existing path; multi-trip switching writes the chosen row through
+// here so the dashboard, itinerary, and other pages all stay consistent.
+function accountToTraveler(t: AccountTraveler): Traveler {
+  const trip: Trip = {
+    legs: t.legs ?? [],
+    departureDate: null,
+    returnDate: null,
+  };
+  const range = tripDateRange(trip);
+  const leg = firstLeg(trip);
+  return {
+    id: t.id,
+    name: t.name ?? "",
+    destination: leg?.place?.name ?? "",
+    departureDate: range.departure ?? "",
+    returnDate: range.return ?? "",
+    hotel: leg?.hotel ?? "",
+    activities: Array.isArray(t.activities) ? t.activities : [],
+  };
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const [traveler, setTraveler] = useState<Traveler | null>(null);
+  const [accountTrips, setAccountTrips] = useState<AccountTraveler[]>([]);
+  const [switching, setSwitching] = useState(false);
 
   useEffect(() => {
     const raw = localStorage.getItem("rise_traveler");
@@ -41,6 +84,29 @@ export default function DashboardPage() {
     }
   }, [router]);
 
+  // PHI-60: fetch the user's saved trips so we can offer a switcher when
+  // there's more than one. 401s are silent — anonymous users keep the
+  // legacy single-trip view.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/travelers/list", { cache: "no-store" });
+        if (!res.ok) return;
+        const json = await res.json();
+        if (!cancelled && Array.isArray(json.travelers)) {
+          setAccountTrips(json.travelers as AccountTraveler[]);
+        }
+      } catch {
+        // Network or auth failure — non-fatal, dashboard still renders
+        // from localStorage.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   if (!traveler) {
     return (
       <main className="min-h-screen bg-[#f8f6f1] flex items-center justify-center">
@@ -50,16 +116,84 @@ export default function DashboardPage() {
   }
 
   const nights = nightCount(traveler.departureDate, traveler.returnDate);
+  const hasSwitcher = accountTrips.length > 1;
+
+  async function handleSwitch(newId: string) {
+    if (newId === traveler?.id || switching) return;
+    const next = accountTrips.find((t) => t.id === newId);
+    if (!next) return;
+    setSwitching(true);
+    try {
+      // Promote the selected trip to is_primary=true; demote the rest.
+      // Idempotent — safe to retry.
+      await fetch("/api/travelers/claim", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "use_saved",
+          accountTravelerId: newId,
+        }),
+      });
+      const snapshot = accountToTraveler(next);
+      localStorage.setItem("rise_traveler", JSON.stringify(snapshot));
+      localStorage.setItem("rise_onboarded", "true");
+      // Other pages cache their own derivations of rise_traveler in
+      // memory; reloading ensures they all see the new selection.
+      window.location.reload();
+    } catch (e) {
+      console.error("[dashboard] switch failed:", e);
+      setSwitching(false);
+    }
+  }
 
   return (
     <main className="min-h-screen bg-[#f8f6f1] px-6 py-14">
       <div className="max-w-2xl mx-auto">
 
+        {hasSwitcher && (
+          <div className="mb-6 flex items-center gap-3">
+            <label
+              htmlFor="trip-switcher"
+              className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-widest"
+            >
+              Trip
+            </label>
+            <select
+              id="trip-switcher"
+              value={traveler.id ?? ""}
+              onChange={(e) => handleSwitch(e.target.value)}
+              disabled={switching}
+              className="flex-1 bg-white border border-[#e8e4de] rounded-xl px-4 py-2 text-sm text-[var(--text-primary)] focus:border-[#1a6b7f] outline-none disabled:opacity-50"
+            >
+              {accountTrips.map((t) => {
+                const trip: Trip = {
+                  legs: t.legs ?? [],
+                  departureDate: null,
+                  returnDate: null,
+                };
+                const range = tripDateRange(trip);
+                const label = primaryDestinationName(trip) || "Untitled trip";
+                const dates =
+                  range.departure && range.return
+                    ? ` · ${formatDate(range.departure)} → ${formatDate(range.return)}`
+                    : "";
+                return (
+                  <option key={t.id} value={t.id}>
+                    {label}
+                    {dates}
+                    {t.is_primary ? "  (primary)" : ""}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+        )}
+
         {/* Header */}
         <div className="mb-12">
           <p className="text-[#1a6b7f] text-sm font-semibold tracking-widest uppercase mb-3">Your trip</p>
           <h1 className="text-5xl font-extrabold tracking-tight mb-2">{traveler.destination}</h1>
-          <p className="text-[var(--text-secondary)] text-lg">Hey {traveler.name}, here's what we've got planned.</p>
+          <p className="text-[var(--text-secondary)] text-lg">Hey {traveler.name}, here&apos;s what we&apos;ve got planned.</p>
         </div>
 
         {/* Trip summary card */}

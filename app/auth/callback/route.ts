@@ -23,6 +23,9 @@ export async function GET(req: NextRequest) {
   const { searchParams, origin } = req.nextUrl;
   const code = searchParams.get("code");
   const travelerId = searchParams.get("travelerId");
+  // PHI-60: route through /auth/claim instead of jumping straight to
+  // the dashboard. The claim page short-circuits to `next` when there's
+  // nothing to resolve, so single-trip users don't see an extra screen.
   const next = searchParams.get("next") || "/dashboard";
 
   if (!code) {
@@ -55,5 +58,10 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.redirect(new URL(next, origin));
+  // PHI-60: hand off to the claim page. It detects whether the local
+  // trip and account trips conflict; if not, it auto-redirects to
+  // `next` so the caller's intent is preserved.
+  const claimUrl = new URL("/auth/claim", origin);
+  claimUrl.searchParams.set("next", next);
+  return NextResponse.redirect(claimUrl);
 }
