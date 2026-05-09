@@ -2056,16 +2056,148 @@ function WelcomePageInner() {
                 </button>
               )}
 
-              {/* Children — read-only display (count + ages) */}
-              {intent.party.children?.length ? (
-                <span className="inline-flex items-center gap-1.5 rounded-xl border border-[#d4cfc5] bg-white px-3 py-1.5 text-sm text-[var(--text-primary)]">
-                  <span>👶</span>
-                  <span className="font-medium">
-                    {intent.party.children.length}{" "}
-                    {intent.party.children.length === 1 ? "child" : "children"}
-                  </span>
-                </span>
-              ) : null}
+              {/* PHI-63: children — editable inline chip with stepper +
+                  per-child age selectors. Visible when children > 0 OR a
+                  family-related style tag is present (Kid-friendly /
+                  Teen-friendly), so families that the parser tagged as
+                  "Kid-friendly" without a count can add children manually. */}
+              {(() => {
+                const childCount = intent.party.children?.length ?? 0;
+                const hasFamilyTag = (intent.styleTags ?? []).some((t) =>
+                  /kid-friendly|teen-friendly/i.test(t)
+                );
+                if (childCount === 0 && !hasFamilyTag) return null;
+
+                const setChildren = (next: typeof intent.party.children) =>
+                  updateIntent({ party: { ...intent.party, children: next } });
+                const setCount = (next: number) => {
+                  const cur = intent.party.children ?? [];
+                  if (next > cur.length) {
+                    setChildren([
+                      ...cur,
+                      ...Array.from({ length: next - cur.length }, () => ({})),
+                    ]);
+                  } else {
+                    setChildren(cur.slice(0, next));
+                  }
+                };
+                const setAge = (idx: number, range: string) => {
+                  const cur = intent.party.children ?? [];
+                  const updated = [...cur];
+                  updated[idx] = {
+                    ...updated[idx],
+                    ageRange: range as typeof CHILD_AGE_RANGES[number],
+                  };
+                  setChildren(updated);
+                };
+
+                if (editingChipKey === "children") {
+                  return (
+                    <div
+                      className="w-full flex flex-col gap-3 rounded-xl border border-[#1a6b7f] bg-white p-3"
+                      data-testid="children-editor"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span aria-hidden>👶</span>
+                        <button
+                          type="button"
+                          onClick={() => setCount(Math.max(0, childCount - 1))}
+                          aria-label="Decrease children"
+                          className="w-7 h-7 rounded-full border border-[#d4cfc5] text-[#1a6b7f] hover:border-[#1a6b7f] transition-colors"
+                        >
+                          −
+                        </button>
+                        <span className="text-sm font-semibold text-[var(--text-primary)] w-10 text-center">
+                          {childCount}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setCount(childCount + 1)}
+                          aria-label="Increase children"
+                          className="w-7 h-7 rounded-full border border-[#d4cfc5] text-[#1a6b7f] hover:border-[#1a6b7f] transition-colors"
+                        >
+                          +
+                        </button>
+                        <span className="text-xs text-[var(--text-muted)] ml-1">
+                          {childCount === 1 ? "child" : "children"}
+                        </span>
+                      </div>
+                      {childCount > 0 && (
+                        <div className="flex flex-col gap-2">
+                          {(intent.party.children ?? []).map((c, idx) => (
+                            <div
+                              key={idx}
+                              className="flex items-center gap-2 flex-wrap"
+                            >
+                              <span className="text-xs font-semibold text-[var(--text-muted)] w-14 shrink-0">
+                                Child {idx + 1}
+                              </span>
+                              <div className="flex gap-1.5 flex-wrap">
+                                {CHILD_AGE_RANGES.map((range) => (
+                                  <button
+                                    key={range}
+                                    type="button"
+                                    onClick={() => setAge(idx, range)}
+                                    className={`px-2.5 py-1 rounded-xl border text-xs font-semibold transition-all ${
+                                      c.ageRange === range
+                                        ? "border-[#1a6b7f] bg-[#1a6b7f]/10 text-[var(--text-primary)]"
+                                        : "border-[#e8e4de] bg-white text-[var(--text-secondary)] hover:border-[#b8b3a9] hover:text-[var(--text-primary)]"
+                                    }`}
+                                  >
+                                    {range}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setEditingChipKey(null)}
+                          className="rounded-xl bg-[#1a6b7f] text-white text-xs font-semibold px-3 py-1.5 hover:bg-[#155a6b] transition-colors"
+                        >
+                          Done
+                        </button>
+                      </div>
+                    </div>
+                  );
+                }
+
+                if (childCount === 0) {
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => setEditingChipKey("children")}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-dashed border-[#d4a94a]/60 bg-white px-3 py-1.5 text-sm text-[var(--text-primary)] hover:border-[#1a6b7f] transition-colors"
+                      aria-label="Add children"
+                    >
+                      <span>👶</span>
+                      <span className="font-medium">0 children — tap to add</span>
+                    </button>
+                  );
+                }
+
+                const ageSummary = (intent.party.children ?? [])
+                  .map((c) => c.ageRange)
+                  .filter(Boolean)
+                  .join(", ");
+                return (
+                  <button
+                    type="button"
+                    onClick={() => setEditingChipKey("children")}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-[#d4cfc5] bg-white px-3 py-1.5 text-sm text-[var(--text-primary)] hover:border-[#1a6b7f] transition-colors"
+                    aria-label="Edit children"
+                  >
+                    <span>👶</span>
+                    <span className="font-medium">
+                      {childCount} {childCount === 1 ? "child" : "children"}
+                      {ageSummary ? ` · ${ageSummary}` : ""}
+                    </span>
+                  </button>
+                );
+              })()}
 
               {/* Style — read-only chip; user can edit in the wizard */}
               {intent.styleTags?.length ? (
@@ -2281,18 +2413,26 @@ function WelcomePageInner() {
               );
             })()}
 
-            {intent.clarifications.length > 0 && (
-              <div className="mb-6 rounded-2xl border border-[#d4a94a]/40 bg-[#d4a94a]/5 px-5 py-4">
-                <p className="text-xs font-bold text-[var(--text-primary)] uppercase tracking-widest mb-2">
-                  A few things we&apos;ll ask in the next steps
-                </p>
-                <ul className="text-sm text-[var(--text-secondary)] flex flex-col gap-1.5">
-                  {intent.clarifications.map((c, i) => (
-                    <li key={i}>· {c}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
+            {/* PHI-63: drop clarifications about adults / children / ages —
+                those are now editable as chips on this screen. */}
+            {(() => {
+              const visibleClarifications = intent.clarifications.filter(
+                (c) => !/\b(adult|kid|child|age)/i.test(c)
+              );
+              if (visibleClarifications.length === 0) return null;
+              return (
+                <div className="mb-6 rounded-2xl border border-[#d4a94a]/40 bg-[#d4a94a]/5 px-5 py-4">
+                  <p className="text-xs font-bold text-[var(--text-primary)] uppercase tracking-widest mb-2">
+                    A few things we&apos;ll ask in the next steps
+                  </p>
+                  <ul className="text-sm text-[var(--text-secondary)] flex flex-col gap-1.5">
+                    {visibleClarifications.map((c, i) => (
+                      <li key={i}>· {c}</li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })()}
             <button
               onClick={applyParsedIntentAndAdvance}
               className="w-full rounded-2xl bg-[#1a6b7f] text-white font-bold text-base py-4 hover:bg-[#155a6b] transition-colors mb-3"

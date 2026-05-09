@@ -38,7 +38,7 @@ Rules (in priority order):
 
 2. Missing required fields surface as clarifications, NEVER as guesses. If the user said "long weekend somewhere warm" without naming a destination, return destinations: [] and add a clarification: "Any region preference, or are you genuinely open?"
 
-3. Cite SPECIFIC user input. If the input mentions "anniversary," set occasion: "anniversary". If it mentions "kids" without ages, push to clarifications.
+3. Cite SPECIFIC user input. If the input mentions "anniversary," set occasion: "anniversary". For children counts/ages, follow rule 9 — never push these to clarifications, they're editable on the confirmation screen.
 
 4. High-stakes constraints (allergies, mobility, accessibility, dietary, religious) MUST be preserved exactly as the user expressed them. Map to constraintTags from this set when applicable: ["Wheelchair accessible only", "No long walks", "Vegetarian", "Halal/Kosher", "Severe allergy", "Stroller-friendly"]. Anything NOT in that set goes verbatim into constraintText.
 
@@ -50,7 +50,7 @@ Rules (in priority order):
 
 8. Always extract occasion if mentioned (anniversary, honeymoon, birthday, bucket_list). It biases downstream tone — this is a key differentiator.
 
-9. Children: if ages are stated, map to ageRange buckets ("Under 2" | "2–4" | "5–8" | "9–12" | "13–17"). If only "the kids" is mentioned, push to clarifications: "What ages are the kids?"
+9. Children: if ages are stated, map to ageRange buckets ("Under 2" | "2–4" | "5–8" | "9–12" | "13–17"). If the user uses family language ("family trip", "with the kids", "with our children", "kid-friendly", etc.) but doesn't state a count, infer 2 children with empty ageRange — the user will pick ages on the confirmation screen. If a creative inspiration strongly suggests an age band (Harry Potter → 9–12, Disney princess trip → 5–8, dinosaur fanatics → 5–8 or 9–12), you may pre-fill the ageRange; otherwise leave ageRange unset. NEVER add a "What ages are the kids?" clarification — children count and ages are editable on the confirmation screen.
 
 10. styleTags should match the existing chip taxonomy: Cultural, Food-led, Relaxed, Adventure, Off the beaten track, History, Romantic, Wellness, Nightlife, Art & Design, Photography, Kid-friendly, Teen-friendly, Beach, Educational, Budget-savvy, Slow travel, Active, Festivals.
 
