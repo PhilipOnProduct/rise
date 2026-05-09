@@ -10,6 +10,13 @@ import {
   ACTIVITY_GEN_SYSTEM,
   buildActivityGenUserMessage,
 } from "@/lib/activity-gen-prompt";
+// PHI-53: forecast helpers — wired in here so the welcome step-4
+// preview can surface a "some days look wet" hint before the user
+// has saved a trip. The saved-itinerary path runs its own forecast
+// in /api/itinerary/generate; this is the same data on the preview
+// side. Fail-open: any error → no header → client shows no banner.
+import { fetchForecast, badDayDates } from "@/lib/weather";
+import { geocodeCity } from "@/lib/travel-connectors";
 
 const client = new Anthropic();
 const MODEL = "claude-sonnet-4-6";
@@ -78,6 +85,38 @@ export async function POST(req: NextRequest) {
   // PHI-40: tag the log with rise_session_id so the cost-report script
   // can attribute calls to a trip. Cookie set by middleware on first visit.
   const sessionId = req.cookies.get("rise_session_id")?.value ?? null;
+
+  // PHI-53: kick off the Open-Meteo forecast in parallel with the
+  // Anthropic stream. Result is attached to the response as an
+  // X-Bad-Day-Dates header so the welcome page can surface a "some
+  // days look wet" hint above the preview cards. We bound the await
+  // below so a slow geocode/forecast can't delay the stream.
+  const forecastCity =
+    destination ??
+    (Array.isArray(legs) && legs[0]?.place?.name) ??
+    null;
+  const forecastPromise: Promise<string[] | null> = (async () => {
+    if (!forecastCity || !departureDate || !returnDate) return null;
+    try {
+      const coords = await geocodeCity(forecastCity);
+      if (!coords) return null;
+      const forecast = await fetchForecast(
+        coords.lat,
+        coords.lng,
+        departureDate,
+        returnDate,
+      );
+      void logApiUsage({
+        provider: "open-meteo",
+        apiType: "forecast",
+        feature: "activities-stream",
+      });
+      return badDayDates(forecast);
+    } catch (err) {
+      console.warn("[activities-stream] forecast failed:", err);
+      return null;
+    }
+  })();
 
   const startTime = Date.now();
   const stream = client.messages.stream({
@@ -152,7 +191,21 @@ export async function POST(req: NextRequest) {
     },
   });
 
+  // PHI-53: bound the wait so a slow forecast can't block the stream.
+  // 1.5s is well above Open-Meteo's typical ~200ms; if we don't have the
+  // result by then we ship without the header (client treats absence as
+  // "no banner" — fail-open for the preview).
+  const badDays = await Promise.race<string[] | null>([
+    forecastPromise,
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500)),
+  ]);
+
   return new Response(readable, {
-    headers: { "Content-Type": "text/plain; charset=utf-8" },
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      ...(badDays && badDays.length > 0
+        ? { "X-Bad-Day-Dates": JSON.stringify(badDays) }
+        : {}),
+    },
   });
 }
