@@ -1517,8 +1517,9 @@ function WelcomePageInner() {
     // name + email on the existing traveler row, save the local snapshot,
     // then send a magic link. The /auth/callback handler links the row
     // to auth.users.id once the user clicks the email.
-    // PHI-64: when the user is already signed in we skip the magic link
-    // entirely and route straight to /dashboard after persisting.
+    // PHI-74: when the user is already signed in we skip the magic link
+    // entirely and hand off to /auth/claim so the PHI-60 conflict UI
+    // can reconcile the new trip against any existing primary trip.
     let resolvedTravelerId = travelerId;
     try {
       if (travelerId) {
@@ -1587,25 +1588,16 @@ function WelcomePageInner() {
     const feedbackArray = Object.values(activityFeedback);
     localStorage.setItem("rise_activity_feedback", JSON.stringify(feedbackArray));
 
-    // PHI-64: signed-in path — skip magic link and link the row directly.
-    // The auth/callback row-link uses the same `update + .is(auth_user_id, null)`
-    // pattern, so re-running it here is idempotent and respects any prior
-    // claim. Best-effort: if it fails the trip is still saved locally.
+    // PHI-74: signed-in path — hand off to /auth/claim so the PHI-60
+    // conflict UI can resolve the new trip against any existing primary
+    // trip on this account. We deliberately do NOT pre-link auth_user_id
+    // here: the claim API owns linking as part of the chosen action
+    // (keep_local / use_saved / save_both), and pre-linking would leave
+    // an orphaned linked row if the user picks "Use saved trip".
+    // localStorage.rise_traveler stays — /auth/claim reads it.
     if (authedUser) {
-      try {
-        if (resolvedTravelerId) {
-          const supabaseAuth = getSupabaseBrowserClient();
-          await supabaseAuth
-            .from("travelers")
-            .update({ auth_user_id: authedUser.id })
-            .eq("id", resolvedTravelerId)
-            .is("auth_user_id", null);
-        }
-      } catch (e) {
-        console.error("[welcome] auth-link failed:", e);
-      }
       setSaving(false);
-      router.push("/dashboard");
+      router.push("/auth/claim?next=/dashboard");
       return;
     }
 

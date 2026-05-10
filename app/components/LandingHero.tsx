@@ -10,6 +10,12 @@ export default function LandingHero() {
   const [submitting, setSubmitting] = useState(false);
   const router = useRouter();
   const submittedRef = useRef(false);
+  // PHI-78: true once the user picks a result from the Places dropdown.
+  // A picked value is a single, disambiguated destination — its commas and
+  // word count must not be re-interpreted as free-form by the heuristic
+  // below ("Lisbon, OH, USA" has 2 commas; "Newcastle upon Tyne, UK" has
+  // 4 words). Reset whenever the user types over the field.
+  const selectedFromPlacesRef = useRef(false);
 
   const canSubmit = destination.trim().length >= 2 && !submitting;
 
@@ -21,14 +27,18 @@ export default function LandingHero() {
     setSubmitting(true);
     // PHI-58: if the user typed a free-form trip description ("Harry Potter
     // inspired family trip throughout the UK, starting in London") forward
-    // the raw text to /welcome's parser flow. Otherwise fall through to the
-    // existing structured wizard with the city pre-filled.
-    if (isFreeFormTripDescription(raw)) {
+    // the raw text to /welcome's parser flow. PHI-78: skip this branch when
+    // the value came from the Places dropdown — the user already committed
+    // to a single destination, even if its label has multiple commas.
+    if (!selectedFromPlacesRef.current && isFreeFormTripDescription(raw)) {
       router.push(`/welcome?parser_text=${encodeURIComponent(raw)}`);
       return;
     }
-    const seed = raw.split(",")[0].trim();
-    router.push(`/welcome?destination=${encodeURIComponent(seed)}`);
+    // PHI-78: forward the full disambiguated label ("Lisbon, OH, USA") so
+    // Step 1 displays the resolved place and downstream prompts target the
+    // right city. Previously we stripped everything after the first comma,
+    // which collapsed "Lisbon, Portugal" → "Lisbon" and lost the country.
+    router.push(`/welcome?destination=${encodeURIComponent(raw)}`);
   }
 
   return (
@@ -70,8 +80,14 @@ export default function LandingHero() {
         <div className="flex-1 min-w-0">
           <PlacesAutocomplete
             value={destination}
-            onChange={setDestination}
-            onSelect={setDestination}
+            onChange={(v) => {
+              selectedFromPlacesRef.current = false;
+              setDestination(v);
+            }}
+            onSelect={(v) => {
+              selectedFromPlacesRef.current = true;
+              setDestination(v);
+            }}
             placeholder="Where to? Lisbon, Tokyo, Marrakech…"
             types={["(cities)"]}
             theme="light"

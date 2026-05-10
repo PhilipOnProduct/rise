@@ -76,15 +76,26 @@ Same flow applies for improvements and bugs — but those usually skip the PM co
 
 1. `get_issue` to pull the Linear issue (description, comments, labels, status).
 2. Assemble the Claude Code prompt: PRD body + hard constraints + codebase pointers + any clarifying comments. Cowork is set up to do this; Linear is not.
-3. Move the issue to **In Progress** with `save_issue`.
-4. Hand the prompt to Philip to launch Claude Code from the terminal. (Linear has no "launch Claude Code" button; even if it did, the prompt-assembly in step 2 needs Cowork's context.)
+3. Hand the prompt to Philip to launch Claude Code from the terminal. (Linear has no "launch Claude Code" button; even if it did, the prompt-assembly in step 2 needs Cowork's context.)
 
-**Closing the loop (when Claude Code finishes):**
+Cowork no longer moves the card to In Progress on handoff — that's now Claude Code's responsibility (see below). This way the kanban reflects when work actually starts, not when the prompt is assembled.
 
-1. Run `npm run build` and confirm it compiles cleanly with no prerender errors. This is non-negotiable — App Router routinely passes `npm run dev` while failing the build.
-2. Walk the change end-to-end as the relevant role(s) — locally (Claude Code's browser walk, the Cowork Chrome MCP, or the dev server in your own browser) or on the Vercel deploy. **Start from the user's actual entry point**, usually `/`, not the route the fix touched — see TEAM.md "Testing on the live product". When the URL is policy-blocked from the Cowork Chrome MCP, the local walk is the canonical record.
-3. `save_comment` on the issue with three short paragraphs: **What changed** (one or two sentences on the diff), **What was tested** (which role(s) walked it, where, and what they checked), **What's deferred** (known limitations, follow-ups, anything intentionally out of scope).
-4. Move the issue to **Done** with `save_issue`.
+**Claude Code's responsibilities (start to finish, in the terminal):**
+
+Claude Code owns the Linear state transitions across the lifecycle of an issue. The Linear MCP is available to Claude Code; use it.
+
+1. **On pickup — move the card to In Progress.** First action, before grepping or writing any code: `save_issue` with `id: <identifier>` and `state: "In Progress"`. Idempotent — if the card is already In Progress (e.g. handed back after a previous attempt), this is a no-op.
+2. Implement the change per the PRD, hard constraints, and codebase pointers in the issue description. Treat hard constraints as load-bearing — they're the things that, if missed, force a redo.
+3. Run `npm run build` and confirm it compiles cleanly with no prerender errors. This is non-negotiable — App Router routinely passes `npm run dev` while failing the build.
+4. Walk the change end-to-end as the relevant role(s) **on the code path the diff actually runs on**, locally (Claude Code's browser walk, the Cowork Chrome MCP, or the dev server in your own browser) or on the Vercel deploy. **Start from the user's actual entry point**, usually `/`, not the route the fix touched — see TEAM.md "Testing on the live product".
+   - **Walking from `/` is necessary but not sufficient.** If the diff is in an authenticated branch, walk signed in. If it's behind a feature flag, walk with the flag on. If it's only reachable from a specific entry point (homepage parser, dashboard switcher, magic-link landing), walk from there. PHI-51 nearly shipped Done before someone caught that the homepage form bypassed the parser entirely.
+   - **Confirm the build under test contains the diff before concluding the fix is broken.** Vercel deploys can lag, edge caches can serve previous builds, and the production URL may not point at the latest commit. If a post-merge walk shows pre-fix behaviour, fingerprint the served bundle first — grep for a marker string from the fix or check the deploy SHA. If the bundle does not contain the diff, you're walking stale code; investigate the deploy, do not reopen the issue. PHI-74 was incorrectly reopened on 2026-05-10 because the Vercel deploy still served the pre-fix bundle when walked. For signed-in walks, prefer the cookie-mint approach against local dev (mint `@supabase/ssr` cookies via admin `generate_link` → `verify`, inject into the dev browser).
+   - **Defer only what's technically infeasible.** Steps that need a real email round-trip, third-party billing, or external services Claude Code cannot trigger are deferrable to a manual walk by Philip. Steps that are merely inconvenient (signing in, setting up a fixture, walking a longer path) are **not** deferrable. Walk them. If a fixture is missing, build it.
+   - When the URL is policy-blocked from the Cowork Chrome MCP, the local walk is the canonical record.
+5. `save_comment` on the issue with three short paragraphs: **What changed** (one or two sentences on the diff), **What was tested** (which role(s) walked it, where, and what they checked), **What's deferred** (known limitations, follow-ups, anything intentionally out of scope).
+6. Move the issue to **Done** with `save_issue`.
+
+**If Claude Code can't complete the work** — `save_comment` with what was tried and what's blocking, but **leave the card in In Progress** (do not move it back to Todo). Philip decides whether to bounce it back, scope it down, or split it into a new issue.
 
 If something needs a follow-up that's bigger than a comment, file a new Linear issue rather than reopening the original.
 

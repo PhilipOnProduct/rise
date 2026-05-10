@@ -187,6 +187,10 @@ export async function rankWithHaiku(
     `Profile:\n${profileLines.join("\n") || "- (no preferences captured)"}\n\n` +
     `Candidate cities/regions in ${country}:\n${candidates.map((c) => `- ${c.name}`).join("\n")}\n\n` +
     `Pick up to 4 that best match this traveller's profile. Rank them best-first. ` +
+    `When weighing fit, consider what the profile implies about pacing and physical accessibility — ` +
+    `young children mean stroller-friendly cities and short transfers; relaxed or slow-travel styles ` +
+    `favour walkable cities with good transit over driving-required rural regions; multi-city travellers ` +
+    `want a varied mix (urban + nature + food), not three of the same kind. ` +
     `For each, write a one-sentence "why" (≤18 words) that references at least one ` +
     `specific preference (style chip, company, budget, kids' ages). Never claim partnerships, sponsorships, or licensing. ` +
     `If the candidate is a region rather than a city, set kind to "region".`;

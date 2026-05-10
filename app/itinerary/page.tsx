@@ -176,6 +176,25 @@ function formatDateRange(departure: string, ret: string): string {
   return `${d.toLocaleDateString("en-GB", { day: "numeric", month: "short" })} – ${r.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`;
 }
 
+/** Inclusive trip-day count from departure → return; 0 if either date is invalid. */
+function tripDayCount(departure: string, ret: string): number {
+  if (!departure || !ret) return 0;
+  const d = new Date(departure);
+  const r = new Date(ret);
+  const ms = r.getTime() - d.getTime();
+  if (Number.isNaN(ms) || ms < 0) return 0;
+  return Math.round(ms / (1000 * 60 * 60 * 24)) + 1;
+}
+
+/** ISO date string for departure + dayIndex (0-based); empty string if invalid. */
+function skeletonDayDate(departure: string, dayIndex: number): string {
+  if (!departure) return "";
+  const d = new Date(departure);
+  if (Number.isNaN(d.getTime())) return "";
+  d.setDate(d.getDate() + dayIndex);
+  return d.toISOString().slice(0, 10);
+}
+
 // ── UndoToast ─────────────────────────────────────────────────────────────────
 
 type UndoEntry = {
@@ -296,13 +315,18 @@ function AddSuggestionCard({
 type TripShapeBarProps = {
   days: ItineraryDay[];
   loading: boolean;
+  // PHI-79: when loading, render N skeleton pills so the shape bar keeps its
+  // structure instead of collapsing to a single "Building…" line. 0 falls back
+  // to the spinner-only state (used when traveler dates aren't known yet).
+  skeletonDayCount: number;
   activeDayNumber: number | null;
   onDayClick: (dayNumber: number) => void;
   barRef: React.RefObject<HTMLDivElement | null>;
 };
 
-function TripShapeBar({ days, loading, activeDayNumber, onDayClick, barRef }: TripShapeBarProps) {
+function TripShapeBar({ days, loading, skeletonDayCount, activeDayNumber, onDayClick, barRef }: TripShapeBarProps) {
   const maxActivities = Math.max(1, ...days.map((d) => d.activities.length));
+  const showSkeletonPills = loading && skeletonDayCount > 0;
 
   return (
     // Sticky below the nav (top-14 = 56px). z-40 keeps it below the nav's z-50.
@@ -310,7 +334,22 @@ function TripShapeBar({ days, loading, activeDayNumber, onDayClick, barRef }: Tr
       ref={barRef}
       className="sticky top-14 z-40 w-full bg-[#f8f6f1] border-b border-[#e8e4de]"
     >
-      {loading ? (
+      {showSkeletonPills ? (
+        <div className="overflow-x-auto" style={{ WebkitOverflowScrolling: "touch" }}>
+          <div className="flex gap-1 px-4 py-3 min-w-max" aria-busy="true" aria-label="Loading itinerary">
+            {Array.from({ length: skeletonDayCount }).map((_, i) => (
+              <div
+                key={i}
+                className="flex flex-col items-center gap-1.5 px-3 py-2 min-w-[56px] flex-shrink-0 animate-pulse"
+              >
+                <div className="h-3 w-10 rounded bg-[#e8e4de]" />
+                <div className="w-full h-1.5 rounded-full bg-[#e8e4de]" />
+                <div className="h-2.5 w-12 rounded bg-[#f0ede8]" />
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : loading ? (
         <div className="flex items-center gap-2 px-6 py-4">
           <div className="w-4 h-4 rounded-full border-2 border-[#1a6b7f] border-t-transparent animate-spin flex-shrink-0" />
           <span className="text-xs text-[var(--text-muted)]">Building your itinerary…</span>
@@ -617,6 +656,71 @@ function BookingLinks({ item }: { item: ItineraryItem }) {
 }
 
 // ── DaySection ────────────────────────────────────────────────────────────────
+
+// ── Skeleton placeholders (loading + regenerate) ─────────────────────────────
+
+function SkeletonCard() {
+  return (
+    <div className="rounded-xl border border-[#e8e4de] bg-white p-4 animate-pulse">
+      <div className="h-4 w-2/3 rounded bg-[#e8e4de] mb-3" />
+      <div className="h-3 w-full rounded bg-[#f0ede8] mb-1.5" />
+      <div className="h-3 w-5/6 rounded bg-[#f0ede8]" />
+    </div>
+  );
+}
+
+function DaySectionSkeleton({
+  dayNumber,
+  date,
+  scrollMarginTop,
+}: {
+  dayNumber: number;
+  date: string;
+  scrollMarginTop: number;
+}) {
+  return (
+    <section
+      style={{ scrollMarginTop }}
+      className="py-8 border-b border-[#e8e4de] last:border-0"
+      aria-busy="true"
+      aria-label={`Day ${dayNumber} loading`}
+    >
+      <div className="flex items-baseline gap-3 mb-5">
+        <h2 className="text-xl font-extrabold tracking-tight text-[var(--text-primary)]">
+          Day {dayNumber}
+        </h2>
+        {date && (
+          <span className="text-sm text-[var(--text-muted)]">
+            {new Date(date).toLocaleDateString("en-GB", {
+              weekday: "short",
+              day: "numeric",
+              month: "short",
+            })}
+          </span>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-5">
+        {TIME_BLOCKS.map((block) => {
+          const { emoji, label } = TIME_BLOCK_LABEL[block];
+          return (
+            <div key={block}>
+              <div className="flex items-center gap-2 mb-2.5">
+                <span className="text-sm" aria-hidden>{emoji}</span>
+                <span className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">{label}</span>
+                <div className="flex-1 h-px bg-[#e8e4de] ml-1" />
+              </div>
+              <div className="flex flex-col gap-3">
+                <SkeletonCard />
+                <SkeletonCard />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
 
 function DaySection({
   day,
@@ -947,7 +1051,7 @@ export default function ItineraryViewPage() {
       try {
         // 1. Try Supabase first if we have a traveler ID
         if (traveler.id) {
-          const res = await fetch(`/api/itinerary?traveler_id=${encodeURIComponent(traveler.id)}`);
+          const res = await fetch(`/api/itinerary`);
           if (res.ok) {
             const json = await res.json() as { itinerary: Itinerary | null };
             if (json.itinerary?.days?.length) {
@@ -975,7 +1079,7 @@ export default function ItineraryViewPage() {
               setDays(mapped);
               // Save to Supabase in background if we have an ID
               if (traveler.id) {
-                void saveToSupabase(traveler.id, traveler.destination ?? "", mapped);
+                void saveToSupabase(traveler.destination ?? "", mapped);
               }
               setLoading(false);
               return;
@@ -1039,7 +1143,7 @@ export default function ItineraryViewPage() {
       setDays(mapped);
 
       if (t.id) {
-        void saveToSupabase(t.id, t.destination ?? "", mapped);
+        void saveToSupabase(t.destination ?? "", mapped);
       }
 
       setLoading(false);
@@ -1075,7 +1179,7 @@ export default function ItineraryViewPage() {
     const t = travelerRef.current;
     if (!t?.id) return;
 
-    fetch(`/api/itinerary/travel?traveler_id=${encodeURIComponent(t.id)}`)
+    fetch(`/api/itinerary/travel`)
       .then((res) => (res.ok ? res.json() : null))
       .then((json) => {
         if (json?.connectors?.length) setConnectors(json.connectors as TravelConnector[]);
@@ -1141,7 +1245,7 @@ export default function ItineraryViewPage() {
       const res = await fetch("/api/itinerary/travel", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ traveler_id: t.id }),
+        body: JSON.stringify({}),
       });
 
       if (!res.ok) {
@@ -1173,7 +1277,6 @@ export default function ItineraryViewPage() {
         travelCompany: t.travelCompany ?? "",
         travelerTypes: t.travelerTypes ?? [],
         budgetTier: t.budgetTier ?? "",
-        traveler_id: t.id,
         refresh: { day_number: dayNumber, swapped_activity_id: activityId },
       }),
     })
@@ -1204,7 +1307,7 @@ export default function ItineraryViewPage() {
     localStorage.setItem("rise_itinerary", JSON.stringify(updated));
     const t = travelerRef.current;
     if (t?.id) {
-      void saveToSupabase(t.id, t.destination ?? "", updated);
+      void saveToSupabase(t.destination ?? "", updated);
     }
   }, []);
 
@@ -1583,7 +1686,7 @@ export default function ItineraryViewPage() {
       setDays(mapped);
 
       if (t.id) {
-        void saveToSupabase(t.id, t.destination ?? "", mapped);
+        void saveToSupabase(t.destination ?? "", mapped);
       }
     } catch {
       setError("Couldn't regenerate your itinerary. Please try again.");
@@ -1616,12 +1719,18 @@ export default function ItineraryViewPage() {
 
   // ── Render ───────────────────────────────────────────────────────────────
 
+  // PHI-79: number of skeleton day cards to render during loading/regenerate.
+  // Derived from the traveler's date range so first load (after traveler
+  // hydrates) and Regenerate both keep the page structure visible.
+  const skeletonDayCount = tripDayCount(departureDate, returnDate);
+
   return (
     <div className="min-h-screen bg-[#f8f6f1]">
       {/* Sticky trip shape bar */}
       <TripShapeBar
         days={days}
         loading={loading}
+        skeletonDayCount={skeletonDayCount}
         activeDayNumber={activeDayNumber}
         onDayClick={scrollToDay}
         barRef={shapeBarRef}
@@ -1629,8 +1738,9 @@ export default function ItineraryViewPage() {
 
       {/* Page content */}
       <main className="max-w-3xl mx-auto px-6">
-        {/* Header — only shown once data is ready to avoid layout shift */}
-        {!loading && days.length > 0 && (
+        {/* Header — render once we have traveler context (destination), so it
+            stays visible during first-load and Regenerate (PHI-79). */}
+        {(destination || days.length > 0) && (
           <div className="pt-10 pb-2">
             <div className="flex items-start justify-between gap-4">
               <div>
@@ -1640,10 +1750,20 @@ export default function ItineraryViewPage() {
                     <span>{formatDateRange(departureDate, returnDate)}</span>
                   )}
                   {departureDate && returnDate && <span>·</span>}
-                  <span>
-                    {days.length} {days.length === 1 ? "day" : "days"} ·{" "}
-                    {days.reduce((sum, d) => sum + d.activities.length, 0)} activities
-                  </span>
+                  {loading ? (
+                    skeletonDayCount > 0 ? (
+                      <span>
+                        {skeletonDayCount} {skeletonDayCount === 1 ? "day" : "days"} · Building your itinerary…
+                      </span>
+                    ) : (
+                      <span>Building your itinerary…</span>
+                    )
+                  ) : (
+                    <span>
+                      {days.length} {days.length === 1 ? "day" : "days"} ·{" "}
+                      {days.reduce((sum, d) => sum + d.activities.length, 0)} activities
+                    </span>
+                  )}
                 </div>
                 {hotel && (
                   <p className="text-[var(--text-muted)] text-sm mt-0.5">
@@ -1693,7 +1813,10 @@ export default function ItineraryViewPage() {
               </div>
             </div>
 
-            {/* Calculate travel times / connector summary */}
+            {/* Calculate travel times / connector summary — hidden while
+                loading/regenerating since connectors are cleared on Regenerate
+                and recomputing during the build is meaningless (PHI-79). */}
+            {!loading && (
             <div className="mt-3 flex items-center gap-3 flex-wrap">
               {connectors.length === 0 ? (
                 <button
@@ -1724,6 +1847,7 @@ export default function ItineraryViewPage() {
                 <span className="text-xs text-red-500">{travelError}</span>
               )}
             </div>
+            )}
           </div>
         )}
 
@@ -1740,7 +1864,21 @@ export default function ItineraryViewPage() {
         {/* Vertical day timeline. PHI-37: when the trip is multi-leg, days
             are grouped under leg headers and transition days are rendered
             without the full day-section chrome. Single-leg trips render
-            identically to before. */}
+            identically to before. PHI-79: while loading/regenerating, render
+            skeleton day cards from the date range so the page keeps its
+            structure instead of going blank. */}
+        {loading && skeletonDayCount > 0 && (
+          <div className="mt-6">
+            {Array.from({ length: skeletonDayCount }).map((_, i) => (
+              <DaySectionSkeleton
+                key={i}
+                dayNumber={i + 1}
+                date={skeletonDayDate(departureDate, i)}
+                scrollMarginTop={scrollMarginTop}
+              />
+            ))}
+          </div>
+        )}
         {!loading && (
           <div className="mt-6">
             {(() => {
@@ -1863,7 +2001,6 @@ export default function ItineraryViewPage() {
 // ── Supabase save (fire-and-forget) ───────────────────────────────────────────
 
 async function saveToSupabase(
-  traveler_id: string,
   destination: string,
   days: ItineraryDay[]
 ): Promise<void> {
@@ -1871,7 +2008,7 @@ async function saveToSupabase(
     await fetch("/api/itinerary", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ traveler_id, destination, days }),
+      body: JSON.stringify({ destination, days }),
     });
   } catch {
     // Non-fatal — data is still in localStorage
