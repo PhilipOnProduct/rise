@@ -2896,6 +2896,7 @@ function WelcomePageInner() {
                 autoFocus
                 onEnter={() => handleContinue()}
                 className={underlineInput}
+                theme="light"
                 inlineSuggestions
               />
               <button
