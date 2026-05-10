@@ -23,6 +23,11 @@ type Props = {
   autoFocus?: boolean;
   onEnter?: () => void;
   theme?: "dark" | "light";
+  /** PHI-77: when true, the suggestions panel renders in normal flow
+   *  below the input rather than as an absolutely-positioned overlay.
+   *  Use this when there's important content below (e.g. a Continue
+   *  CTA on a wizard step) that would otherwise be covered. */
+  inlineSuggestions?: boolean;
 };
 
 // PHI-56: legacy "(cities)" callers used to pass this string. The new
@@ -71,6 +76,7 @@ export default function PlacesAutocomplete({
   autoFocus,
   onEnter,
   theme = "dark",
+  inlineSuggestions = false,
 }: Props) {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [open, setOpen] = useState(false);
@@ -226,7 +232,9 @@ export default function PlacesAutocomplete({
       />
 
       {open && (suggestions.length > 0 || searched) && (
-        <div className={`absolute z-50 w-full mt-2 rounded-2xl overflow-hidden shadow-2xl ${
+        <div className={`${
+          inlineSuggestions ? "" : "absolute z-50 w-full"
+        } mt-2 rounded-2xl overflow-hidden shadow-2xl ${
           theme === "light"
             ? "bg-white border border-[#d4cfc5]"
             : "bg-[#1a1a1a] border border-[#2a2a2a]"

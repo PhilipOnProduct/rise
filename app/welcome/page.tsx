@@ -2896,6 +2896,7 @@ function WelcomePageInner() {
                 autoFocus
                 onEnter={() => handleContinue()}
                 className={underlineInput}
+                inlineSuggestions
               />
               <button
                 onClick={() => { setHotel(""); handleContinue(); }}
@@ -2948,6 +2949,7 @@ function WelcomePageInner() {
                     autoFocus={i === 0}
                     className={underlineInput}
                     theme="light"
+                    inlineSuggestions
                   />
                 </div>
               ))}
