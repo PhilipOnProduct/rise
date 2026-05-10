@@ -62,7 +62,9 @@ export const config = {
      * - /auth/callback (PHI-59: Supabase magic-link landing — must be
      *   reachable behind the site-password gate so the email link works
      *   even on a fresh device that never set the site_auth cookie)
+     * - /_vercel/insights (PHI-87: Vercel Web Analytics script + view
+     *   POSTs must reach Vercel's edge, not be redirected to /api/auth)
      */
-    "/((?!_next/static|_next/image|favicon\\.ico|api/auth|auth/callback).*)",
+    "/((?!_next/static|_next/image|favicon\\.ico|api/auth|auth/callback|_vercel/insights).*)",
   ],
 };

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { DM_Sans } from "next/font/google";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 import Nav from "@/app/components/Nav";
 import FeedbackButton from "@/app/components/FeedbackButton";
@@ -26,6 +27,7 @@ export default function RootLayout({
         <Nav />
         {children}
         <FeedbackButton />
+        <Analytics />
       </body>
     </html>
   );
