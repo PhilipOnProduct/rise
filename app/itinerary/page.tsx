@@ -1275,12 +1275,6 @@ export default function ItineraryViewPage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        destination: t.destination,
-        departureDate: t.departureDate,
-        returnDate: t.returnDate,
-        travelCompany: t.travelCompany ?? "",
-        travelerTypes: t.travelerTypes ?? [],
-        budgetTier: t.budgetTier ?? "",
         refresh: { day_number: dayNumber, swapped_activity_id: activityId },
       }),
     })
