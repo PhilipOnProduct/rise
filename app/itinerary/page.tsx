@@ -504,10 +504,46 @@ type ActivityCardProps = {
 function ActivityCard({ activity, onRemove, onSwap, swapping, swapError, swapSuggestion, onAcceptSwap, onRejectSwap, showWeatherAlternative, onAlternativeEngage }: ActivityCardProps) {
   const categoryIcon = CATEGORY_ICON[activity.category];
 
+  // PHI-75: render the swap suggestion as the card's content (not an absolute
+  // overlay) so the card grows vertically with long conflict-warning text
+  // instead of bleeding onto the next time block.
+  if (swapSuggestion) {
+    return (
+      <div className="bg-white border border-[#1a6b7f]/30 rounded-2xl px-5 py-4 flex flex-col">
+        <div className="flex items-start gap-3">
+          <span className="text-xl flex-shrink-0 mt-0.5" aria-hidden>
+            {CATEGORY_ICON[(swapSuggestion.type as ActivityCategory) || "activity"]}
+          </span>
+          <div className="flex-1 min-w-0">
+            <h3 className="font-semibold text-[#1a6b7f] text-sm leading-snug">{swapSuggestion.title}</h3>
+            <p className="text-sm text-[var(--text-secondary)] mt-1 leading-relaxed">{swapSuggestion.description}</p>
+            {swapSuggestion.conflict && (
+              <p className="text-xs text-amber-500/80 mt-2 leading-relaxed">{swapSuggestion.conflict}</p>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-3 mt-3">
+          <button
+            onClick={onAcceptSwap}
+            className="text-xs font-semibold text-[#1a6b7f] hover:text-[#155a6b] transition-colors"
+          >
+            Looks good ✓
+          </button>
+          <button
+            onClick={onRejectSwap}
+            className="text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+          >
+            Not quite, try again →
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="group relative bg-white border border-[#e8e4de] rounded-2xl px-5 py-4">
       {/* Action controls — hover on desktop, always visible on touch */}
-      {!swapping && !swapSuggestion && (onRemove || onSwap) && (
+      {!swapping && (onRemove || onSwap) && (
         <div className="absolute top-3 right-3 flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
           {onSwap && (
             <button
@@ -531,7 +567,7 @@ function ActivityCard({ activity, onRemove, onSwap, swapping, swapError, swapSug
       )}
 
       {/* Loading overlay while swap is in progress */}
-      {swapping && !swapSuggestion && (
+      {swapping && (
         <div className="absolute inset-0 bg-white/80 rounded-2xl flex items-center justify-center z-10">
           <div className="flex items-center gap-2 text-[var(--text-secondary)] text-sm">
             <div className="w-3.5 h-3.5 rounded-full border-2 border-gray-500 border-t-transparent animate-spin" />
@@ -541,43 +577,11 @@ function ActivityCard({ activity, onRemove, onSwap, swapping, swapError, swapSug
       )}
 
       {/* Swap error overlay */}
-      {swapError && !swapping && !swapSuggestion && (
+      {swapError && !swapping && (
         <div className="absolute inset-x-0 -bottom-8 flex justify-center z-10">
           <span className="text-xs text-red-500 bg-red-50 rounded-lg px-3 py-1 border border-red-200">
             Couldn&apos;t find an alternative. Try again?
           </span>
-        </div>
-      )}
-
-      {/* Swap suggestion overlay */}
-      {swapSuggestion && (
-        <div className="absolute inset-0 bg-white border border-[#1a6b7f]/30 rounded-2xl px-5 py-4 z-10 flex flex-col">
-          <div className="flex items-start gap-3 flex-1">
-            <span className="text-xl flex-shrink-0 mt-0.5" aria-hidden>
-              {CATEGORY_ICON[(swapSuggestion.type as ActivityCategory) || "activity"]}
-            </span>
-            <div className="flex-1 min-w-0">
-              <h3 className="font-semibold text-[#1a6b7f] text-sm leading-snug">{swapSuggestion.title}</h3>
-              <p className="text-sm text-[var(--text-secondary)] mt-1 leading-relaxed">{swapSuggestion.description}</p>
-              {swapSuggestion.conflict && (
-                <p className="text-xs text-amber-500/80 mt-2">{swapSuggestion.conflict}</p>
-              )}
-            </div>
-          </div>
-          <div className="flex items-center gap-3 mt-3">
-            <button
-              onClick={onAcceptSwap}
-              className="text-xs font-semibold text-[#1a6b7f] hover:text-[#155a6b] transition-colors"
-            >
-              Looks good ✓
-            </button>
-            <button
-              onClick={onRejectSwap}
-              className="text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-            >
-              Not quite, try again →
-            </button>
-          </div>
         </div>
       )}
 
