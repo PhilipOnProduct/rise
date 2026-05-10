@@ -544,7 +544,7 @@ function ActivityCard({ activity, onRemove, onSwap, swapping, swapError, swapSug
     <div className="group relative bg-white border border-[#e8e4de] rounded-2xl px-5 py-4">
       {/* Action controls — hover on desktop, always visible on touch */}
       {!swapping && (onRemove || onSwap) && (
-        <div className="absolute top-3 right-3 flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+        <div className="absolute top-3 right-3 flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 transition-opacity">
           {onSwap && (
             <button
               onClick={onSwap}
