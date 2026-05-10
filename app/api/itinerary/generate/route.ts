@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
+import { track } from "@vercel/analytics/server";
 import { logAiInteraction } from "@/lib/ai-logger";
 import { logApiUsage, checkApiLimit } from "@/lib/log-api-usage";
 import { buildCompositionSegment } from "@/lib/composition";
@@ -353,6 +354,13 @@ Rules:
         { status: 500 }
       );
     }
+
+    // PHI-88: fire after a clean parse, before logging/response. Awaited
+    // because the route holds the response. Payload omits hasChildren —
+    // demographic signals stay out per the open-question default.
+    await track("itinerary_generated", {
+      dayCount: Array.isArray(days_data) ? days_data.length : 0,
+    });
 
     await logAiInteraction({
       feature: "itinerary-generate",

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { track } from "@vercel/analytics";
 import PlacesAutocomplete from "@/app/components/PlacesAutocomplete";
 import type { TripIntent } from "@/lib/trip-intent";
 import { newLegId, type PlaceRef, type TripLeg } from "@/lib/trip-schema";
@@ -694,6 +695,9 @@ function WelcomePageInner() {
   const [authedUser, setAuthedUser] = useState<AuthedUser | null>(null);
   // Guard so the auto-finish on step 5 only fires once per session.
   const autoFinishedRef = useRef(false);
+  // PHI-88: Vercel Analytics — guard against double-firing magic_link_sent
+  // for the same click (e.g. React strict-mode double-invocation in dev).
+  const magicLinkSentRef = useRef(false);
 
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
@@ -786,6 +790,13 @@ function WelcomePageInner() {
     seededFromUrlRef.current = true;
     handleDestinationSelect(seed);
     setStep(1);
+    // PHI-88: URL-seed advance is still a step transition. SessionStorage
+    // key matches the goTo() path so we don't double-fire if the user
+    // re-enters /welcome with the same seed in the same tab.
+    if (typeof window !== "undefined" && !sessionStorage.getItem("rise_va_step_1_fired")) {
+      sessionStorage.setItem("rise_va_step_1_fired", "1");
+      track("welcome_step_advanced", { step: 1 });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
@@ -1174,6 +1185,15 @@ function WelcomePageInner() {
     if (step > 0) patchAnonymousSession();
     setStep(next);
     setAnimKey((k) => k + 1);
+    // PHI-88: fire welcome_step_advanced once per (tab session, target step).
+    // Per-tab idempotency only — a fresh tab is a new walk and re-fires.
+    if (typeof window !== "undefined") {
+      const key = `rise_va_step_${next}_fired`;
+      if (!sessionStorage.getItem(key)) {
+        sessionStorage.setItem(key, "1");
+        track("welcome_step_advanced", { step: next });
+      }
+    }
   }
 
   function handleDestinationSelect(place: string) {
@@ -1597,6 +1617,12 @@ function WelcomePageInner() {
     // localStorage.rise_traveler stays — /auth/claim reads it.
     if (authedUser) {
       setSaving(false);
+      // PHI-88: signed-in completion. Fire-and-forget; sessionStorage guard
+      // covers both the explicit submit and the auto-finish useEffect.
+      if (typeof window !== "undefined" && !sessionStorage.getItem("rise_va_completed_fired")) {
+        sessionStorage.setItem("rise_va_completed_fired", "1");
+        track("welcome_completed", { signedIn: true });
+      }
       router.push("/auth/claim?next=/dashboard");
       return;
     }
@@ -1624,6 +1650,17 @@ function WelcomePageInner() {
       // from the homepage Sign in CTA.
       router.push("/itinerary");
       return;
+    }
+    // PHI-88: magic_link_sent — useRef-guarded so a stray double-invocation
+    // in dev / strict-mode doesn't double-fire for the same click.
+    if (!magicLinkSentRef.current) {
+      magicLinkSentRef.current = true;
+      track("magic_link_sent", { source: "welcome" });
+    }
+    // PHI-88: welcome_completed for the magic-link path.
+    if (typeof window !== "undefined" && !sessionStorage.getItem("rise_va_completed_fired")) {
+      sessionStorage.setItem("rise_va_completed_fired", "1");
+      track("welcome_completed", { signedIn: false });
     }
     const checkEmailParams = new URLSearchParams();
     checkEmailParams.set("email", email.trim());

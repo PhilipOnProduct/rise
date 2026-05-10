@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { track } from "@vercel/analytics/server";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
 import { supabase as legacyClient } from "@/lib/supabase";
 
@@ -43,6 +44,13 @@ export async function GET(req: NextRequest) {
       new URL("/signin?error=expired", origin)
     );
   }
+
+  // PHI-88: track successful exchange before any further work or
+  // redirect. Awaited because the route handler holds the response —
+  // a swallowed promise would race the redirect.
+  await track("magic_link_callback_success", {
+    hadTravelerId: Boolean(travelerId),
+  });
 
   // Link the onboarding traveler row to the new auth user, if we know
   // which row it was. Best-effort — the auth session is set either way,

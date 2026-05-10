@@ -1,8 +1,9 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { track } from "@vercel/analytics";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -23,6 +24,9 @@ function SignInPageInner() {
       : null
   );
 
+  // PHI-88: guard against double-firing magic_link_sent for the same click.
+  const magicLinkSentRef = useRef(false);
+
   const valid = EMAIL_RE.test(email.trim());
 
   async function send() {
@@ -41,6 +45,11 @@ function SignInPageInner() {
       setError("Something went wrong. Try again?");
       setSending(false);
       return;
+    }
+    // PHI-88: track after success, before navigation. Fire-and-forget.
+    if (!magicLinkSentRef.current) {
+      magicLinkSentRef.current = true;
+      track("magic_link_sent", { source: "signin" });
     }
     router.push(`/auth/check-email?email=${encodeURIComponent(email.trim())}`);
   }
