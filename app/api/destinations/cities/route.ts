@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { logAiInteraction } from "@/lib/ai-logger";
 import { checkApiLimit } from "@/lib/log-api-usage";
 import {
+  countryNameToCode,
   getCandidates,
   rankWithHaiku,
   type Preferences,
@@ -48,14 +49,28 @@ export async function POST(req: NextRequest) {
   const sessionId = req.cookies.get("rise_session_id")?.value ?? null;
 
   try {
-    const candidates = await getCandidates(country, countryCode);
-    const ranked = await rankWithHaiku(country, candidates, preferences ?? {});
+    // PHI-85: callers (welcome flow) often pass country *name* only. Derive
+    // the ISO code from the curated dictionary so whitelist + affinity nudges
+    // work without forcing every caller to plumb a code through.
+    const resolvedCountryCode = countryCode ?? countryNameToCode(country);
+    const candidates = await getCandidates(country, resolvedCountryCode);
+    const ranked = await rankWithHaiku(
+      country,
+      candidates,
+      preferences ?? {},
+      resolvedCountryCode,
+    );
 
     void logAiInteraction({
       feature: "country-destination-recommender",
       model: "claude-haiku-4-5-20251001",
       prompt: ranked.rawUserMessage,
-      input: { country, countryCode, preferences, candidatesCount: candidates.length },
+      input: {
+        country,
+        countryCode: resolvedCountryCode,
+        preferences,
+        candidatesCount: candidates.length,
+      },
       output: JSON.stringify(ranked.recommendations),
       latency_ms: Date.now() - startTime,
       input_tokens: ranked.inputTokens,

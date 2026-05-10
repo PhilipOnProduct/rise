@@ -14,9 +14,46 @@ import { logApiUsage } from "@/lib/log-api-usage";
 const HAIKU_MODEL = "claude-haiku-4-5-20251001";
 
 type CountryOverrides = {
-  countries: Record<string, { surface: string[]; deprioritize: string[] }>;
+  countries: Record<
+    string,
+    {
+      surface: string[];
+      deprioritize: string[];
+      styleAffinities?: Record<string, string[]>;
+    }
+  >;
 };
 const overrides = overridesData as unknown as CountryOverrides;
+
+/**
+ * Map common country names → ISO 3166-1 alpha-2 for the 10 curated countries.
+ * The welcome flow only sends a country *name* string; this lets the API and
+ * the recommender opt-in to whitelist + affinity nudges without forcing the
+ * caller to plumb a code through. PHI-85.
+ */
+const COUNTRY_NAME_TO_CODE: Record<string, string> = {
+  "united kingdom": "GB",
+  uk: "GB",
+  britain: "GB",
+  "great britain": "GB",
+  england: "GB",
+  italy: "IT",
+  japan: "JP",
+  thailand: "TH",
+  "united states": "US",
+  "united states of america": "US",
+  usa: "US",
+  america: "US",
+  france: "FR",
+  spain: "ES",
+  greece: "GR",
+  mexico: "MX",
+  australia: "AU",
+};
+
+export function countryNameToCode(name: string): string | undefined {
+  return COUNTRY_NAME_TO_CODE[name.trim().toLowerCase()];
+}
 
 export type CityCandidate = {
   name: string;
@@ -31,6 +68,12 @@ export type Preferences = {
   budgetTier?: string;
   travelerCount?: number;
   childrenAges?: string[];
+  // PHI-85: optional structured signals. Welcome flow doesn't capture these
+  // yet — they're populated by callers that have richer context (eval
+  // fixtures today; future free-text inference or explicit chips later).
+  archetype?: "business-extender" | "multi-city-honeymoon";
+  accessibilityNeeds?: "none" | "mobility" | "stroller";
+  tripShape?: "single-city" | "multi-city";
 };
 
 export type CityRecommendation = {
@@ -159,10 +202,36 @@ export type RankResult = {
   rawUserMessage: string;
 };
 
+const ARCHETYPE_GUIDANCE: Record<NonNullable<Preferences["archetype"]>, string> = {
+  "business-extender":
+    "anchor near where the work meetings were (no rental car, short transfers), prioritise the work-anchor city and at most one easy day-trip; rural-only regions are a poor fit for a jet-lagged traveller with a few extra days",
+  "multi-city-honeymoon":
+    "pick 3 cities that are genuinely different in flavour (urban + nature + food, not three of the same kind); at least one pick must be a non-urban / nature / coastal destination — three bustling capital cities is not a varied multi-city mix",
+};
+
+const ACCESSIBILITY_GUIDANCE: Record<
+  NonNullable<Preferences["accessibilityNeeds"]>,
+  string
+> = {
+  none: "",
+  mobility:
+    "no long walks, no steep hills, frequent seated breaks — strongly favour flat cities with good public transport (e.g. Paris, Bordeaux, Nice over Provence/Loire), avoid hilltop villages and driving-required regions",
+  stroller:
+    "stroller access is required and short transfers only — strongly avoid stair-heavy / clifftop / vertical regions (e.g. Cinque Terre, Amalfi Coast) and favour flat, walkable cities with paved historic centres",
+};
+
+const TRIP_SHAPE_GUIDANCE: Record<NonNullable<Preferences["tripShape"]>, string> = {
+  "single-city":
+    "the ranking should treat the top pick as the trip anchor; later picks are optional day-trips, not standalone destinations",
+  "multi-city":
+    "the ranking is a multi-stop itinerary — each pick should bring something the others don't (urban / nature / food / coast), not three variants of the same kind of place",
+};
+
 export async function rankWithHaiku(
   country: string,
   candidates: CityCandidate[],
   preferences: Preferences,
+  countryCode?: string,
 ): Promise<RankResult> {
   if (candidates.length === 0) {
     return { recommendations: [], inputTokens: 0, outputTokens: 0, rawUserMessage: "" };
@@ -181,18 +250,58 @@ export async function rankWithHaiku(
     profileLines.push(
       `- Children ages: ${preferences.childrenAges.join(", ")}`,
     );
+  if (preferences.archetype)
+    profileLines.push(`- Archetype: ${preferences.archetype}`);
+  if (preferences.accessibilityNeeds && preferences.accessibilityNeeds !== "none")
+    profileLines.push(`- Accessibility: ${preferences.accessibilityNeeds}`);
+  if (preferences.tripShape)
+    profileLines.push(`- Trip shape: ${preferences.tripShape}`);
+
+  // Build hint block — affinity nudges + archetype/accessibility/trip-shape
+  // guidance — only for signals actually present on this request. Each line
+  // is a self-contained sentence so Haiku can weigh them independently.
+  const hintLines: string[] = [];
+  const styleAffinities = countryCode
+    ? overrides.countries[countryCode]?.styleAffinities
+    : undefined;
+  if (styleAffinities && preferences.styleTags?.length) {
+    for (const tag of preferences.styleTags) {
+      const cities = styleAffinities[tag];
+      if (cities && cities.length) {
+        hintLines.push(
+          `- "${tag}" + ${country}: at least one of [${cities.join("; ")}] should appear in your top 4 picks unless a hard constraint blocks it. These are the iconic matches for this style chip in this country.`,
+        );
+      }
+    }
+  }
+  if (preferences.archetype)
+    hintLines.push(`- Archetype "${preferences.archetype}": ${ARCHETYPE_GUIDANCE[preferences.archetype]}.`);
+  if (
+    preferences.accessibilityNeeds &&
+    preferences.accessibilityNeeds !== "none"
+  )
+    hintLines.push(
+      `- Accessibility "${preferences.accessibilityNeeds}": ${ACCESSIBILITY_GUIDANCE[preferences.accessibilityNeeds]}.`,
+    );
+  if (preferences.tripShape)
+    hintLines.push(`- Trip shape "${preferences.tripShape}": ${TRIP_SHAPE_GUIDANCE[preferences.tripShape]}.`);
+
+  const hintBlock = hintLines.length
+    ? `\nProfile-specific hints (treat as load-bearing — apply them when ranking):\n${hintLines.join("\n")}\n`
+    : "";
 
   const userMessage =
     `The traveller said they want to go to ${country} but hasn't picked a city or region yet.\n\n` +
-    `Profile:\n${profileLines.join("\n") || "- (no preferences captured)"}\n\n` +
-    `Candidate cities/regions in ${country}:\n${candidates.map((c) => `- ${c.name}`).join("\n")}\n\n` +
+    `Profile:\n${profileLines.join("\n") || "- (no preferences captured)"}\n` +
+    hintBlock +
+    `\nCandidate cities/regions in ${country}:\n${candidates.map((c) => `- ${c.name}`).join("\n")}\n\n` +
     `Pick up to 4 that best match this traveller's profile. Rank them best-first. ` +
     `When weighing fit, consider what the profile implies about pacing and physical accessibility — ` +
     `young children mean stroller-friendly cities and short transfers; relaxed or slow-travel styles ` +
     `favour walkable cities with good transit over driving-required rural regions; multi-city travellers ` +
     `want a varied mix (urban + nature + food), not three of the same kind. ` +
     `For each, write a one-sentence "why" (≤18 words) that references at least one ` +
-    `specific preference (style chip, company, budget, kids' ages). Never claim partnerships, sponsorships, or licensing. ` +
+    `specific preference (style chip, company, budget, kids' ages, archetype). Never claim partnerships, sponsorships, or licensing. ` +
     `If the candidate is a region rather than a city, set kind to "region".`;
 
   const response = await client.messages.create({

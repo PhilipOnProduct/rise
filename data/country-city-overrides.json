@@ -1,46 +1,73 @@
 {
-  "$schema_version": "1",
-  "_doc": "PHI-57 — per-country whitelist nudges layered on top of Places candidates. Format: { surface: [...] } cities to surface when relevant; { deprioritize: [...] } cities to push down. Names should match the locality the Places API returns (case-insensitive match on the locality name in lib/destination-recommender.ts).",
+  "$schema_version": "2",
+  "_doc": "PHI-57 / PHI-85 — per-country whitelist nudges layered on top of Places candidates. surface[]: cities to surface when relevant. deprioritize[]: cities to push down. styleAffinities: per style-chip hints fed into the ranking prompt as 'when this chip is in play, weight these cities'. Names should match the locality the Places API returns (case-insensitive match on the locality name in lib/destination-recommender.ts).",
   "countries": {
     "GB": {
       "surface": ["London", "Edinburgh", "Bath", "York", "Liverpool", "Manchester", "Cotswolds", "Lake District"],
-      "deprioritize": []
+      "deprioritize": [],
+      "styleAffinities": {}
     },
     "IT": {
       "surface": ["Rome", "Florence", "Venice", "Milan", "Naples", "Bologna", "Tuscany", "Amalfi Coast", "Cinque Terre"],
-      "deprioritize": []
+      "deprioritize": [],
+      "styleAffinities": {
+        "Kid-friendly": ["Rome (flat-ish historic centre, gelato, Colosseum)", "Florence (compact, walkable)", "Bologna (porticoed, stroller-friendly)"]
+      }
     },
     "JP": {
       "surface": ["Tokyo", "Kyoto", "Osaka", "Hiroshima", "Sapporo", "Hakone", "Nara"],
-      "deprioritize": []
+      "deprioritize": [],
+      "styleAffinities": {}
     },
     "TH": {
       "surface": ["Bangkok", "Chiang Mai", "Phuket", "Koh Samui", "Krabi", "Pai", "Ayutthaya"],
-      "deprioritize": []
+      "deprioritize": [],
+      "styleAffinities": {
+        "Off the beaten track": ["Pai (mountain town)", "Ayutthaya (ruins, day-trip from Bangkok)", "Chiang Mai (slow-travel hub)"]
+      }
     },
     "US": {
       "surface": ["New York", "San Francisco", "Los Angeles", "Chicago", "New Orleans", "Seattle", "Austin", "Boston", "Washington"],
-      "deprioritize": []
+      "deprioritize": [],
+      "styleAffinities": {
+        "Nightlife": ["New Orleans (live music, Bourbon St)", "Austin (live music capital, 6th St)", "New York (clubs, late-night food)", "Los Angeles (Hollywood, Venice)", "Chicago (jazz, blues, late bars)"]
+      }
     },
     "FR": {
       "surface": ["Paris", "Nice", "Lyon", "Bordeaux", "Marseille", "Provence", "Loire Valley", "Annecy"],
-      "deprioritize": []
+      "deprioritize": [],
+      "styleAffinities": {}
     },
     "ES": {
       "surface": ["Barcelona", "Madrid", "Seville", "Granada", "Valencia", "San Sebastián", "Mallorca", "Bilbao", "Pamplona", "Buñol"],
-      "deprioritize": []
+      "deprioritize": [],
+      "styleAffinities": {
+        "Festivals": ["Pamplona (San Fermín, July)", "Buñol (La Tomatina, August)", "Valencia (Las Fallas, March)", "Sevilla (Feria de Abril, April)", "Barcelona (Sant Jordi, April)"]
+      }
     },
     "GR": {
       "surface": ["Athens", "Santorini", "Mykonos", "Crete", "Naxos", "Thessaloniki", "Corfu"],
-      "deprioritize": []
+      "deprioritize": [],
+      "styleAffinities": {
+        "Off the beaten track": ["Crete (mountain villages, Cretan diet)", "Naxos (food-strong, less touristy)", "Thessaloniki (street-food capital)", "Corfu (Venetian + Ionian)"],
+        "Food-led": ["Crete (Cretan diet, mountain villages)", "Thessaloniki (street-food capital)", "Naxos (slow-food island)"]
+      }
     },
     "MX": {
       "surface": ["Mexico City", "Oaxaca", "Tulum", "Mérida", "Puebla", "San Miguel de Allende", "Guadalajara"],
-      "deprioritize": []
+      "deprioritize": [],
+      "styleAffinities": {
+        "Romantic": ["San Miguel de Allende (cobblestone, sunsets)", "Oaxaca (markets, mezcal)", "Mérida (Yucatán colonial)"]
+      }
     },
     "AU": {
       "surface": ["Sydney", "Melbourne", "Brisbane", "Cairns", "Perth", "Tasmania", "Byron Bay", "Adelaide"],
-      "deprioritize": []
+      "deprioritize": [],
+      "styleAffinities": {
+        "Beach": ["Cairns (Great Barrier Reef)", "Byron Bay", "Whitsundays"],
+        "Romantic": ["Tasmania (wine, MONA, wilderness)", "Cairns (Reef + rainforest)", "Byron Bay (sunsets)"],
+        "Food-led": ["Melbourne (laneway dining)", "Tasmania (cool-climate wine, oysters)", "Adelaide (Barossa)"]
+      }
     }
   }
 }

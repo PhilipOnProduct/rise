@@ -72,6 +72,8 @@ const FIXTURES: Fixture[] = [
       styleTags: ["Cultural", "Slow travel"],
       budgetTier: "comfortable",
       travelerCount: 1,
+      archetype: "business-extender",
+      tripShape: "single-city",
     },
     context:
       "Marcus is in the UK for 3 days of work meetings (London-based) and tacking on 2 days of leisure. " +
@@ -89,6 +91,7 @@ const FIXTURES: Fixture[] = [
       budgetTier: "comfortable",
       travelerCount: 4,
       childrenAges: ["Under 2", "2–4"],
+      accessibilityNeeds: "stroller",
     },
     context:
       "Family of four — two adults plus a baby and a 3-year-old. They want cultural + kid-friendly. " +
@@ -151,6 +154,7 @@ const FIXTURES: Fixture[] = [
       styleTags: ["Cultural", "Relaxed", "Slow travel"],
       budgetTier: "comfortable",
       travelerCount: 2,
+      accessibilityNeeds: "mobility",
     },
     context:
       "Couple, one of them has a mobility constraint — no long walks, no steep hills, needs frequent " +
@@ -212,6 +216,8 @@ const FIXTURES: Fixture[] = [
       styleTags: ["Cultural", "Romantic", "Food-led", "Beach"],
       budgetTier: "luxury",
       travelerCount: 2,
+      archetype: "multi-city-honeymoon",
+      tripShape: "multi-city",
     },
     context:
       "The Okafors are on a 2-week honeymoon, planning to hit 3 cities across Australia. " +
@@ -413,6 +419,7 @@ async function runFixture(fixture: Fixture): Promise<CaseResult> {
         fixture.country,
         candidates,
         fixture.preferences,
+        fixture.countryCode,
       );
       const judge = await judgeOnce(fixture, ranked.recommendations);
       runs.push({ recs: ranked.recommendations, judge });
@@ -531,6 +538,20 @@ async function main() {
     console.log(`  FAILURE DETAIL  (cases < ${PASS_FLOOR.toFixed(1)}/5)`);
     console.log("═".repeat(60));
     for (const c of failingCases) printFailureBlock(c);
+  }
+
+  // PHI-85: also print detail for warning cases (≥ floor but < pass avg) so
+  // it's clear which cases are dragging the gate down without re-running.
+  const warningCases = results.filter(
+    (r) => r.caseScore >= PASS_FLOOR && r.caseScore < PASS_AVG,
+  );
+  if (warningCases.length > 0) {
+    console.log(`\n${"═".repeat(60)}`);
+    console.log(
+      `  WARNING DETAIL  (cases ≥ ${PASS_FLOOR.toFixed(1)} but < ${PASS_AVG.toFixed(1)}/5)`,
+    );
+    console.log("═".repeat(60));
+    for (const c of warningCases) printFailureBlock(c);
   }
 
   console.log(`\n${"═".repeat(60)}`);
