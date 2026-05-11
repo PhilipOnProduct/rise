@@ -10,36 +10,36 @@ type NavSection = {
   links: { href: string; label: string }[];
 };
 
-const sections: NavSection[] = [
-  {
-    label: "Traveller",
-    links: [
-      { href: "/dashboard", label: "My trip" },
-      { href: "/transport", label: "Airport → Hotel" },
-      { href: "/welcome", label: "Plan a new trip" },
-      { href: "/feedback", label: "Send feedback" },
-    ],
-  },
-  {
-    label: "Local Guide",
-    links: [
-      { href: "/guides", label: "Browse guides" },
-      { href: "/guides/add", label: "Submit a tip" },
-      { href: "/guides/leaderboard", label: "Leaderboard" },
-    ],
-  },
-  {
-    label: "Admin",
-    links: [
-      { href: "/admin", label: "AI Logs" },
-      { href: "/admin/evals", label: "Evals" },
-      { href: "/admin/usage", label: "Usage" },
-      { href: "/team", label: "Product" },
-      { href: "/team?tab=pm", label: "PM" },
-      { href: "/feedback-admin", label: "Feedback" },
-    ],
-  },
-];
+const TRAVELLER_SECTION: NavSection = {
+  label: "Traveller",
+  links: [
+    { href: "/dashboard", label: "My trip" },
+    { href: "/transport", label: "Airport → Hotel" },
+    { href: "/welcome", label: "Plan a new trip" },
+    { href: "/feedback", label: "Send feedback" },
+  ],
+};
+
+const LOCAL_GUIDE_SECTION: NavSection = {
+  label: "Local Guide",
+  links: [
+    { href: "/guides", label: "Browse guides" },
+    { href: "/guides/add", label: "Submit a tip" },
+    { href: "/guides/leaderboard", label: "Leaderboard" },
+  ],
+};
+
+const ADMIN_SECTION: NavSection = {
+  label: "Admin",
+  links: [
+    { href: "/admin", label: "AI Logs" },
+    { href: "/admin/evals", label: "Evals" },
+    { href: "/admin/usage", label: "Usage" },
+    { href: "/team", label: "Product" },
+    { href: "/team?tab=pm", label: "PM" },
+    { href: "/feedback-admin", label: "Feedback" },
+  ],
+};
 
 function getActiveSection(pathname: string): string | null {
   if (pathname.startsWith("/dashboard") || pathname.startsWith("/transport") || pathname.startsWith("/welcome") || pathname.startsWith("/profile") || pathname.startsWith("/feedback")) return "Traveller";
@@ -48,10 +48,15 @@ function getActiveSection(pathname: string): string | null {
   return null;
 }
 
-export default function Nav() {
+export default function Nav({ isAdmin = false }: { isAdmin?: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
   const activeSection = getActiveSection(pathname);
+  // PHI-83: Admin dropdown is UX-gated behind the rise_admin cookie.
+  // Default-hidden — the server-side /admin/* gate remains the real boundary.
+  const sections: NavSection[] = isAdmin
+    ? [TRAVELLER_SECTION, LOCAL_GUIDE_SECTION, ADMIN_SECTION]
+    : [TRAVELLER_SECTION, LOCAL_GUIDE_SECTION];
   const [openSection, setOpenSection] = useState<string | null>(null);
   const [accountOpen, setAccountOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);

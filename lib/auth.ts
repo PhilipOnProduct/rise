@@ -94,3 +94,33 @@ export function adminForbiddenResponse(): Response {
     headers: { "Content-Type": "application/json" },
   });
 }
+
+/**
+ * Server-side admin check for Server Components (e.g. layout) where there
+ * is no Request object — reads cookies via `next/headers`. Mirrors
+ * `isAdminRequest`'s semantics: open in dev when ADMIN_PASSWORD is unset,
+ * constant-time match against the cookie otherwise. Fail-safe to false on
+ * any error.
+ */
+export async function isAdminFromCookies(): Promise<boolean> {
+  try {
+    const adminPw = process.env.ADMIN_PASSWORD;
+    if (!adminPw) {
+      if (process.env.NODE_ENV === "production") {
+        console.warn("[auth] ADMIN_PASSWORD is unset in production — admin endpoints are unguarded.");
+      }
+      return true;
+    }
+    const { cookies } = await import("next/headers");
+    const cookieStore = await cookies();
+    const presented = cookieStore.get("rise_admin")?.value;
+    if (!presented || presented.length !== adminPw.length) return false;
+    let diff = 0;
+    for (let i = 0; i < presented.length; i++) {
+      diff |= presented.charCodeAt(i) ^ adminPw.charCodeAt(i);
+    }
+    return diff === 0;
+  } catch {
+    return false;
+  }
+}
