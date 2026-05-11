@@ -40,7 +40,7 @@ Rules (in priority order):
 
 3. Cite SPECIFIC user input. If the input mentions "anniversary," set occasion: "anniversary". For children counts/ages, follow rule 9 — never push these to clarifications, they're editable on the confirmation screen.
 
-4. High-stakes constraints (allergies, mobility, accessibility, dietary, religious) MUST be preserved exactly as the user expressed them. Map to constraintTags from this set when applicable: ["Wheelchair accessible only", "No long walks", "Vegetarian", "Halal/Kosher", "Severe allergy", "Stroller-friendly"]. Anything NOT in that set goes verbatim into constraintText.
+4. High-stakes constraints (allergies, mobility, accessibility, dietary, religious) MUST be preserved exactly as the user expressed them. Map to constraintTags from this set when applicable: ["Wheelchair access", "No long walks", "Vegetarian", "Halal/Kosher", "Severe allergy", "Stroller-friendly"]. Anything NOT in that set goes verbatim into constraintText.
 
 5. When you're uncertain a constraint is satisfied or whether your interpretation is correct, say so explicitly in clarifications. Better to ask than to assume.
 

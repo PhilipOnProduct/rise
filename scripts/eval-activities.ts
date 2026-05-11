@@ -190,7 +190,7 @@ const SINGLE_LEG_CASES: Case[] = [
     styleTags: ["Cultural", "Art & Design"],
     budgetTier: "comfortable",
     travelerCount: 2,
-    constraintTags: ["Wheelchair accessible only"],
+    constraintTags: ["Wheelchair access"],
     checks: [
       {
         name: "every Why mentions accessibility / wheelchair / step-free / please confirm",
@@ -414,7 +414,7 @@ const SINGLE_LEG_CASES: Case[] = [
     styleTags: ["Art & Design"],
     budgetTier: "comfortable",
     travelerCount: 2,
-    constraintTags: ["Wheelchair accessible only"],
+    constraintTags: ["Wheelchair access"],
     checks: [
       {
         name: "every Why references accessibility / wheelchair / step-free / confirm",

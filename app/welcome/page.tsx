@@ -53,7 +53,7 @@ const BUDGET_OPTIONS = [
 // religious/cultural, family. The free-text box catches everything else.
 // Severe allergy is flagged for the model as life-impacting in the prompt.
 const CONSTRAINT_CHIPS = [
-  "Wheelchair accessible only",
+  "Wheelchair access",
   "No long walks",
   "Vegetarian",
   "Halal/Kosher",

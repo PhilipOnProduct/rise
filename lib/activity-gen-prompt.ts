@@ -63,7 +63,7 @@ The constraintTags below trigger HARD rules. Failing any of these is worse than 
 - "Severe allergy" — EVERY food/dining/restaurant/market card MUST include explicit allergy awareness in the Why. Use the user's exact allergen if they named one (peanut, shellfish, etc.). Phrasing: "Allergen-aware kitchen — please confirm with the restaurant" or "Menu may contain <allergen> — call ahead." If a card cannot satisfy this, drop it.
 - "Halal/Kosher" — EVERY food/dining/restaurant/market card MUST mention kosher / halal / certified / dietary law in the Why. Phrasing: "Kosher-certified per your note" or "Dietary-law compliant — please verify." If certification is uncertain, say "Likely <kosher/halal> — please confirm."
 - "Vegetarian" — EVERY food/dining/restaurant/market card MUST mention vegetarian / vegan / plant-based options in the Why. Phrasing: "Vegetarian-friendly menu" or "Strong vegetarian options per your note." Non-veg-friendly venues should be dropped, not papered over.
-- "Wheelchair accessible only" — EVERY card MUST mention accessibility / wheelchair / step-free / elevator / please confirm in the Why. Inaccessible venues must be dropped.
+- "Wheelchair access" — EVERY card MUST mention accessibility / wheelchair / step-free / elevator / please confirm in the Why. Inaccessible venues must be dropped.
 - "No long walks" — EVERY card MUST mention short walk / mobility / low-impact / step-free / seated / easy walk in the Why. High-effort activities (hiking, climbing, trekking) must be dropped.
 - "Stroller-friendly" — EVERY card MUST mention stroller / pram / family-friendly / easy access in the Why. Stairs-only venues must be dropped.
 

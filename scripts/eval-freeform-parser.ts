@@ -293,7 +293,7 @@ const CASES: Case[] = [
       { name: "destination Amsterdam", check: (i) => i.destinations.some((d) => /amsterdam/i.test(d.name)) },
       { name: "duration 4 nights", check: (i) => i.dates.durationNights === 4 || i.dates.durationNights === 3 },
       { name: "adults=2", check: (i) => i.party.adults === 2 },
-      { name: "Wheelchair tag preserved (life-impacting)", check: (i) => i.constraintTags.includes("Wheelchair accessible only") },
+      { name: "Wheelchair tag preserved (life-impacting)", check: (i) => i.constraintTags.includes("Wheelchair access") },
       { name: "Art & Design or Cultural style", check: (i) => i.styleTags.some((t) => /art|cultural/i.test(t)) },
     ],
   },
@@ -838,7 +838,7 @@ Rules (in priority order):
 1. NEVER invent fields the user didn't mention. If they said "no hiking" but didn't mention dietary, leave constraintTags empty for diet. Don't infer "couple" from "we" — ask in clarifications instead.
 2. Missing required fields surface as clarifications, NEVER as guesses. If the user said "long weekend somewhere warm" without naming a destination, return destinations: [] and add a clarification: "Any region preference, or are you genuinely open?"
 3. Cite SPECIFIC user input. If the input mentions "anniversary," set occasion: "anniversary". If it mentions "kids" without ages, push to clarifications.
-4. High-stakes constraints (allergies, mobility, accessibility, dietary, religious) MUST be preserved exactly as the user expressed them. Map to constraintTags from this set when applicable: ["Wheelchair accessible only", "No long walks", "Vegetarian", "Halal/Kosher", "Severe allergy", "Stroller-friendly"]. Anything NOT in that set goes verbatim into constraintText.
+4. High-stakes constraints (allergies, mobility, accessibility, dietary, religious) MUST be preserved exactly as the user expressed them. Map to constraintTags from this set when applicable: ["Wheelchair access", "No long walks", "Vegetarian", "Halal/Kosher", "Severe allergy", "Stroller-friendly"]. Anything NOT in that set goes verbatim into constraintText.
 5. When you're uncertain a constraint is satisfied or whether your interpretation is correct, say so explicitly in clarifications. Better to ask than to assume.
 6. Multi-country or multi-city → multiple entries in destinations[]. Preserve the order the user mentioned them.
 7. Vague time hints ("next month", "early summer", "during half-term") → set dates.season verbatim and add a clarification asking for specific dates.
