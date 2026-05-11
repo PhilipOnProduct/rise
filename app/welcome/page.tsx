@@ -9,7 +9,11 @@ import { newLegId, type PlaceRef, type TripLeg } from "@/lib/trip-schema";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { getHotelPlaceholder } from "@/lib/hotel-placeholders";
 
-const TOTAL_WIZARD_STEPS = 5; // steps 1–5
+// PHI-90: Step 4 ("Anything you already want to do?") sits between
+// preferences (3) and the AI activity preview (now 5). Account creation
+// moves from 5 to 6. Step 3.5 (country recs, sentinel value 35) is
+// unchanged and now hands off to step 4 (must-dos) when picked.
+const TOTAL_WIZARD_STEPS = 6; // steps 1–6
 
 const COMPANY_OPTIONS: Record<string, { label: string; emoji: string }> = {
   solo: { label: "Just me", emoji: "🧳" },
@@ -100,6 +104,10 @@ type PreviewItem = {
   description: string;
   type: string;
   time_block: "morning" | "afternoon" | "evening";
+  // PHI-90: true on items the generator placed in response to a user
+  // anchor. Surfaced inline on the preview + the saved /itinerary view
+  // so the traveller can confirm "yes, my picks landed".
+  seededByUser?: boolean;
 };
 type PreviewDay = {
   date: string;
@@ -151,6 +159,24 @@ function addDays(dateStr: string, days: number) {
   const d = new Date(dateStr);
   d.setDate(d.getDate() + days);
   return d.toISOString().split("T")[0];
+}
+
+/**
+ * PHI-90 — split the free-text must-dos textarea into a clean string array.
+ *
+ * Splits on newlines, trims, drops blanks and runaway-long entries (>200 chars
+ * is "user pasted a paragraph", not "user listed a must-do"). Caps the list
+ * at 20 items so a paste accident doesn't blow up the prompt. The same
+ * shape is used for the textarea round-trip, the API call, and the local
+ * snapshot — having one canonical splitter keeps them aligned.
+ */
+function splitSeededActivities(raw: string): string[] {
+  if (!raw) return [];
+  return raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && line.length <= 200)
+    .slice(0, 20);
 }
 
 /**
@@ -581,6 +607,13 @@ function WelcomePageInner() {
   // itinerary-gen calls when set.
   const [inspiration, setInspiration] = useState("");
 
+  // PHI-90: traveller-seeded must-dos. The new Step 4 collects a free-text
+  // list (one item per line). Stored as a single string in component
+  // state so the textarea round-trips naturally; we split + trim at save
+  // time and at API-call time. Empty / whitespace-only = no anchors and
+  // the existing prompt path runs unchanged.
+  const [userSeededText, setUserSeededText] = useState("");
+
   // Account
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -606,6 +639,11 @@ function WelcomePageInner() {
   const [itineraryPreview, setItineraryPreview] = useState<PreviewDay[] | null>(null);
   const [itineraryPreviewLoading, setItineraryPreviewLoading] = useState(false);
   const [itineraryPreviewError, setItineraryPreviewError] = useState<string | null>(null);
+  // PHI-90: top-level "placement_notes" from /api/itinerary/generate when
+  // an anchor was filtered out (wrong city) or couldn't be fitted. Mirrors
+  // the response shape returned to /itinerary so the preview surfaces it
+  // here too rather than swallowing it silently.
+  const [itineraryPlacementNotes, setItineraryPlacementNotes] = useState<string | null>(null);
   const itineraryAbortRef = useRef<AbortController | null>(null);
   const itineraryViewedFiredRef = useRef(false);
 
@@ -849,7 +887,10 @@ function WelcomePageInner() {
   // before they realise the trip is unsaved.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const guarded = step >= 4 && !email && parsedActivities.length > 0;
+    // PHI-90: previously step 4 (AI preview). Now step 5 — guard moved
+    // along with the step renumber so the prompt fires at the same point
+    // in the flow (after the AI preview has streamed in).
+    const guarded = step >= 5 && !email && parsedActivities.length > 0;
     if (!guarded) return;
     function onBeforeUnload(e: BeforeUnloadEvent) {
       e.preventDefault();
@@ -860,9 +901,10 @@ function WelcomePageInner() {
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [step, email, parsedActivities.length]);
 
-  // Fire streaming preview when entering step 4 — parse cards incrementally
+  // Fire streaming preview when entering the AI-preview step — parse cards
+  // incrementally. PHI-90 renumber: AI preview was step 4, now step 5.
   useEffect(() => {
-    if (step !== 4) return;
+    if (step !== 5) return;
 
     const controller = new AbortController();
     previewAbortRef.current = controller;
@@ -973,12 +1015,13 @@ function WelcomePageInner() {
   }, [step, destination, departureDate, returnDate, travelCompany, travelerTypes, budgetTier]);
 
   // PHI-31 Part 2 slice 2: generate the itinerary preview when entering
-  // step 5, so the user sees the actual product output BEFORE the signup
-  // form. This is the activation lever: 4 of 5 personas in the May 2026
-  // review flagged forced-signup as drop-off; showing payoff first should
-  // close most of that gap.
+  // the account step, so the user sees the actual product output BEFORE
+  // the signup form. This is the activation lever: 4 of 5 personas in the
+  // May 2026 review flagged forced-signup as drop-off; showing payoff
+  // first should close most of that gap. PHI-90 renumber: account step
+  // was 5, now 6.
   useEffect(() => {
-    if (step !== 5) return;
+    if (step !== 6) return;
     if (itineraryPreview || itineraryPreviewLoading) return; // already loaded / loading
     const controller = new AbortController();
     itineraryAbortRef.current = controller;
@@ -1007,6 +1050,11 @@ function WelcomePageInner() {
             childrenAges: childrenAges.length > 0 ? childrenAges : null,
             // PHI-51: optional creative-inspiration soft bias.
             inspiration: inspiration.trim() || null,
+            // PHI-90: traveller-seeded must-dos. Split + trimmed at the
+            // boundary so the server sees a clean string[] regardless of
+            // how the textarea was filled in. Empty list = no anchors,
+            // generator behaves as before.
+            userSeededActivities: splitSeededActivities(userSeededText),
             ...(legsForApi && { legs: legsForApi }),
           }),
         });
@@ -1016,12 +1064,31 @@ function WelcomePageInner() {
           setItineraryPreviewLoading(false);
           return;
         }
-        const data = (await res.json()) as { days?: PreviewDay[] };
+        const data = (await res.json()) as {
+          days?: PreviewDay[];
+          placement_notes?: string | null;
+        };
         if (Array.isArray(data.days) && data.days.length > 0) {
           setItineraryPreview(data.days);
+          // PHI-90: hold onto placement_notes so the preview banner can
+          // explain to the user when an anchor was filtered out (wrong
+          // city) or couldn't be fitted.
+          if (typeof data.placement_notes === "string" && data.placement_notes.trim().length > 0) {
+            setItineraryPlacementNotes(data.placement_notes.trim());
+          } else {
+            setItineraryPlacementNotes(null);
+          }
           // Cache for /itinerary so we don't regenerate after signup
           if (typeof window !== "undefined") {
             localStorage.setItem("rise_itinerary", JSON.stringify(data.days));
+            if (typeof data.placement_notes === "string" && data.placement_notes.trim().length > 0) {
+              localStorage.setItem(
+                "rise_itinerary_placement_notes",
+                data.placement_notes.trim(),
+              );
+            } else {
+              localStorage.removeItem("rise_itinerary_placement_notes");
+            }
           }
           // Telemetry — fire once per session
           if (!itineraryViewedFiredRef.current) {
@@ -1052,13 +1119,14 @@ function WelcomePageInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
-  // PHI-64: auto-finish on step 5 when the user is already signed in AND
-  // we already know their name (from auth metadata or a prior traveler
-  // row). Fires once per session — the ref guard prevents loops if the
-  // PATCH/redirect hasn't completed before a re-render. If the session
-  // expires mid-flow the guard is reset by onAuthStateChange.
+  // PHI-64: auto-finish on the account step when the user is already
+  // signed in AND we already know their name (from auth metadata or a
+  // prior traveler row). Fires once per session — the ref guard prevents
+  // loops if the PATCH/redirect hasn't completed before a re-render. If
+  // the session expires mid-flow the guard is reset by onAuthStateChange.
+  // PHI-90 renumber: account step was 5, now 6.
   useEffect(() => {
-    if (step !== 5) return;
+    if (step !== 6) return;
     if (!authedUser?.existingName) return;
     if (autoFinishedRef.current) return;
     if (saving) return;
@@ -1466,6 +1534,27 @@ function WelcomePageInner() {
     goTo(4);
   }
 
+  // PHI-90: PATCH the must-dos onto the traveler row when leaving step 4.
+  // Best-effort partial write — if the row isn't created yet (rare —
+  // savePreferencesToDb at step 3 creates it), we silently skip and the
+  // localStorage payload still carries the seeded list. handleFinish PATCHes
+  // again at sign-up so nothing is lost.
+  async function saveSeededActivitiesToDb() {
+    if (!travelerId) return;
+    try {
+      await fetch("/api/travelers", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: travelerId,
+          userSeededActivities: splitSeededActivities(userSeededText),
+        }),
+      });
+    } catch {
+      // Non-fatal — list is in component state and localStorage.
+    }
+  }
+
   // Write preferences to DB when advancing from step 3 to step 4
   async function savePreferencesToDb() {
     try {
@@ -1542,12 +1631,23 @@ function WelcomePageInner() {
     // entirely and hand off to /auth/claim so the PHI-60 conflict UI
     // can reconcile the new trip against any existing primary trip.
     let resolvedTravelerId = travelerId;
+    // PHI-90: seeded list at finish-time — covers both happy path (already
+    // patched onto the row from step 4) and the fallback POST below where
+    // the row didn't exist yet.
+    const seededAtFinish = splitSeededActivities(userSeededText);
     try {
       if (travelerId) {
         await fetch("/api/travelers", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: travelerId, name: finalName, email: finalEmail }),
+          body: JSON.stringify({
+            id: travelerId,
+            name: finalName,
+            email: finalEmail,
+            // Re-PATCH the must-dos so they reach the row even if the
+            // step-4 partial write failed.
+            userSeededActivities: seededAtFinish,
+          }),
         });
       } else {
         // Fallback: partial-write at step 3 didn't land. Create the row
@@ -1574,6 +1674,11 @@ function WelcomePageInner() {
             travelerCount: adultCount + childrenAges.length,
             childrenAges: childrenAges.length > 0 ? childrenAges : null,
             activities: [],
+            // PHI-90: include the must-dos in the fallback POST too, so the
+            // row carries the field on first write.
+            ...(seededAtFinish.length > 0 && {
+              userSeededActivities: seededAtFinish,
+            }),
           }),
         });
         if (res.ok) {
@@ -1586,6 +1691,11 @@ function WelcomePageInner() {
     // PHI-37 slice 3: persist legs[] in the local snapshot so /itinerary
     // can render leg headers + transition-day chrome without a refetch.
     const legsForStorage = buildLegsForApi();
+    // PHI-90: cache the user-seeded must-dos on the local snapshot so the
+    // /itinerary page can pass them through to /api/itinerary/generate on
+    // a fresh-cache regenerate. Empty list = undefined → key is omitted
+    // (`...(seeded.length && { ... })`) so legacy travelers stay clean.
+    const seededForStorage = splitSeededActivities(userSeededText);
     const travelerData = {
       id: resolvedTravelerId,
       name: finalName,
@@ -1603,6 +1713,7 @@ function WelcomePageInner() {
       constraintText: constraintText.trim() || null,
       activities: [],
       ...(legsForStorage && { legs: legsForStorage }),
+      ...(seededForStorage.length > 0 && { userSeededActivities: seededForStorage }),
     };
     localStorage.setItem("rise_traveler", JSON.stringify(travelerData));
     localStorage.setItem("rise_onboarded", "true");
@@ -2747,7 +2858,7 @@ function WelcomePageInner() {
     );
   }
 
-  // ── Wizard steps 1–5 ───────────────────────────────────────────────────────
+  // ── Wizard steps 1–6 (PHI-90: must-dos inserted at step 4) ─────────────────
 
   // PHI-27: every child must have an age range picked before Continue is
   // enabled. Pre-selecting "Under 2" was a personalisation trap; making the
@@ -2760,7 +2871,8 @@ function WelcomePageInner() {
   // PHI-64: signed-in users only need a name (email comes from the
   // session). If their session already supplied a name we auto-finish,
   // so the gate only matters for the name-only branch.
-  const step5Ready = authedUser
+  // PHI-90 renumber: variable was step5Ready; account step is now 6.
+  const accountStepReady = authedUser
     ? name.trim().length > 0
     : name.trim().length > 0 && emailValid;
 
@@ -2774,17 +2886,22 @@ function WelcomePageInner() {
       returnDate.length > 0,
     2: true,
     3: travelCompany.length > 0 && allChildrenHaveAges,
-    4: !previewLoading && Object.keys(activityFeedback).length > 0,
-    5: step5Ready,
+    // PHI-90: must-dos step is fully skippable — empty textarea always
+    // advances. Hard constraint: the step never blocks forward progress.
+    4: true,
+    5: !previewLoading && Object.keys(activityFeedback).length > 0,
+    6: accountStepReady,
   };
 
   async function handleContinue() {
-    if (step === 5) { await handleFinish(); return; }
+    // PHI-90 renumber: account step is now 6.
+    if (step === 6) { await handleFinish(); return; }
     if (step === 3) { await savePreferencesToDb(); }
+    if (step === 4) { await saveSeededActivitiesToDb(); }
     // PHI-57: when the destination is a country (not a city), insert
     // step 3.5 — AI city recommendations — between preferences and the
-    // activity preview. We use step 35 as a sentinel; goTo from 35 → 4
-    // happens when the user picks a recommendation.
+    // must-dos step. We use step 35 as a sentinel; from 35 we hand off
+    // to step 4 (must-dos) when the user picks a recommendation.
     if (step === 3 && isCountryDestination) {
       goTo(35);
       void fetchCountryRecommendations();
@@ -2793,15 +2910,16 @@ function WelcomePageInner() {
     goTo(step + 1);
   }
 
-  // PHI-64: when the user is already signed in, swap step 5 copy. With a
-  // known name we auto-finish (no input needed); otherwise we ask only
-  // for a display name. The anon path keeps its original copy.
-  const step5Heading = authedUser
+  // PHI-64: when the user is already signed in, swap account-step copy.
+  // With a known name we auto-finish (no input needed); otherwise we ask
+  // only for a display name. The anon path keeps its original copy.
+  // PHI-90 renumber: account step was 5, now 6.
+  const accountStepHeading = authedUser
     ? authedUser.existingName
       ? "Saving your trip…"
       : "One last thing — what should we call you?"
     : "Save your trip plan.";
-  const step5Sub = authedUser
+  const accountStepSub = authedUser
     ? authedUser.existingName
       ? "We're tucking your itinerary into your account."
       : "We'll save your itinerary, transport advice, and trip summary to your account."
@@ -2812,8 +2930,10 @@ function WelcomePageInner() {
     2: "Where are you staying?",
     3: "Tell us about yourself.",
     35: `Where in ${destination}?`,
-    4: `Activities for your ${destination} trip.`,
-    5: step5Heading,
+    // PHI-90: new must-dos step heading. Optional — user can skip.
+    4: "Anything you already want to do?",
+    5: `Activities for your ${destination} trip.`,
+    6: accountStepHeading,
   };
 
   const subs: Record<number, string> = {
@@ -2821,8 +2941,11 @@ function WelcomePageInner() {
     2: "Your hotel helps us give better local advice — skip if you haven\u2019t booked yet.",
     3: "A few quick questions so we can personalise your experience.",
     35: "Pick a city or region \u2014 we'll personalise the rest from there.",
-    4: "Rate what excites you \u2014 and what doesn\u2019t. It shapes your itinerary.",
-    5: step5Sub,
+    // PHI-90: explicit "skippable" signal in the sub \u2014 Marcus persona test
+    // case from the PRD ("skip the step in one tap").
+    4: "Add the things you already know you want \u2014 one per line. Skip if you\u2019d rather we plan from scratch.",
+    5: "Rate what excites you \u2014 and what doesn\u2019t. It shapes your itinerary.",
+    6: accountStepSub,
   };
 
   const darkInput =
@@ -2850,6 +2973,8 @@ function WelcomePageInner() {
           ← Back
         </button>
         <span className="text-[var(--text-muted)] text-sm">
+          {/* PHI-90: 35 is the sentinel for the country-recs sub-step; show
+              it as "3.5" while keeping the step counter sensible. */}
           {step === 35 ? "3.5" : step} / {TOTAL_WIZARD_STEPS}
         </span>
       </div>
@@ -3287,8 +3412,47 @@ function WelcomePageInner() {
             </div>
           )}
 
-          {/* Step 4: AI Preview with activity cards */}
+          {/* PHI-90 — Step 4: Must-dos textarea. Inserted between
+              preferences (3) and the AI activity preview (now 5).
+              Optional. Empty textarea is allowed and the user advances
+              unchanged; the existing prompt path runs without an
+              anchors block when the array is empty. The textarea grows
+              with content (`min-h-[160px]`) and stays usable on a 360px
+              viewport — the skip link sits visibly below it. */}
           {step === 4 && (
+            <div className="flex flex-col gap-4" data-testid="welcome-must-dos-step">
+              <label className="block">
+                <span className="block text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-widest mb-3">
+                  Your must-dos (optional)
+                </span>
+                <textarea
+                  value={userSeededText}
+                  onChange={(e) => setUserSeededText(e.target.value)}
+                  placeholder={`e.g.\nCervejaria Ramiro\nSunset at Miradouro da Senhora do Monte\nTime Out Market`}
+                  rows={6}
+                  className="w-full min-h-[160px] bg-white border border-[#b8b3a9] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-[var(--text-primary)] text-base placeholder-[#9ca3af] transition-colors resize-y"
+                />
+              </label>
+              <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+                One per line. We&apos;ll place each one on a sensible day and
+                build the rest of your trip around it. You can come back to
+                this — these aren&apos;t set in stone.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setUserSeededText("");
+                  void handleContinue();
+                }}
+                className="self-start text-sm font-medium text-[#1a6b7f] hover:text-[#155a6b] transition-colors"
+              >
+                Nothing yet — skip →
+              </button>
+            </div>
+          )}
+
+          {/* Step 5: AI Preview with activity cards (was step 4 pre-PHI-90) */}
+          {step === 5 && (
             <div className="flex flex-col gap-4">
               {/* PHI-51: inspiration trust signal. Shown only when an
                   inspiration is set AND fewer than half of the rendered
@@ -3431,11 +3595,12 @@ function WelcomePageInner() {
             </div>
           )}
 
-          {/* Step 5: Itinerary preview FIRST, then account creation.
+          {/* Step 6: Itinerary preview FIRST, then account creation.
               PHI-31 Part 2 slice 2 — the activation lever. Users see the
               actual product output before committing email. The signup
-              form moves below as a "Save your trip" CTA. */}
-          {step === 5 && (
+              form moves below as a "Save your trip" CTA.
+              PHI-90 renumber: account step was 5, now 6. */}
+          {step === 6 && (
             <div className="flex flex-col gap-6">
               {/* Hard exclusions edit affordance — kept at top because
                   users are still in "trip-shaping" mode here. */}
@@ -3466,6 +3631,20 @@ function WelcomePageInner() {
                 <h2 className="text-xs font-bold text-[var(--text-secondary)] uppercase tracking-widest mb-3">
                   Your trip plan
                 </h2>
+                {/* PHI-90: placement_notes — surface in the preview the same
+                    way /itinerary does, so the user finds out about a
+                    misspecified anchor or unfittable item BEFORE they
+                    commit email. Hard constraint: anchors are never
+                    silently dropped. */}
+                {itineraryPlacementNotes && (
+                  <div
+                    data-testid="welcome-placement-notes"
+                    className="rounded-xl border border-[#f4d49e] bg-[#fef3e2] px-4 py-3 text-sm text-[var(--text-primary)] mb-3"
+                  >
+                    <span className="font-semibold">A note on your must-dos:</span>{" "}
+                    <span className="text-[var(--text-secondary)]">{itineraryPlacementNotes}</span>
+                  </div>
+                )}
                 {itineraryPreviewLoading && !itineraryPreview && (
                   <div className="rounded-2xl border border-[#e8e4de] bg-white p-6 flex items-center gap-3 text-[var(--text-secondary)]">
                     <div className="w-4 h-4 rounded-full border-2 border-[#1a6b7f] border-t-transparent animate-spin" />
@@ -3649,9 +3828,10 @@ function WelcomePageInner() {
 
           {/* Continue / finish button — hidden on step 3.5 since the
               user advances by picking a recommendation card or typing
-              into the free-text fallback. PHI-64: also hidden on step 5
-              when a signed-in user has a known name (auto-finish runs). */}
-          {step !== 35 && !(step === 5 && authedUser?.existingName) && (
+              into the free-text fallback. PHI-64: also hidden on the
+              account step (now 6) when a signed-in user has a known name
+              (auto-finish runs). */}
+          {step !== 35 && !(step === 6 && authedUser?.existingName) && (
           <button
             onClick={handleContinue}
             disabled={!canContinue[step] || saving}
@@ -3668,6 +3848,10 @@ function WelcomePageInner() {
                 ? "Save trip →"
                 : "Send magic link →"
               : step === 4
+              ? splitSeededActivities(userSeededText).length > 0
+                ? `Continue with ${splitSeededActivities(userSeededText).length} must-do${splitSeededActivities(userSeededText).length === 1 ? "" : "s"} →`
+                : "Continue →"
+              : step === 5
               ? previewLoading
                 ? "Loading activities…"
                 : Object.keys(activityFeedback).length === 0

@@ -23,6 +23,10 @@ export type Activity = {
   /** PHI-53: paired wet-weather indoor/covered alternative. Only populated
    *  when is_outdoor is true and the AI found a real in-destination option. */
   alternative?: WeatherAlternativeData;
+  /** PHI-90: true on items the generator placed in response to a user-seeded
+   *  must-do entry. The /itinerary view renders an inline "You added this"
+   *  badge on these cards so the traveller can confirm their picks landed. */
+  seededByUser?: boolean;
 };
 
 export type ItineraryDay = {

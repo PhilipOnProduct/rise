@@ -62,6 +62,10 @@ type RawItem = {
   // PHI-53: outdoor flag and paired wet-weather alternative.
   is_outdoor?: boolean;
   alternative?: { title: string; description: string; type: ActivityCategory } | null;
+  // PHI-90: anchor flag — true when the model placed this item in
+  // response to a traveller-seeded must-do entry. Persisted across the
+  // generate → cache → render hop so the badge survives a reload.
+  seededByUser?: boolean;
 };
 
 type RawDay = {
@@ -135,6 +139,9 @@ function mapRawDays(rawDays: RawDay[]): ItineraryDay[] {
           type: item.alternative.type,
         },
       }),
+      // PHI-90: forward the anchor flag to the rendering layer so the
+      // "You added this" badge surfaces on the card.
+      ...(item.seededByUser === true && { seededByUser: true }),
     })),
     // PHI-37: pass through leg metadata so the UI can render leg headers
     // and transition days. Absent on single-leg trips.
@@ -591,6 +598,18 @@ function ActivityCard({ activity, onRemove, onSwap, swapping, swapError, swapSug
         </span>
         <div className="flex-1 min-w-0">
           <h3 className="font-semibold text-[var(--text-primary)] text-sm leading-snug">{activity.name}</h3>
+          {/* PHI-90: anchor badge. Visible only on items the generator
+              placed in response to a traveller-seeded must-do, so the
+              user can quickly confirm "yes, my picks landed". The badge
+              wraps under the title on narrow viewports — no fixed width. */}
+          {activity.seededByUser && (
+            <span
+              data-testid="seeded-by-user-badge"
+              className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-md bg-[#1a6b7f]/10 text-[#1a6b7f] text-[10px] font-semibold uppercase tracking-widest"
+            >
+              ★ You added this
+            </span>
+          )}
           {activity.description && (
             <p className="text-sm text-[var(--text-secondary)] mt-1 leading-relaxed">{activity.description}</p>
           )}
@@ -922,6 +941,10 @@ type StoredTraveler = {
   // welcome page on save so /itinerary can render leg headers and the
   // transition-day chrome without an extra fetch.
   legs?: { id?: string; place?: { name?: string }; startDate?: string; endDate?: string }[];
+  // PHI-90: traveller-seeded must-dos, captured at welcome step 4. Stored
+  // on the local snapshot so a Regenerate (which calls generate() fresh)
+  // still passes the anchors through to the prompt.
+  userSeededActivities?: string[];
 };
 
 export default function ItineraryViewPage() {
@@ -943,6 +966,11 @@ export default function ItineraryViewPage() {
   // days meet the rain threshold and outdoor activities should surface
   // their alternative inline.
   const [badDayDates, setBadDayDates] = useState<string[] | null>(null);
+  // PHI-90: top-level "placement_notes" from /api/itinerary/generate when
+  // an anchor was filtered out (wrong-city) or couldn't be fitted. null =
+  // nothing to surface. Persisted to localStorage so the callout survives a
+  // reload alongside the cached itinerary.
+  const [placementNotes, setPlacementNotes] = useState<string | null>(null);
   const [swappingId, setSwappingId] = useState<string | null>(null);
   const [swapErrorId, setSwapErrorId] = useState<string | null>(null);
   const [swapSuggestion, setSwapSuggestion] = useState<{
@@ -1075,6 +1103,15 @@ export default function ItineraryViewPage() {
             setBadDayDates(JSON.parse(cachedBad));
           }
         } catch { /* ignore */ }
+        // PHI-90: restore the placement_notes callout if it was persisted on
+        // last generate. Plain string in localStorage (not JSON) — keep it
+        // simple. Missing key = no callout.
+        try {
+          const cachedNotes = localStorage.getItem("rise_itinerary_placement_notes");
+          if (cachedNotes && cachedNotes.trim().length > 0) {
+            setPlacementNotes(cachedNotes);
+          }
+        } catch { /* ignore */ }
         if (cached) {
           try {
             const parsed = JSON.parse(cached) as RawDay[];
@@ -1116,6 +1153,14 @@ export default function ItineraryViewPage() {
           activityFeedback,
           travelerCount: t.travelerCount ?? null,
           childrenAges: t.childrenAges ?? null,
+          // PHI-90: pass through anchors on regenerate. The welcome flow
+          // already drove this on first generate; on subsequent generate
+          // calls (Regenerate, fresh cache miss after signup) we still need
+          // to hand the prompt the must-dos so they don't silently drop.
+          ...(Array.isArray(t.userSeededActivities) &&
+          t.userSeededActivities.length > 0
+            ? { userSeededActivities: t.userSeededActivities }
+            : {}),
         }),
       });
 
@@ -1125,7 +1170,11 @@ export default function ItineraryViewPage() {
         return;
       }
 
-      const data = await res.json() as { days?: RawDay[]; bad_day_dates?: string[] | null };
+      const data = await res.json() as {
+        days?: RawDay[];
+        bad_day_dates?: string[] | null;
+        placement_notes?: string | null;
+      };
       if (!data.days?.length) {
         setError("Couldn't generate your itinerary. Please try again.");
         setLoading(false);
@@ -1142,6 +1191,23 @@ export default function ItineraryViewPage() {
           JSON.stringify(data.bad_day_dates),
         );
         setBadDayDates(data.bad_day_dates);
+      }
+      // PHI-90: cache the placement_notes string so a reload of /itinerary
+      // (without a regenerate) still shows the callout. Clear the key on
+      // empty so a fresh clean generate wipes a stale note from the
+      // previous run.
+      if (
+        typeof data.placement_notes === "string" &&
+        data.placement_notes.trim().length > 0
+      ) {
+        localStorage.setItem(
+          "rise_itinerary_placement_notes",
+          data.placement_notes.trim(),
+        );
+        setPlacementNotes(data.placement_notes.trim());
+      } else {
+        localStorage.removeItem("rise_itinerary_placement_notes");
+        setPlacementNotes(null);
       }
       const mapped = mapRawDays(data.days);
       setDays(mapped);
@@ -1875,6 +1941,20 @@ export default function ItineraryViewPage() {
                 scrollMarginTop={scrollMarginTop}
               />
             ))}
+          </div>
+        )}
+        {/* PHI-90: placement_notes callout — above Day 1 so the user sees
+            it before scrolling into the itinerary. Soft amber styling
+            (same palette as other "needs attention" notes). null = no
+            callout. Hard constraint: anchors are never silently dropped;
+            the generator surfaces a note here when it had to omit one. */}
+        {!loading && placementNotes && (
+          <div
+            data-testid="itinerary-placement-notes"
+            className="mt-6 rounded-xl border border-[#f4d49e] bg-[#fef3e2] px-4 py-3 text-sm text-[var(--text-primary)]"
+          >
+            <span className="font-semibold">A note on your must-dos:</span>{" "}
+            <span className="text-[var(--text-secondary)]">{placementNotes}</span>
           </div>
         )}
         {!loading && (

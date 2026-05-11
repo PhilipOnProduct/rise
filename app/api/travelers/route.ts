@@ -94,6 +94,11 @@ export async function POST(req: NextRequest) {
     childrenAges,
     constraintTags,
     constraintText,
+    // PHI-90: optional traveller-supplied must-dos (free-text, one per line).
+    // Persisted as text[] so the itinerary generator can fetch them at
+    // build time and inject them as anchors. Backward compatible — null/
+    // empty means existing behaviour unchanged.
+    userSeededActivities,
   } = body;
 
   const derived = deriveLegs(body);
@@ -134,6 +139,20 @@ export async function POST(req: NextRequest) {
         : {}),
       ...(typeof constraintText === "string" && constraintText.trim().length > 0
         ? { constraint_text: constraintText.trim() }
+        : {}),
+      // PHI-90 — only include the column when the client sent a non-empty
+      // list, so legacy callers and grandfathered POSTs don't write null
+      // arrays into the new column.
+      ...(Array.isArray(userSeededActivities) &&
+      userSeededActivities.some(
+        (s: unknown) => typeof s === "string" && s.trim().length > 0,
+      )
+        ? {
+            user_seeded_activities: (userSeededActivities as unknown[])
+              .filter((s): s is string => typeof s === "string")
+              .map((s) => s.trim())
+              .filter((s) => s.length > 0),
+          }
         : {}),
     })
     .select()
@@ -186,6 +205,9 @@ export async function PATCH(req: NextRequest) {
     // the UK") we persist the country alongside the resolved city for
     // cohort analysis. Optional — flat-string fields don't break legs.
     country,
+    // PHI-90: partial update path. When the user advances past the
+    // must-dos step we PATCH the array onto the existing row.
+    userSeededActivities,
   } = body;
 
   if (!id) {
@@ -224,6 +246,21 @@ export async function PATCH(req: NextRequest) {
       typeof country === "string" && country.trim().length > 0
         ? country.trim()
         : null;
+  // PHI-90: normalise to a clean string array on the way in. Empty list →
+  // null so we don't leave an empty array sitting on the row. Caller
+  // doesn't need to send the field if they aren't changing it; undefined
+  // skips the assignment entirely.
+  if (userSeededActivities !== undefined) {
+    if (Array.isArray(userSeededActivities)) {
+      const cleaned = (userSeededActivities as unknown[])
+        .filter((s): s is string => typeof s === "string")
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+      updates.user_seeded_activities = cleaned.length > 0 ? cleaned : null;
+    } else {
+      updates.user_seeded_activities = null;
+    }
+  }
 
   // PHI-33 PR2: trip-shape updates go through deriveLegs so we always end
   // up with a valid legs JSONB. Either the caller sent `legs` directly,
