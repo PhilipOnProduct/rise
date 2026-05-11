@@ -1,10 +1,14 @@
+import { headers } from "next/headers";
 import LandingHero from "@/app/components/LandingHero";
 import SpecimenCards from "@/app/components/SpecimenCards";
 import LandmarkSkyline from "@/app/components/LandmarkSkyline";
 import HomeNavAuth from "@/app/components/HomeNavAuth";
 import HomeWelcomeBack from "@/app/components/HomeWelcomeBack";
+import { regionFromAcceptLanguage } from "@/lib/region-from-accept-language";
 
-export default function Home() {
+export default async function Home() {
+  const headerStore = await headers();
+  const region = regionFromAcceptLanguage(headerStore.get("accept-language"));
   return (
     <main
       className="min-h-screen flex flex-col"
@@ -32,7 +36,7 @@ export default function Home() {
         className="flex items-end overflow-hidden flex-shrink-0"
         style={{ height: "clamp(64px, 20vh, 160px)" }}
       >
-        <LandmarkSkyline />
+        <LandmarkSkyline region={region} />
       </div>
     </main>
   );
