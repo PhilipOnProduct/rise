@@ -7,6 +7,7 @@ import PlacesAutocomplete from "@/app/components/PlacesAutocomplete";
 import type { TripIntent } from "@/lib/trip-intent";
 import { newLegId, type PlaceRef, type TripLeg } from "@/lib/trip-schema";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
+import { getHotelPlaceholder } from "@/lib/hotel-placeholders";
 
 const TOTAL_WIZARD_STEPS = 5; // steps 1–5
 
@@ -2927,7 +2928,7 @@ function WelcomePageInner() {
                 value={hotel}
                 onChange={setHotel}
                 onSelect={(v) => setHotel(v.split(",")[0].trim())}
-                placeholder="e.g. Hotel Arts"
+                placeholder={getHotelPlaceholder(destination)}
                 types={["establishment"]}
                 locationBias={destinationBias}
                 autoFocus
