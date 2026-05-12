@@ -1080,6 +1080,20 @@ export default function ItineraryViewPage() {
       }
     }
 
+    // A cached/stored itinerary is only valid if its first day's date
+    // matches the current trip's departure date. Otherwise the days come
+    // from a previous trip (e.g. an Amsterdam itinerary lingering when the
+    // user has just created a Málaga trip) and rendering them would show
+    // wrong-destination content under the new trip's header. Returning
+    // false here also prevents the stale days from being written into
+    // Supabase under the new traveler_id by the cache-rehydration path.
+    function itineraryMatchesTrip(days: unknown, departureDate: string): boolean {
+      if (!Array.isArray(days) || days.length === 0) return false;
+      if (!departureDate) return false;
+      const firstDate = (days[0] as { date?: unknown })?.date;
+      return typeof firstDate === "string" && firstDate === departureDate;
+    }
+
     async function load(traveler: StoredTraveler) {
       try {
         // 1. Try Supabase first if we have a traveler ID
@@ -1087,10 +1101,16 @@ export default function ItineraryViewPage() {
           const res = await fetch(`/api/itinerary`);
           if (res.ok) {
             const json = await res.json() as { itinerary: Itinerary | null };
-            if (json.itinerary?.days?.length) {
-              setDays(json.itinerary.days as ItineraryDay[]);
-              setLoading(false);
-              return;
+            const storedDays = json.itinerary?.days;
+            if (storedDays?.length) {
+              if (itineraryMatchesTrip(storedDays, traveler.departureDate ?? "")) {
+                setDays(storedDays as ItineraryDay[]);
+                setLoading(false);
+                return;
+              }
+              // Stored itinerary is from a different trip (cascading
+              // pollution from a prior buggy cache rehydration). Fall
+              // through to regenerate fresh for this trip.
             }
           }
         }
@@ -1116,7 +1136,7 @@ export default function ItineraryViewPage() {
         if (cached) {
           try {
             const parsed = JSON.parse(cached) as RawDay[];
-            if (Array.isArray(parsed) && parsed.length > 0) {
+            if (itineraryMatchesTrip(parsed, traveler.departureDate ?? "")) {
               const mapped = mapRawDays(parsed);
               setDays(mapped);
               // Save to Supabase in background if we have an ID
@@ -1126,6 +1146,13 @@ export default function ItineraryViewPage() {
               setLoading(false);
               return;
             }
+            // Cache is from a previous trip — drop the trip-scoped keys
+            // so a Regenerate or re-render doesn't repopulate from them.
+            localStorage.removeItem("rise_itinerary");
+            localStorage.removeItem("rise_itinerary_placement_notes");
+            localStorage.removeItem("rise_bad_day_dates");
+            setPlacementNotes(null);
+            setBadDayDates(null);
           } catch { /* ignore invalid cache */ }
         }
 
