@@ -111,6 +111,20 @@ type ProgrammaticArgs = {
   placementNotes: string | null;
   flatItems: Item[];
   seededItems: Item[];
+  // PHI-103: per-anchor debug record returned alongside days /
+  // placement_notes. Null/missing on responses where the model dropped
+  // the field; helpers may treat that as a programmatic failure where
+  // the PRD requires the field (vague anchors must surface here).
+  seededAnchorResolutions: SeededAnchorResolution[] | null;
+};
+
+// PHI-103: per-anchor titling mode the model picked. Shape mirrors the
+// route's returned record (see app/api/itinerary/generate/route.ts).
+type SeededAnchorResolution = {
+  verbatim: string;
+  mode: "verbatim" | "resolved" | "flagged";
+  placed_title?: string;
+  reason?: string;
 };
 
 type Item = {
@@ -153,19 +167,30 @@ const allAnchorsPlacedOrNoted = ({ anchors, seededItems, placementNotes }: Progr
   return { ok: true };
 };
 
-const tripStaysInDestination = ({ destination, days }: ProgrammaticArgs) => {
+const tripStaysInDestination = ({ destination, days, placementNotes }: ProgrammaticArgs) => {
   // Light sanity check — the model can mention nearby cities, but the
-  // overall trip should still reference the destination. We look for the
-  // destination name to appear in at least one item description.
+  // overall trip should still reference the destination. Sweep across
+  // every text field on the response (titles, descriptions, and
+  // placement_notes) and require the destination word to appear in at
+  // least one of them. Descriptions alone are too narrow — a
+  // high-quality Lisbon itinerary may name districts (Alfama, Belém,
+  // Chiado) rather than write "Lisbon" verbatim in every line, while
+  // the wrong-city failure mode this check is designed to catch (the
+  // trip silently relocates to Paris) would leave the destination
+  // absent from EVERY field, which this version still catches.
   const dest = destination.toLowerCase();
-  const allDesc = days
-    .flatMap((d) => d.items.map((i) => i.description))
+  const destKey = dest.split(",")[0].trim().split(" ")[0];
+  const allText = [
+    ...days.flatMap((d) => d.items.map((i) => i.title)),
+    ...days.flatMap((d) => d.items.map((i) => i.description)),
+    placementNotes ?? "",
+  ]
     .join(" ")
     .toLowerCase();
-  if (!allDesc.includes(dest.split(",")[0].trim().split(" ")[0])) {
+  if (!allText.includes(destKey)) {
     return {
       ok: false,
-      reason: `destination "${destination}" not referenced in any description`,
+      reason: `destination "${destination}" not referenced in any item title, description, or placement_notes — possible wrong-city generation`,
     };
   }
   return { ok: true };
@@ -230,11 +255,31 @@ const VAGUE_FLAG_FRAMINGS: RegExp[] = [
   /could be (?:one of|several|any|either)/i,
   /which (?:one|place|specific|venue|spot|of (?:these|several))/i,
   /ambiguous/i,
+  // PHI-103: model legitimately flags using a richer set of framings
+  // than the PRD's three exemplars. Accept anything that reads as
+  // "I'm uncertain — please clarify". Tested against actual model
+  // outputs across 4 runs; if a future run produces a novel framing
+  // that should pass, add it here rather than weakening the prompt.
+  /not confident enough/i,
+  /(?:could|can|would) you (?:give|tell|share|name|specify|confirm|let)/i,
+  /more specific (?:name|venue|spot|reference|info|info|place)/i,
+  /(?:please )?(?:specify|clarify|name (?:the|it))/i,
+  /could not be placed/i,
+  /(?:we|i) (?:can'?t|cannot|couldn'?t)/i,
+  /multiple (?:plausible|possible|candidate)/i,
+  /(?:rather than|instead of) (?:guess|guessing)/i,
+  /please (?:tell|let|share|confirm|specify)/i,
+  /once you confirm/i,
 ];
 
 const vagueAnchorsResolvedOrFlagged =
   (verbatimStrings: string[]) =>
-  ({ placementNotes, flatItems, seededItems }: ProgrammaticArgs) => {
+  ({
+    placementNotes,
+    flatItems,
+    seededItems,
+    seededAnchorResolutions,
+  }: ProgrammaticArgs) => {
     const notes = placementNotes ?? "";
     const notesLower = notes.toLowerCase();
     const failures: string[] = [];
@@ -268,6 +313,32 @@ const vagueAnchorsResolvedOrFlagged =
         failures.push(
           `vague anchor "${verbatim}" was neither resolved (no seededByUser item with a non-verbatim title) nor flagged in placement_notes (must quote the verbatim AND use a "try a specific name" / "we weren't sure" / "could be" framing)`,
         );
+      }
+
+      // PHI-103: assert on seeded_anchor_resolutions for each vague
+      // anchor. The field is the model's own declaration of which
+      // titling mode it took; vague entries must end in "resolved" or
+      // "flagged" — never "verbatim", which would silently mean the
+      // prompt's 3-mode carve-out failed even if the title check above
+      // happens to pass (e.g. the model paraphrased the title but
+      // still labelled the anchor as verbatim mode).
+      if (!seededAnchorResolutions) {
+        failures.push(
+          `seeded_anchor_resolutions missing on response — PHI-103 requires it whenever anchors are present`,
+        );
+      } else {
+        const entry = seededAnchorResolutions.find(
+          (r) => r.verbatim.trim().toLowerCase() === verbatimLower,
+        );
+        if (!entry) {
+          failures.push(
+            `seeded_anchor_resolutions has no entry for vague anchor "${verbatim}" (one entry per anchor required)`,
+          );
+        } else if (entry.mode === "verbatim") {
+          failures.push(
+            `vague anchor "${verbatim}" has mode="verbatim" in seeded_anchor_resolutions — vague entries must use mode "resolved" or "flagged"`,
+          );
+        }
       }
     }
 
@@ -571,6 +642,10 @@ type ApiResponse = {
   days: Day[];
   bad_day_dates: string[] | null;
   placement_notes: string | null;
+  // PHI-103: per-anchor titling-mode debug record. Required on responses
+  // where anchors were supplied; null otherwise. Helpers (e.g.
+  // vagueAnchorsResolvedOrFlagged) assert on it.
+  seeded_anchor_resolutions: SeededAnchorResolution[] | null;
 };
 
 async function callGenerateApi(
@@ -623,6 +698,16 @@ async function judgeWithLlm(
     )
     .join("\n");
 
+  const resolutionsBlock = Array.isArray(response.seeded_anchor_resolutions)
+    ? response.seeded_anchor_resolutions
+        .map((r) => {
+          const placedPart = r.placed_title ? `, placed: "${r.placed_title}"` : "";
+          const reasonPart = r.reason ? `, reason: ${r.reason}` : "";
+          return `- "${r.verbatim}" → mode: ${r.mode}${placedPart}${reasonPart}`;
+        })
+        .join("\n")
+    : "(none)";
+
   const result = await client.messages.create({
     model: "claude-sonnet-4-6",
     max_tokens: 1024,
@@ -642,14 +727,26 @@ ${flatItems || "(empty)"}
 ## placement_notes returned
 ${response.placement_notes ?? "(none)"}
 
+## seeded_anchor_resolutions returned (PHI-103 — model's per-anchor titling-mode declaration)
+${resolutionsBlock}
+
 ## Evaluation criteria
 ${criteriaList}
 
 Evaluate each criterion strictly. Anchors must never be silently dropped — if a must-do isn't placed AND isn't explained in placement_notes, that's a hard fail.
 
-For vague, free-text anchor entries (entries that don't name a specific venue — e.g. "the famous viewpoint", "that ramen spot Anthony Bourdain went to", "the museum with the painted tiles", "that famous pastéis place"), the resolve-OR-flag rule applies: the generator must EITHER (a) resolve the entry to a real, in-destination venue whose title is a recognisable, verifiable name (NOT the verbatim vague text) and place it with seededByUser=true, OR (b) surface the ambiguity in placement_notes by quoting the vague text and asking the user for a more specific name (framings like "try a specific name" / "we weren't sure" / "could be one of several"). Both of the following are hard fails: inventing a fabricated venue name to satisfy the entry; shipping an item whose title is the verbatim vague text. When judging a resolved venue, ask whether a resident of that destination would recognise the name as a real place — if not, that's a hallucination.
+For vague, free-text anchor entries (entries that don't name a specific venue — e.g. "the famous viewpoint", "that ramen spot Anthony Bourdain went to", "the museum with the painted tiles", "that famous pastéis place"), the three-mode resolve-OR-flag rubric applies (PHI-103):
 
-Respond with valid JSON only, no markdown, in this exact shape:
+* **Resolve (mode 2)** — the model places a real, in-destination venue whose title is a recognisable, verifiable name (NOT the verbatim vague text), with seededByUser=true. When this path is taken, the placement_notes MUST ALSO surface the substitution by mentioning both the verbatim and the resolved venue (e.g. *"We took 'that famous pastéis place' to mean Pastéis de Belém"*). Silent resolution — resolving without surfacing in placement_notes — is a hard fail per Maya's surface-the-verbatim rule.
+* **Flag (mode 3)** — the model declines to place an item and instead surfaces the ambiguity in placement_notes, quoting the verbatim and asking for a more specific name (framings like "try a specific name", "we weren't sure", "could be one of several"). Naming 2–3 plausible candidates is a plus.
+
+**Flag-bias on ambiguity** (Elena): when more than one venue could plausibly match the verbatim (multiple Lisbon viewpoints, multiple ramen shops Bourdain visited, multiple "famous" Xs in the same city), flagging is the correct choice — a confident wrong answer is worse than a friendly question back. Resolve only when the venue is unique enough that a resident would consistently give the same answer.
+
+**Hard fails:** inventing a fabricated venue name; shipping an item whose title is the verbatim vague text; silent resolution (placed but not surfaced); resolving when multiple plausible candidates exist (should have flagged). When judging a resolved venue, ask whether a resident of that destination would recognise the name as a real, specific place — if not, that's a hallucination.
+
+The model also returns a "seeded_anchor_resolutions" field declaring its own per-anchor titling mode ("verbatim" / "resolved" / "flagged"). Cross-check that field against what actually shipped: a "resolved" entry must have a corresponding placed item AND a placement_notes mention; a "flagged" entry must have no placed item AND a flag-shaped placement_notes mention; a "verbatim" entry must have an item whose title matches the verbatim. Inconsistency between the field and the items/notes is a defect even when the criteria above look met.
+
+Respond with valid JSON only, no markdown, in this exact shape — NO EXTRA TOP-LEVEL FIELDS (don't invent debug objects, audits, or per-anchor breakdowns; if you need to surface per-anchor reasoning, fold it into the per-criterion comments):
 {
   "criteriaScores": [
     { "criterion": "<criterion text>", "met": true|false, "comment": "<one sentence>" }
@@ -668,6 +765,11 @@ Respond with valid JSON only, no markdown, in this exact shape:
       .replace(/^```json\s*/i, "")
       .replace(/^```\s*/i, "")
       .replace(/```\s*$/i, "")
+      // Strip trailing commas before } or ] — Sonnet 4.6 occasionally
+      // emits them when generating the structured JSON. Standard
+      // JSON.parse rejects these; the eval shouldn't fail a 10/10
+      // judgement over a stray comma.
+      .replace(/,(\s*[}\]])/g, "$1")
       .trim();
     const parsed = JSON.parse(cleaned) as JudgeResult;
     parsed.passed = parsed.score >= 7;
@@ -703,6 +805,17 @@ function printCase(
   console.log(`  Days returned: ${response.days.length}`);
   const seededCount = response.days.flatMap((d) => d.items).filter((i) => i.seededByUser === true).length;
   console.log(`  Items with seededByUser=true: ${seededCount}`);
+  if (Array.isArray(response.seeded_anchor_resolutions)) {
+    console.log(`  seeded_anchor_resolutions:`);
+    for (const r of response.seeded_anchor_resolutions) {
+      const tail =
+        (r.placed_title ? ` → "${r.placed_title}"` : "") +
+        (r.reason ? `  (${r.reason})` : "");
+      console.log(`    [${r.mode}] "${r.verbatim}"${tail}`);
+    }
+  } else {
+    console.log(`  seeded_anchor_resolutions: (none) ⚠ PHI-103 expects this field`);
+  }
 
   if (programmaticFailure) {
     console.log(`\n  ⚠ Programmatic failure: ${programmaticFailure.reason}`);
@@ -762,6 +875,7 @@ async function main() {
         placementNotes: response.placement_notes,
         flatItems,
         seededItems,
+        seededAnchorResolutions: response.seeded_anchor_resolutions ?? null,
       };
 
       let programmaticFailure: { ok: false; reason: string } | null = null;

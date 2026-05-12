@@ -127,15 +127,44 @@ export function buildUserSeededAnchorsSegment(
   // Hard rules — every one of these is load-bearing. Treat them as
   // non-negotiable in the same way the life-impacting constraints in
   // activity-gen are non-negotiable.
-  return `\n\n## Must-include activities (user-seeded anchors)\n\nThe traveller has listed the following must-dos. Each entry is an ANCHOR — place exactly one of these on a sensible day, in a sensible time block, and then build the surrounding schedule around it. The trip stays in ${tripScope}; these are anchors WITHIN the trip, not destination changes.\n\n${list}\n\nAnchor rules (non-negotiable):\n- Every anchor above MUST appear in the returned itinerary on exactly one day, in exactly one time block. Mark it with "seededByUser": true on the item.\n- If an anchor is a restaurant, place it in a meal-appropriate block (lunch → afternoon, dinner → evening). If it's a viewpoint at sunset, place it in the evening. If it's a museum, place it in morning or afternoon. Use the entry text as the title verbatim — do not paraphrase it.
+  return `\n\n## Must-include activities (user-seeded anchors)\n\nThe traveller has listed the following must-dos. Each entry is an ANCHOR — place exactly one of these on a sensible day, in a sensible time block, and then build the surrounding schedule around it. The trip stays in ${tripScope}; these are anchors WITHIN the trip, not destination changes.\n\n${list}\n\nAnchor rules (non-negotiable):
+- Every anchor above MUST be accounted for — either PLACED on exactly one day in exactly one time block (modes 1 and 2 below) or SURFACED in "placement_notes" without being placed (mode 3 and the wrong-city case). Silent drops = hard fail.
+- Placement-block rules (when an anchor IS placed): restaurants go in a meal-appropriate block (lunch → afternoon, dinner → evening); a sunset viewpoint goes in the evening; a museum goes in morning or afternoon.
+
+**Anchor titling — three modes (PHI-103). Pick exactly one mode per anchor:**
+
+  1. **Specific venue (proper-noun entry).** The entry already names a real, specific place — capitalised proper noun, distinctive named experience. Examples: \"Cervejaria Ramiro\", \"Time Out Market\", \"Sushi Saito splurge dinner\", \"Tram 28 ride\", \"Sunset at Miradouro da Senhora do Monte\", \"Museu Nacional do Azulejo\". Action: use the entry text as the item title VERBATIM — do not paraphrase. Place the item with \"seededByUser\": true.
+
+  2. **Vague entry, UNAMBIGUOUS resolution.** The entry is descriptive (no proper noun, hedge words like \"the\", \"that\", \"famous\") BUT you have HIGH CONFIDENCE in exactly one specific real venue a resident would recognise — a unique landmark, a singular cuisine+neighbourhood combo with one clear answer, an iconic dish where one venue dominates the conversation. Action: place the resolved venue with its REAL NAME as the item title (NOT the verbatim entry text), \"seededByUser\": true. AND surface the substitution in \"placement_notes\" — the resolution must be visible to the traveller. Use a phrasing like: \"We took 'that famous pastéis place' to mean Pastéis de Belém — the original 1837 nata bakery in Belém. Tell us if you meant somewhere else.\" Silent resolution (placing the resolved item without surfacing it in placement_notes) = hard fail per Maya's surface-the-verbatim rule.
+
+  3. **Vague entry, AMBIGUOUS (more than one venue could plausibly match).** The entry is descriptive AND multiple real venues could reasonably match (multiple Lisbon viewpoints, multiple ramen shops Anthony Bourdain visited on TV, multiple \"famous\" Xs in the same city). Action: do NOT place an item for this anchor. Flag in \"placement_notes\" by quoting the verbatim text and asking the user for a more specific name. Use framings like \"not sure which X you meant\", \"could be one of several\", \"try a specific name\" — and name 2–3 plausible candidates so the user can pick. Example: \"Not sure which 'famous viewpoint' you meant — Lisbon has several. Could be Miradouro da Senhora do Monte (locals' pick), Miradouro de São Pedro de Alcântara (sunset crowd), or Miradouro de Santa Catarina (sunset over the river). Try a specific name.\"
+
+**Bias toward flag (mode 3) over resolve (mode 2) when uncertain.** A confident wrong answer ('the famous viewpoint' resolved to São Pedro de Alcântara when the traveller meant Senhora do Monte) is worse than a friendly question back. Mode 2 is for cases where you'd bet money on the resolution; everything else is mode 3. \"Multiple plausible candidates\" is the trigger — don't guess.
+
+**The \"most widely cited\" tiebreaker is forbidden.** If you find yourself reasoning \"X is the most widely cited / most famous / most iconic of several candidates\" — that is a mode 3 signal, not a mode 2 license. \"Bourdain visited several Tokyo ramen shops, but Fuunji is the most cited\" → mode 3, flag. \"Lisbon has many famous viewpoints, but Senhora do Monte is most beloved by locals\" → mode 3, flag. \"There are several painted-tile museums in Lisbon, but Museu Nacional do Azulejo is most well-known\" → mode 3, flag. The \"most cited\" tiebreaker is forbidden because different travellers heard about different ones, and confidently picking the wrong one for THIS traveller is the failure mode this rule exists to prevent. If your placement_notes for an anchor would contain a hedging phrase like \"this is technically ambiguous but...\", \"the most widely cited\", \"the most well-known of several\", \"the classic choice when picking from many\" — STOP. That anchor is mode 3. Do not place it. Flag it instead.
+
+**Hard fails (any of these = bad output):**
+  - Hallucinating a fabricated venue (a real-sounding name that doesn't exist or isn't in this destination).
+  - Shipping a non-proper-noun verbatim entry as the item title (mode 1 misapplied to a vague entry).
+  - Silent resolution: mode 2 placement WITHOUT a \"We took '<verbatim>' to mean <resolved>\" mention in placement_notes.
+  - Dropping an anchor without surfacing it in placement_notes.
+
 - **Pacing around anchors is a hard rule, not a soft preference.** The anchor is the centrepiece of its day. Build the rest of that day to give the anchor room to breathe:
   * If the anchor is a splurge or high-stakes meal (a once-in-a-trip tasting menu, an iconic restaurant, a chef's-counter omakase), keep the same day's other meal lighter and keep the surrounding activity load low — no second sit-down meal in that meal's category, no overscheduling that would leave the traveller fatigued before they arrive.
   * If the family modifiers apply (children under 9), and the anchor is a heavy cultural item (museum, monastery, gallery), the same day MUST NOT stack additional heavy cultural items. Use kid-friendly counterweight on the rest of that day — a park, an outdoor walk, a snack stop, a tram ride — never two museums on the same day for a 5–8 year-old. Respect the 90-minute attention window already enforced by composition.
   * If the anchor is in a specific neighbourhood, surround it with items in walking distance of the same neighbourhood. Don't pair it with a cross-city item that burns the gap.
-- Anchors NEVER silently disappear. If you genuinely cannot place every anchor (e.g. 10 anchors on a 2-day trip), reduce filler activities to fit them. If even that is not enough, return a top-level "placement_notes" string listing exactly which anchor(s) could not be placed and why (e.g. "Couldn't place 'Cervejaria Ramiro' — Lisbon trip has no evening slot remaining after fitting the other 9 anchors"). Never drop an anchor without a placement_notes entry explaining why.
-- If an anchor names a place that is OBVIOUSLY in a different city (the user typed "the Louvre" on a Lisbon trip), DO NOT relocate the trip and DO NOT invent a Louvre in Lisbon. Treat it as a misspecified anchor: omit it from the returned days, and surface the omission in "placement_notes" (e.g. "'the Louvre' is in Paris, not Lisbon — left out of this itinerary"). The trip stays in ${tripScope}. This is the same wrong-city rule the edit API already honours (PHI-51).
+- Anchors NEVER silently disappear. If you genuinely cannot place every anchor (e.g. 10 anchors on a 2-day trip), reduce filler activities to fit them. If even that is not enough, add a "placement_notes" entry naming exactly which anchor(s) could not be placed and why (e.g. "Couldn't place 'Cervejaria Ramiro' — Lisbon trip has no evening slot remaining after fitting the other 9 anchors"). Never drop an anchor without surfacing it.
+- If an anchor names a place that is OBVIOUSLY in a different city (the user typed "the Louvre" on a Lisbon trip), DO NOT relocate the trip and DO NOT invent a Louvre in Lisbon. Treat it as a misspecified anchor: omit it from the returned days, and surface the omission in "placement_notes" (e.g. "'the Louvre' is in Paris, not Lisbon — left out of this itinerary"). The trip stays in ${tripScope}. This is the same wrong-city rule the edit API already honours (PHI-51). Wrong-city is misspecification, NOT vagueness — record it as mode \"flagged\" in seeded_anchor_resolutions (see below) with a wrong-city reason; do not run the resolve path on it.
 - Anchors set "seededByUser": true. Every other item the generator emits leaves seededByUser unset (or false).
-- Anchors keep their normal item shape: id, title, description, type, time_block, status, source, is_outdoor, alternative. Description should be a one-sentence note useful to the traveller (e.g. "Beloved no-frills tasca — booking strongly recommended"), not a justification of the placement.`;
+- Anchors keep their normal item shape: id, title, description, type, time_block, status, source, is_outdoor, alternative. Description should be a one-sentence note useful to the traveller (e.g. "Beloved no-frills tasca — booking strongly recommended"), not a justification of the placement.
+
+**seeded_anchor_resolutions (PHI-103 debug field).** When anchors are present, return a top-level \"seeded_anchor_resolutions\" array on the response — one entry per anchor, in the SAME ORDER as the anchor list above. Shape:
+[
+  { \"verbatim\": \"Cervejaria Ramiro\", \"mode\": \"verbatim\", \"placed_title\": \"Cervejaria Ramiro\" },
+  { \"verbatim\": \"that famous pastéis place\", \"mode\": \"resolved\", \"placed_title\": \"Pastéis de Belém\", \"reason\": \"well-known Lisbon bakery — single clear answer\" },
+  { \"verbatim\": \"the famous viewpoint\", \"mode\": \"flagged\", \"reason\": \"multiple Lisbon viewpoints could plausibly match — flagged for user clarification\" }
+]
+\"mode\" is \"verbatim\" (rule 1), \"resolved\" (rule 2), or \"flagged\" (rule 3 OR wrong-city). \"placed_title\" is REQUIRED for verbatim and resolved modes (the title that landed on the day) and OMITTED for flagged. \"reason\" is REQUIRED for resolved and flagged modes and optional for verbatim. This field is for downstream debugging — emit it on every response with anchors.`;
 }
 
 // ── Headline + multi-leg block ────────────────────────────────────────────
@@ -249,7 +278,7 @@ export function buildItineraryGenPrompt(args: ItineraryGenInputs): string {
     ? `,\n  "seededByUser": false   // true ONLY on the items that match a user-seeded must-do; omit/false otherwise`
     : "";
   const placementNotesNote = hasAnchors
-    ? `\n\nReturn shape (when anchors are present):\nReturn an OBJECT with shape { "days": [<day objects>], "placement_notes": "<string or null>" } — NOT a bare array. Use "placement_notes" only when an anchor could not be placed cleanly OR was filtered out as a misspecified wrong-city anchor. Leave it null or omit it when every anchor was placed and nothing needed flagging.`
+    ? `\n\nReturn shape (when anchors are present):\nReturn an OBJECT with shape { "days": [<day objects>], "placement_notes": "<string or null>", "seeded_anchor_resolutions": [<one entry per anchor>] } — NOT a bare array. Use "placement_notes" whenever an anchor was vague-resolved (mode 2, surface the substitution), vague-flagged (mode 3, ask the user to be more specific), filtered as wrong-city, or could not be placed for capacity reasons. Set it to null only when every anchor was placed verbatim (mode 1) and nothing needed surfacing. "seeded_anchor_resolutions" is REQUIRED on every response with anchors — see the anchor block above for the per-entry shape and modes.`
     : "";
 
   return `${headline}
@@ -261,7 +290,7 @@ ${budgetStr}${compositionStr}${inspirationStr}${atlasStr}${feedbackSegment}${use
 
 Return ONLY valid JSON — no markdown, no explanation, no code fences. ${
     hasAnchors
-      ? `Top-level shape: { "days": [...], "placement_notes": "<string or null>" }. The "days" array MUST have exactly ${days} elements, one per day.`
+      ? `Top-level shape: { "days": [...], "placement_notes": "<string or null>", "seeded_anchor_resolutions": [...] }. The "days" array MUST have exactly ${days} elements, one per day. The "seeded_anchor_resolutions" array MUST have exactly one entry per anchor in the order they were given.`
       : `The response MUST be a JSON array with exactly ${days} elements, one per day.`
   }
 

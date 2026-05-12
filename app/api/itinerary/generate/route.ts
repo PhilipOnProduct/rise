@@ -59,6 +59,17 @@ type ItineraryDay = {
   is_transition?: boolean;
 };
 
+// PHI-103: per-anchor resolution record returned by the model. `mode`
+// reflects which titling path the prompt's 3-mode rule took for that
+// anchor. `placed_title` is present for verbatim/resolved (the title
+// landed on a day item) and omitted for flagged (no item placed).
+type SeededAnchorResolution = {
+  verbatim: string;
+  mode: "verbatim" | "resolved" | "flagged";
+  placed_title?: string;
+  reason?: string;
+};
+
 export async function POST(req: NextRequest) {
   const {
     destination,
@@ -149,12 +160,18 @@ export async function POST(req: NextRequest) {
 
     let days_data: ItineraryDay[];
     let placementNotes: string | null = null;
+    // PHI-103: per-anchor debug record. One entry per supplied anchor in
+    // the order they were given; mode is "verbatim" | "resolved" | "flagged".
+    // Surfaced in the API response so the eval can assert on the model's
+    // resolution choices and ai_logs has a paper trail when a real walk
+    // turns up a weird substitution.
+    let seededAnchorResolutions: SeededAnchorResolution[] | null = null;
     try {
       const parsed = JSON.parse(jsonStr);
       if (hasAnchors) {
-        // Anchors-mode response: object with { days, placement_notes }.
-        // We accept the bare-array fallback too — older or confused model
-        // outputs shouldn't strand a user mid-flow.
+        // Anchors-mode response: object with { days, placement_notes,
+        // seeded_anchor_resolutions }. Bare-array fallback retained — older
+        // or confused model outputs shouldn't strand a user mid-flow.
         if (Array.isArray(parsed)) {
           days_data = parsed;
         } else if (parsed && Array.isArray((parsed as { days?: unknown }).days)) {
@@ -162,6 +179,11 @@ export async function POST(req: NextRequest) {
           const note = (parsed as { placement_notes?: unknown }).placement_notes;
           if (typeof note === "string" && note.trim().length > 0) {
             placementNotes = note.trim();
+          }
+          const resolutions = (parsed as { seeded_anchor_resolutions?: unknown })
+            .seeded_anchor_resolutions;
+          if (Array.isArray(resolutions)) {
+            seededAnchorResolutions = resolutions as SeededAnchorResolution[];
           }
         } else {
           throw new Error("unexpected shape");
@@ -248,6 +270,9 @@ export async function POST(req: NextRequest) {
       // present. Null/omitted when every anchor placed cleanly or no
       // anchors were supplied.
       placement_notes: placementNotes,
+      // PHI-103: per-anchor debug record. Eval asserts on this; the
+      // /itinerary UI doesn't render it yet (tracked separately).
+      seeded_anchor_resolutions: seededAnchorResolutions,
     });
   } catch (err) {
     console.error("[itinerary-generate]", err);
