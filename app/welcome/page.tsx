@@ -353,6 +353,20 @@ function PreviewDayCard({ day }: { day: PreviewDay }) {
                 {item.title}
               </span>
             </div>
+            {/* PHI-92 — render the anchor badge on the welcome preview, not
+                just on /itinerary, so the traveller gets the "Rise heard
+                me" confirmation before they decide whether to save the
+                trip. `self-start` keeps the badge from stretching across
+                the flex-column <li>; the rest of the chip is byte-identical
+                to the /itinerary badge so the two surfaces match. */}
+            {item.seededByUser && (
+              <span
+                data-testid="seeded-by-user-badge-preview"
+                className="self-start inline-flex items-center gap-1 mt-1 ml-[72px] px-2 py-0.5 rounded-md bg-[#1a6b7f]/10 text-[#1a6b7f] text-[10px] font-semibold uppercase tracking-widest"
+              >
+                ★ You added this
+              </span>
+            )}
             {item.description && (
               <p className="text-xs text-[var(--text-secondary)] ml-[72px] leading-relaxed">
                 {item.description}
@@ -3419,37 +3433,77 @@ function WelcomePageInner() {
               anchors block when the array is empty. The textarea grows
               with content (`min-h-[160px]`) and stays usable on a 360px
               viewport — the skip link sits visibly below it. */}
-          {step === 4 && (
-            <div className="flex flex-col gap-4" data-testid="welcome-must-dos-step">
-              <label className="block">
-                <span className="block text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-widest mb-3">
-                  Your must-dos (optional)
-                </span>
-                <textarea
-                  value={userSeededText}
-                  onChange={(e) => setUserSeededText(e.target.value)}
-                  placeholder={`e.g.\nCervejaria Ramiro\nSunset at Miradouro da Senhora do Monte\nTime Out Market`}
-                  rows={6}
-                  className="w-full min-h-[160px] bg-white border border-[#b8b3a9] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-[var(--text-primary)] text-base placeholder-[#9ca3af] transition-colors resize-y"
-                />
-              </label>
-              <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-                One per line. We&apos;ll place each one on a sensible day and
-                build the rest of your trip around it. You can come back to
-                this — these aren&apos;t set in stone.
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  setUserSeededText("");
-                  void handleContinue();
-                }}
-                className="self-start text-sm font-medium text-[#1a6b7f] hover:text-[#155a6b] transition-colors"
-              >
-                Nothing yet — skip →
-              </button>
-            </div>
-          )}
+          {step === 4 && (() => {
+            // PHI-93 — disclose silent filtering. splitSeededActivities()
+            // drops lines >200 chars and caps the list at 20; the user
+            // gets zero signal today. Compute the raw-vs-kept deltas
+            // inline and surface an amber hint when anything was dropped.
+            // The filter still runs (it's the safety net); the hint is
+            // disclosure only, and Continue stays enabled per PHI-90's
+            // "step must never block forward progress" invariant.
+            const rawLines = userSeededText
+              .split(/\r?\n/)
+              .map((s) => s.trim())
+              .filter(Boolean);
+            const tooLong = rawLines.filter((l) => l.length > 200).length;
+            const overCount = Math.max(0, rawLines.length - 20);
+            const filteredAny = tooLong > 0 || overCount > 0;
+            return (
+              <div className="flex flex-col gap-4" data-testid="welcome-must-dos-step">
+                <label className="block">
+                  <span className="block text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-widest mb-3">
+                    Your must-dos (optional)
+                  </span>
+                  <textarea
+                    value={userSeededText}
+                    onChange={(e) => setUserSeededText(e.target.value)}
+                    placeholder={`e.g.\nCervejaria Ramiro\nSunset at Miradouro da Senhora do Monte\nTime Out Market`}
+                    rows={6}
+                    className="w-full min-h-[160px] bg-white border border-[#b8b3a9] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-[var(--text-primary)] text-base placeholder-[#9ca3af] transition-colors resize-y"
+                  />
+                </label>
+                {filteredAny && (
+                  <p
+                    data-testid="must-dos-filter-hint"
+                    className="rounded-xl border border-[#f4d49e] bg-[#fef3e2] px-3 py-2 text-xs text-[var(--text-primary)] leading-relaxed"
+                  >
+                    {tooLong > 0 && (
+                      <>
+                        {tooLong} {tooLong === 1 ? "line was" : "lines were"} too long to use — keep each one under 200 characters.
+                        {overCount > 0 ? " " : ""}
+                      </>
+                    )}
+                    {overCount > 0 && (
+                      <>Using your first 20 entries — remove one to add another.</>
+                    )}
+                  </p>
+                )}
+                <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+                  One per line. We&apos;ll place each one on a sensible day and
+                  build the rest of your trip around it. You can adjust your
+                  itinerary later from the trip page.
+                </p>
+                <p
+                  data-testid="must-dos-pii-hint"
+                  className="text-xs text-[var(--text-muted)] leading-relaxed"
+                >
+                  Heads up — what you type here goes to our AI planner. Skip
+                  personal details (phone numbers, addresses) you wouldn&apos;t
+                  share with a travel agent.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUserSeededText("");
+                    void handleContinue();
+                  }}
+                  className="self-start text-sm font-medium text-[#1a6b7f] hover:text-[#155a6b] transition-colors"
+                >
+                  Nothing yet — skip →
+                </button>
+              </div>
+            );
+          })()}
 
           {/* Step 5: AI Preview with activity cards (was step 4 pre-PHI-90) */}
           {step === 5 && (
