@@ -137,6 +137,11 @@ export default function DashboardPage() {
       const snapshot = accountToTraveler(next);
       localStorage.setItem("rise_traveler", JSON.stringify(snapshot));
       localStorage.setItem("rise_onboarded", "true");
+      // Drop trip-scoped caches so /itinerary doesn't render the previous
+      // trip's days under the new trip's header while Supabase loads.
+      localStorage.removeItem("rise_itinerary");
+      localStorage.removeItem("rise_itinerary_placement_notes");
+      localStorage.removeItem("rise_bad_day_dates");
       // Other pages cache their own derivations of rise_traveler in
       // memory; reloading ensures they all see the new selection.
       window.location.reload();
