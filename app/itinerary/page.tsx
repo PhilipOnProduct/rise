@@ -435,23 +435,24 @@ function TravelConnectorRow({ connector }: { connector: TravelConnector }) {
   }
 
   const walkSec = connector.walk_adjusted_seconds ?? connector.walk_seconds;
-  const segments: string[] = [];
+  type Segment = { icon: string; label: string; text: string };
+  const segments: Segment[] = [];
 
   // Filter out zero-duration modes — 0 means no viable route, not instant travel
   if (walkSec != null && walkSec > 0) {
-    segments.push(`🚶 ${formatDuration(walkSec)}`);
+    segments.push({ icon: "🚶", label: "Walking", text: formatDuration(walkSec) });
   }
   if (connector.transit_seconds != null && connector.transit_seconds > 0) {
-    let s = `🚇 ${formatDuration(connector.transit_seconds)}`;
-    if (connector.transit_fare) s += ` ${connector.transit_fare}`;
-    segments.push(s);
+    let text = formatDuration(connector.transit_seconds);
+    if (connector.transit_fare) text += ` ${connector.transit_fare}`;
+    segments.push({ icon: "🚇", label: "Public transit", text });
   }
   if (connector.drive_seconds != null && connector.drive_seconds > 0) {
-    if (connector.drive_meters != null && connector.drive_meters > 0) {
-      segments.push(`🚕 ~${formatDistance(connector.drive_meters)}`);
-    } else {
-      segments.push(`🚕 ${formatDuration(connector.drive_seconds)}`);
-    }
+    const text =
+      connector.drive_meters != null && connector.drive_meters > 0
+        ? `~${formatDistance(connector.drive_meters)}`
+        : formatDuration(connector.drive_seconds);
+    segments.push({ icon: "🚕", label: "Driving", text });
   }
 
   if (segments.length === 0) return null;
@@ -465,10 +466,10 @@ function TravelConnectorRow({ connector }: { connector: TravelConnector }) {
           <span className="font-semibold">Tight connection</span>
         </div>
         <div className="flex items-center gap-2 flex-wrap text-amber-600">
-          {segments.map((s, i) => (
+          {segments.map((seg, i) => (
             <span key={i}>
               {i > 0 && <span className="text-amber-300 mr-2">·</span>}
-              {s}
+              <span title={seg.label} aria-label={seg.label}>{seg.icon}</span> {seg.text}
             </span>
           ))}
         </div>
@@ -482,10 +483,10 @@ function TravelConnectorRow({ connector }: { connector: TravelConnector }) {
   // Normal state
   return (
     <div className="mx-1 my-1.5 text-xs text-[var(--text-secondary)] flex items-center gap-2 flex-wrap px-2 py-1 border-l-2 border-[#e8e4de]">
-      {segments.map((s, i) => (
+      {segments.map((seg, i) => (
         <span key={i}>
           {i > 0 && <span className="text-[#d4cfc5] mr-2">·</span>}
-          {s}
+          <span title={seg.label} aria-label={seg.label}>{seg.icon}</span> {seg.text}
         </span>
       ))}
     </div>
@@ -1898,14 +1899,21 @@ export default function ItineraryViewPage() {
                   )}
                 </button>
               ) : (
-                <span className="text-xs text-[var(--text-muted)]">
-                  Travel times calculated
-                  {connectors.some((c) => c.gap_flagged) && (
-                    <span className="text-amber-600 ml-1">
-                      · {connectors.filter((c) => c.gap_flagged).length} tight connection{connectors.filter((c) => c.gap_flagged).length !== 1 ? "s" : ""}
-                    </span>
-                  )}
-                </span>
+                <>
+                  <span className="text-xs text-[var(--text-muted)]">
+                    Travel times calculated
+                    {connectors.some((c) => c.gap_flagged) && (
+                      <span className="text-amber-600 ml-1">
+                        · {connectors.filter((c) => c.gap_flagged).length} tight connection{connectors.filter((c) => c.gap_flagged).length !== 1 ? "s" : ""}
+                      </span>
+                    )}
+                  </span>
+                  {/* PHI-81: inline legend so mobile users (no hover tooltip) can still
+                      decode the icons used in connector rows below. */}
+                  <span className="text-[11px] text-[var(--text-muted)]">
+                    🚶 walk · 🚇 transit · 🚕 drive
+                  </span>
+                </>
               )}
               {travelError && (
                 <span className="text-xs text-red-500">{travelError}</span>
