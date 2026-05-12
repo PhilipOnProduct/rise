@@ -198,6 +198,85 @@ const anchorsAreFlagged = ({ anchors, days }: ProgrammaticArgs) => {
   return { ok: true };
 };
 
+// PHI-94 — Vague free-text anchor handling.
+//
+// For vague entries (e.g. "the famous viewpoint", "that ramen spot Anthony
+// Bourdain went to"), the prompt's "use the entry text as the title
+// verbatim" rule forces two failure modes that the existing helpers can't
+// distinguish from success:
+//   - unhelpful-verbatim: item is shipped with title equal to the vague
+//     string, putting an empty container on the day.
+//   - silent hallucination: model invents a fabricated venue name to
+//     satisfy the entry (the wrong-city precedent in PHI-51 shows this
+//     risk is non-trivial).
+//
+// This helper passes when, for each verbatim vague string, either
+//   (a) RESOLVE: no placed item has a title exactly equal to the verbatim
+//       string, AND at least one seededByUser item exists with a different
+//       title (the model resolved the vague entry to a real venue), or
+//   (b) FLAG: placement_notes mentions the verbatim string (case-
+//       insensitive substring) AND uses one of the "try a specific name"
+//       / "we weren't sure" / "could be" framings.
+// Otherwise the helper fails. Note: the resolve check is intentionally
+// loose — it accepts the existence of ANY non-verbatim seededByUser item
+// rather than trying to tie it back to the specific anchor. The
+// per-anchor judgement of whether the resolution is correct lives in the
+// LLM judge criteria, where each vague entry is evaluated on its own.
+const VAGUE_FLAG_FRAMINGS: RegExp[] = [
+  /try (?:a )?(?:more )?specific name/i,
+  /be more specific/i,
+  /we(?:'| )?weren'?t sure/i,
+  /not sure (?:which|what)/i,
+  /could be (?:one of|several|any|either)/i,
+  /which (?:one|place|specific|venue|spot|of (?:these|several))/i,
+  /ambiguous/i,
+];
+
+const vagueAnchorsResolvedOrFlagged =
+  (verbatimStrings: string[]) =>
+  ({ placementNotes, flatItems, seededItems }: ProgrammaticArgs) => {
+    const notes = placementNotes ?? "";
+    const notesLower = notes.toLowerCase();
+    const failures: string[] = [];
+
+    for (const verbatim of verbatimStrings) {
+      const verbatimLower = verbatim.trim().toLowerCase();
+
+      // Unhelpful-verbatim mode: any item (not just seeded ones) titled
+      // exactly the vague entry. Reject regardless of resolve / flag —
+      // shipping the verbatim as a title is the failure mode we're
+      // probing for.
+      const verbatimTitled = flatItems.find(
+        (i) => i.title.trim().toLowerCase() === verbatimLower,
+      );
+      if (verbatimTitled) {
+        failures.push(
+          `item shipped with verbatim vague title "${verbatim}" (unhelpful-verbatim mode)`,
+        );
+        continue;
+      }
+
+      const resolved = seededItems.some(
+        (i) => i.title.trim().toLowerCase() !== verbatimLower,
+      );
+
+      const inNotes = notesLower.includes(verbatimLower);
+      const hasFramingPhrase = VAGUE_FLAG_FRAMINGS.some((re) => re.test(notes));
+      const flagged = inNotes && hasFramingPhrase;
+
+      if (!resolved && !flagged) {
+        failures.push(
+          `vague anchor "${verbatim}" was neither resolved (no seededByUser item with a non-verbatim title) nor flagged in placement_notes (must quote the verbatim AND use a "try a specific name" / "we weren't sure" / "could be" framing)`,
+        );
+      }
+    }
+
+    if (failures.length > 0) {
+      return { ok: false, reason: failures.join(" | ") };
+    }
+    return { ok: true };
+  };
+
 const TEST_CASES: TestCase[] = [
   {
     label: "PHI-90 #1: Lisbon with 3 must-dos — all three land, badged",
@@ -378,6 +457,110 @@ const TEST_CASES: TestCase[] = [
       "The trip remains in Lisbon",
     ],
   },
+  // ---------------------------------------------------------------------
+  // PHI-94 — Vague free-text anchor entries.
+  //
+  // Real traveller notes look like "that famous pastéis place" or "the
+  // viewpoint with the painted tiles", not like "Pastéis de Belém". The
+  // PHI-90 prompt's "use the entry text as the title verbatim" rule
+  // creates two failure modes on vague input — silent hallucination
+  // (inventing a fabricated venue) and unhelpful-verbatim (shipping the
+  // vague text as a title). These cases probe both. Pass condition for
+  // each case: the generator either RESOLVES the vague entry to a real,
+  // recognisable in-destination venue (placed with seededByUser=true,
+  // title NOT equal to the verbatim) OR FLAGS the ambiguity in
+  // placement_notes by quoting the verbatim and asking the user for a
+  // more specific name.
+  // ---------------------------------------------------------------------
+  {
+    label: "PHI-94 #6: Lisbon — vague pastéis + vague viewpoint resolve OR flag",
+    request: {
+      destination: "Lisbon",
+      departureDate: "2026-09-14",
+      returnDate: "2026-09-17",
+      hotel: "Pousada de Lisboa",
+      travelCompany: "partner",
+      travelerTypes: ["Cultural", "Food-led"],
+      budgetTier: "comfortable",
+      travelerCount: 2,
+      childrenAges: null,
+      userSeededActivities: [
+        "that famous pastéis place",
+        "the viewpoint with the painted tiles",
+      ],
+    },
+    programmatic: [
+      tripStaysInDestination,
+      vagueAnchorsResolvedOrFlagged([
+        "that famous pastéis place",
+        "the viewpoint with the painted tiles",
+      ]),
+    ],
+    judgeCriteria: [
+      "For each vague entry, the generator either places a real, in-destination venue (whose title is NOT the verbatim vague text) OR surfaces the ambiguity in placement_notes by quoting the vague text and asking the user for a specific name. Inventing a fabricated venue name = fail.",
+      "If venues were resolved, they are well-known Lisbon spots — pastéis de nata at a real bakery (Pastéis de Belém, Manteigaria, or similar); a real Lisbon viewpoint with a verifiable name (Miradouro da Senhora do Monte, Miradouro de Santa Catarina, or similar). The resolution must be a place a Lisbon resident would recognise — not a plausible-sounding invention.",
+      "No item title is the verbatim vague string ('that famous pastéis place' or 'the viewpoint with the painted tiles')",
+      "The trip remains in Lisbon — no items from other cities",
+    ],
+  },
+  {
+    label: "PHI-94 #7: Tokyo — vague Bourdain ramen reference resolves OR flags ambiguity",
+    request: {
+      destination: "Tokyo",
+      departureDate: "2026-10-12",
+      returnDate: "2026-10-16",
+      hotel: "Aman Tokyo",
+      travelCompany: "partner",
+      travelerTypes: ["Food-led"],
+      budgetTier: "luxury",
+      travelerCount: 2,
+      childrenAges: null,
+      userSeededActivities: [
+        "that ramen spot Anthony Bourdain went to",
+      ],
+    },
+    programmatic: [
+      tripStaysInDestination,
+      vagueAnchorsResolvedOrFlagged([
+        "that ramen spot Anthony Bourdain went to",
+      ]),
+    ],
+    judgeCriteria: [
+      "For the vague Bourdain reference, the generator either places a real Tokyo ramen shop (whose title is NOT 'that ramen spot Anthony Bourdain went to') OR surfaces the ambiguity in placement_notes by quoting the vague text and asking the user for specifics (Bourdain visited several ramen spots in Tokyo). A fabricated ramen shop name = fail.",
+      "If a venue was resolved, it is a real, verifiable Tokyo ramen shop a Tokyo resident would recognise — not a plausible-sounding invention",
+      "No item title is the verbatim vague string",
+      "The trip remains a Tokyo plan and respects the luxury budget",
+    ],
+  },
+  {
+    label: "PHI-94 #8: Lisbon — vague 'the famous viewpoint' resolves OR flags ambiguity",
+    request: {
+      destination: "Lisbon",
+      departureDate: "2026-09-14",
+      returnDate: "2026-09-17",
+      hotel: "Pousada de Lisboa",
+      travelCompany: "partner",
+      travelerTypes: ["Cultural"],
+      budgetTier: "comfortable",
+      travelerCount: 2,
+      childrenAges: null,
+      userSeededActivities: [
+        "the famous viewpoint",
+      ],
+    },
+    programmatic: [
+      tripStaysInDestination,
+      vagueAnchorsResolvedOrFlagged([
+        "the famous viewpoint",
+      ]),
+    ],
+    judgeCriteria: [
+      "For the vague 'famous viewpoint' entry, the generator either picks a specific Lisbon viewpoint with a real name (Miradouro da Senhora do Monte, Miradouro de Santa Catarina, Miradouro de São Pedro de Alcântara, or similar) OR surfaces the ambiguity in placement_notes (Lisbon has several famous viewpoints) by quoting the vague text and asking the user to pick one. A fabricated viewpoint name = fail.",
+      "If a venue was resolved, it is a real, verifiable Lisbon viewpoint a Lisbon resident would recognise",
+      "No item title is the verbatim vague string 'the famous viewpoint'",
+      "The trip remains in Lisbon",
+    ],
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -463,6 +646,8 @@ ${response.placement_notes ?? "(none)"}
 ${criteriaList}
 
 Evaluate each criterion strictly. Anchors must never be silently dropped — if a must-do isn't placed AND isn't explained in placement_notes, that's a hard fail.
+
+For vague, free-text anchor entries (entries that don't name a specific venue — e.g. "the famous viewpoint", "that ramen spot Anthony Bourdain went to", "the museum with the painted tiles", "that famous pastéis place"), the resolve-OR-flag rule applies: the generator must EITHER (a) resolve the entry to a real, in-destination venue whose title is a recognisable, verifiable name (NOT the verbatim vague text) and place it with seededByUser=true, OR (b) surface the ambiguity in placement_notes by quoting the vague text and asking the user for a more specific name (framings like "try a specific name" / "we weren't sure" / "could be one of several"). Both of the following are hard fails: inventing a fabricated venue name to satisfy the entry; shipping an item whose title is the verbatim vague text. When judging a resolved venue, ask whether a resident of that destination would recognise the name as a real place — if not, that's a hallucination.
 
 Respond with valid JSON only, no markdown, in this exact shape:
 {
