@@ -28,6 +28,7 @@
  */
 
 import Anthropic from "@anthropic-ai/sdk";
+import type { TripLeg } from "../lib/trip-schema";
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const BASE_URL = process.env.EVAL_BASE_URL ?? "http://localhost:3000";
@@ -86,6 +87,10 @@ type GenerateRequest = {
   travelerCount?: number | null;
   childrenAges?: string[] | null;
   userSeededActivities: string[];
+  // PHI-95: multi-leg trips ship the legs[] array alongside destination
+  // (which still pins the first leg). The route uses leg_index on each
+  // returned day to tag which leg the day belongs to.
+  legs?: TripLeg[];
 };
 
 type TestCase = {
@@ -140,6 +145,11 @@ type Day = {
   date: string;
   day_number: number;
   items: Item[];
+  // PHI-95: multi-leg responses carry leg_index (0-indexed into the
+  // request's legs[]) and is_transition (true on the travel day between
+  // consecutive legs). Absent on single-leg responses.
+  leg_index?: number;
+  is_transition?: boolean;
 };
 
 // Programmatic check helpers — share across cases.
@@ -222,6 +232,55 @@ const anchorsAreFlagged = ({ anchors, days }: ProgrammaticArgs) => {
   }
   return { ok: true };
 };
+
+// PHI-95 — Multi-leg per-leg anchor routing.
+//
+// The Okafors honeymoon archetype (Tokyo → Kyoto → Seoul) lands per-leg
+// anchors and asks the prompt to route each anchor onto the correct leg.
+// The model currently has no explicit instruction to pin anchors to legs;
+// this helper probes whether world knowledge alone is enough to keep
+// "Sushi Saito" on Tokyo and "DMZ tour" on Seoul.
+//
+// Per anchor, the helper looks for items whose title matches the verbatim
+// (case-insensitive substring, same matching style as anchorsAreFlagged).
+//   - No match found → defer (allAnchorsPlacedOrNoted catches the
+//     placed-or-noted distinction; per the PRD, an anchor surfaced only
+//     in placement_notes is acceptable and not a leg-routing failure).
+//   - Match found AND day.leg_index !== expectedLegIndex → hard fail.
+//   - Match found AND day.leg_index === expectedLegIndex → pass.
+//
+// Multiple matches across days are all checked — any wrong-leg placement
+// trips the failure.
+const anchorsLandInExpectedLeg =
+  (map: Array<{ anchor: string; expectedLegIndex: number }>) =>
+  ({ days }: ProgrammaticArgs) => {
+    for (const { anchor, expectedLegIndex } of map) {
+      const a = anchor.toLowerCase();
+      const matchingDays = days.filter((d) =>
+        d.items.some(
+          (i) =>
+            i.title.toLowerCase().includes(a) || a.includes(i.title.toLowerCase()),
+        ),
+      );
+      if (matchingDays.length === 0) continue; // deferred to allAnchorsPlacedOrNoted
+      for (const day of matchingDays) {
+        if (day.leg_index !== expectedLegIndex) {
+          const placedItem = day.items.find(
+            (i) =>
+              i.title.toLowerCase().includes(a) ||
+              a.includes(i.title.toLowerCase()),
+          );
+          const actualLeg =
+            typeof day.leg_index === "number" ? String(day.leg_index) : "undefined";
+          return {
+            ok: false,
+            reason: `anchor "${anchor}" placed on day ${day.day_number} with leg_index ${actualLeg} (expected ${expectedLegIndex}); placed as "${placedItem?.title ?? "?"}"`,
+          };
+        }
+      }
+    }
+    return { ok: true };
+  };
 
 // PHI-94 — Vague free-text anchor handling.
 //
@@ -632,6 +691,77 @@ const TEST_CASES: TestCase[] = [
       "The trip remains in Lisbon",
     ],
   },
+  // ---------------------------------------------------------------------
+  // PHI-95 — Multi-leg per-leg anchor routing (Okafors honeymoon archetype).
+  //
+  // Tokyo → Kyoto → Seoul. Each anchor is clearly tied to its city by world
+  // knowledge (Sushi Saito is a Tokyo restaurant; Fushimi Inari is a Kyoto
+  // shrine; the DMZ tour departs from Seoul). The eval probes whether
+  // anchor-to-leg routing survives without an explicit prompt instruction.
+  // The model can either route correctly (programmatic + judge both pass)
+  // or surface the ambiguity in placement_notes (allAnchorsPlacedOrNoted
+  // accepts a flag-only outcome; anchorsLandInExpectedLeg only fails when
+  // the anchor IS placed and lands on the wrong leg). Silent wrong-leg =
+  // hard fail.
+  // ---------------------------------------------------------------------
+  {
+    label: "PHI-95 #9: Okafors honeymoon Tokyo → Kyoto → Seoul — per-leg anchors land on the right leg",
+    request: {
+      // The route still requires `destination` (first leg's name) alongside
+      // legs[] — mirrors the welcome page's multi-leg POST shape.
+      destination: "Tokyo",
+      departureDate: "2026-10-12",
+      returnDate: "2026-10-21",
+      legs: [
+        {
+          id: "leg-tokyo",
+          place: { name: "Tokyo" },
+          hotel: "Aman Tokyo",
+          startDate: "2026-10-12",
+          endDate: "2026-10-15",
+        },
+        {
+          id: "leg-kyoto",
+          place: { name: "Kyoto" },
+          hotel: "The Ritz-Carlton Kyoto",
+          startDate: "2026-10-15",
+          endDate: "2026-10-18",
+        },
+        {
+          id: "leg-seoul",
+          place: { name: "Seoul" },
+          hotel: "Four Seasons Seoul",
+          startDate: "2026-10-18",
+          endDate: "2026-10-21",
+        },
+      ],
+      travelCompany: "partner",
+      travelerTypes: ["Food-led", "Cultural", "Romantic"],
+      budgetTier: "luxury",
+      travelerCount: 2,
+      childrenAges: null,
+      userSeededActivities: [
+        "Sushi Saito splurge dinner",
+        "Fushimi Inari shrine",
+        "DMZ tour",
+      ],
+    },
+    programmatic: [
+      allAnchorsPlacedOrNoted,
+      anchorsAreFlagged,
+      anchorsLandInExpectedLeg([
+        { anchor: "Sushi Saito splurge dinner", expectedLegIndex: 0 }, // Tokyo
+        { anchor: "Fushimi Inari shrine", expectedLegIndex: 1 }, // Kyoto
+        { anchor: "DMZ tour", expectedLegIndex: 2 }, // Seoul
+      ]),
+    ],
+    judgeCriteria: [
+      "Each user-seeded anchor lands on a day whose leg_index matches the city the anchor belongs to in real life — or is flagged in placement_notes with an explanation",
+      "No anchor lands on a transition day (is_transition: true) — anchors are real activities, not travel",
+      "The full trip respects the multi-leg structure — exactly one transition day between consecutive legs, leg_index on every day",
+      "Each leg's content is specific to that city — no cross-leg activities (no Kyoto items on Tokyo days, no Seoul items on Kyoto days, etc.)",
+    ],
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -682,6 +812,9 @@ async function judgeWithLlm(
     .map((c, i) => `${i + 1}. ${c}`)
     .join("\n");
 
+  // PHI-95: surface leg_index / is_transition in the items dump for
+  // multi-leg cases so the judge can score the leg-routing criterion.
+  const isMultiLeg = Array.isArray(testCase.request.legs) && testCase.request.legs.length >= 2;
   const flatItems = response.days
     .flatMap((d) =>
       d.items.map((i) => ({
@@ -690,12 +823,17 @@ async function judgeWithLlm(
         title: i.title,
         description: i.description,
         seededByUser: i.seededByUser === true,
+        leg_index: d.leg_index,
+        is_transition: d.is_transition === true,
       })),
     )
-    .map(
-      (i) =>
-        `Day ${i.day}, ${i.block}: ${i.title}${i.seededByUser ? " [ANCHOR]" : ""} — ${i.description}`,
-    )
+    .map((i) => {
+      const legTag =
+        typeof i.leg_index === "number"
+          ? ` [leg ${i.leg_index}${i.is_transition ? ", transition" : ""}]`
+          : "";
+      return `Day ${i.day}${legTag}, ${i.block}: ${i.title}${i.seededByUser ? " [ANCHOR]" : ""} — ${i.description}`;
+    })
     .join("\n");
 
   const resolutionsBlock = Array.isArray(response.seeded_anchor_resolutions)
@@ -708,16 +846,35 @@ async function judgeWithLlm(
         .join("\n")
     : "(none)";
 
+  // PHI-95: when the case is multi-leg, replace the single Destination
+  // line with a Legs block so the judge knows which leg_index maps to
+  // which city, and prepend a one-sentence preamble flagging the
+  // leg-routing dimension.
+  const destinationBlock = isMultiLeg
+    ? `Multi-leg trip — legs (in order):\n${testCase.request.legs!
+        .map((l, i) => {
+          const dates =
+            l.startDate && l.endDate ? `, ${l.startDate} → ${l.endDate}` : "";
+          const hotel = l.hotel ? `, hotel: ${l.hotel}` : "";
+          return `  [leg ${i}] ${l.place?.name ?? "?"}${dates}${hotel}`;
+        })
+        .join("\n")}`
+    : `Destination: ${testCase.request.destination}`;
+
+  const multiLegPreamble = isMultiLeg
+    ? "\n\nThis is a multi-leg trip; assess leg routing alongside the usual anchor rules — anchors should land on a day whose leg_index matches the city the anchor belongs to (or be flagged in placement_notes when ambiguous)."
+    : "";
+
   const result = await client.messages.create({
     model: "claude-sonnet-4-6",
     max_tokens: 1024,
     messages: [
       {
         role: "user",
-        content: `You are evaluating whether an AI trip planner respected user-seeded anchors when generating an itinerary.
+        content: `You are evaluating whether an AI trip planner respected user-seeded anchors when generating an itinerary.${multiLegPreamble}
 
 ## Context
-Destination: ${testCase.request.destination}
+${destinationBlock}
 Trip dates: ${testCase.request.departureDate} → ${testCase.request.returnDate}
 User-seeded must-dos: ${testCase.request.userSeededActivities.map((a) => `"${a}"`).join(", ")}
 
