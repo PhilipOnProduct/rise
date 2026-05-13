@@ -7,6 +7,7 @@ import { fetchForecast, badDayDates } from "@/lib/weather";
 import { geocodeCity } from "@/lib/travel-connectors";
 import {
   buildItineraryGenPrompt,
+  cleanUserSeededActivities,
   type ItineraryGenFeedbackEntry,
 } from "@/lib/itinerary-gen-prompt";
 import type { TripLeg } from "@/lib/trip-schema";
@@ -122,11 +123,9 @@ export async function POST(req: NextRequest) {
 
   // PHI-90: only switch the response into "anchors mode" (object shape with
   // placement_notes) when the caller actually supplied non-empty entries.
-  const cleanedSeeds = Array.isArray(userSeededActivities)
-    ? userSeededActivities
-        .map((s) => (typeof s === "string" ? s.trim() : ""))
-        .filter((s) => s.length > 0)
-    : [];
+  // PHI-97: canonical cleaner enforces the 20 × 200-char cap for direct API
+  // callers so a runaway payload can't poison the prompt.
+  const cleanedSeeds = cleanUserSeededActivities(userSeededActivities);
   const hasAnchors = cleanedSeeds.length > 0;
 
   const prompt = buildItineraryGenPrompt({

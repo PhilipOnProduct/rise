@@ -105,6 +105,23 @@ export function buildFeedbackSegment(feedback: ItineraryGenFeedbackEntry[]): str
   return parts.length ? `\n\n${parts.join("\n\n")}` : "";
 }
 
+// ── PHI-97: canonical user-seeded-activities cleaner ─────────────────────
+//
+// Single source of truth for the 20 × 200-char cap on user-seeded must-dos.
+// Used by the welcome wizard (textarea splitter) and the three server entry
+// points (POST/PATCH /api/travelers, POST /api/itinerary/generate) so a
+// direct API call gets the same forgiveness the wizard does — silently
+// truncate, never reject. Empty array when the input is missing/null/non-
+// array; always slice(0, 20); always filter length > 0 && <= 200.
+export function cleanUserSeededActivities(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .filter((s): s is string => typeof s === "string")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0 && s.length <= 200)
+    .slice(0, 20);
+}
+
 // ── PHI-90: user-seeded anchor segment ───────────────────────────────────
 //
 // Modelled on lib/composition.ts: build a structured block off of typed user

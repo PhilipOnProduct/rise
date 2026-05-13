@@ -9,6 +9,7 @@ import { newLegId, type PlaceRef, type TripLeg } from "@/lib/trip-schema";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { getHotelPlaceholder } from "@/lib/hotel-placeholders";
 import type { NeighborhoodCard } from "@/lib/neighborhood-gen-prompt";
+import { cleanUserSeededActivities } from "@/lib/itinerary-gen-prompt";
 
 // PHI-90: Step 4 ("Anything you already want to do?") sits between
 // preferences (3) and the AI activity preview (now 5). Account creation
@@ -164,20 +165,12 @@ function addDays(dateStr: string, days: number) {
 
 /**
  * PHI-90 — split the free-text must-dos textarea into a clean string array.
- *
- * Splits on newlines, trims, drops blanks and runaway-long entries (>200 chars
- * is "user pasted a paragraph", not "user listed a must-do"). Caps the list
- * at 20 items so a paste accident doesn't blow up the prompt. The same
- * shape is used for the textarea round-trip, the API call, and the local
- * snapshot — having one canonical splitter keeps them aligned.
+ * PHI-97 — now a thin wrapper around the canonical `cleanUserSeededActivities`
+ * helper so the wizard, the three server routes, and any future client share
+ * one implementation of the 20 × 200-char cap.
  */
 function splitSeededActivities(raw: string): string[] {
-  if (!raw) return [];
-  return raw
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0 && line.length <= 200)
-    .slice(0, 20);
+  return cleanUserSeededActivities(raw ? raw.split(/\r?\n/) : []);
 }
 
 /**

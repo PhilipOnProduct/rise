@@ -8,6 +8,7 @@ import {
   type TripLeg,
   validateTrip,
 } from "@/lib/trip-schema";
+import { cleanUserSeededActivities } from "@/lib/itinerary-gen-prompt";
 
 // PHI-61: the welcome flow creates and updates traveler rows BEFORE the
 // magic link is clicked, so neither POST nor PATCH can rely on a Supabase
@@ -148,18 +149,12 @@ export async function POST(req: NextRequest) {
         : {}),
       // PHI-90 — only include the column when the client sent a non-empty
       // list, so legacy callers and grandfathered POSTs don't write null
-      // arrays into the new column.
-      ...(Array.isArray(userSeededActivities) &&
-      userSeededActivities.some(
-        (s: unknown) => typeof s === "string" && s.trim().length > 0,
-      )
-        ? {
-            user_seeded_activities: (userSeededActivities as unknown[])
-              .filter((s): s is string => typeof s === "string")
-              .map((s) => s.trim())
-              .filter((s) => s.length > 0),
-          }
-        : {}),
+      // arrays into the new column. PHI-97: use the canonical cleaner so
+      // direct API callers get the same 20 × 200-char cap the wizard does.
+      ...((): Record<string, unknown> => {
+        const cleaned = cleanUserSeededActivities(userSeededActivities);
+        return cleaned.length > 0 ? { user_seeded_activities: cleaned } : {};
+      })(),
       // PHI-100 — only persist when supplied as a non-empty trimmed string.
       ...(typeof anchorNeighborhood === "string" && anchorNeighborhood.trim().length > 0
         ? { anchor_neighborhood: anchorNeighborhood.trim() }
@@ -263,16 +258,11 @@ export async function PATCH(req: NextRequest) {
   // null so we don't leave an empty array sitting on the row. Caller
   // doesn't need to send the field if they aren't changing it; undefined
   // skips the assignment entirely.
+  // PHI-97: canonical cleaner enforces the 20 × 200-char cap for direct
+  // API callers, matching the wizard textarea.
   if (userSeededActivities !== undefined) {
-    if (Array.isArray(userSeededActivities)) {
-      const cleaned = (userSeededActivities as unknown[])
-        .filter((s): s is string => typeof s === "string")
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0);
-      updates.user_seeded_activities = cleaned.length > 0 ? cleaned : null;
-    } else {
-      updates.user_seeded_activities = null;
-    }
+    const cleaned = cleanUserSeededActivities(userSeededActivities);
+    updates.user_seeded_activities = cleaned.length > 0 ? cleaned : null;
   }
   // PHI-100: explicit null clears the anchor; a trimmed string sets it.
   // undefined skips the column entirely so re-saves of unrelated fields
