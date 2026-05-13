@@ -43,6 +43,10 @@ export async function POST(req: NextRequest) {
     // legs is missing or has length <=1, the existing single-leg path
     // runs unchanged (backward compatible).
     legs,
+    // PHI-100: optional soft area anchor from welcome step 2. Surfaced
+    // only on single-leg trips. Backward compatible — null/missing keeps
+    // the prompt byte-identical to pre-PHI-100.
+    anchorNeighborhood,
   } = (await req.json()) as {
     destination?: string;
     departureDate?: string;
@@ -56,6 +60,7 @@ export async function POST(req: NextRequest) {
     constraintText?: string;
     inspiration?: string;
     legs?: TripLeg[];
+    anchorNeighborhood?: string | null;
   };
 
   // Hard limit check
@@ -79,6 +84,10 @@ export async function POST(req: NextRequest) {
     constraintText,
     inspiration,
     legs,
+    anchorNeighborhood:
+      typeof anchorNeighborhood === "string" && anchorNeighborhood.trim().length > 0
+        ? anchorNeighborhood.trim()
+        : null,
   });
   const isMultiLeg = Array.isArray(legs) && legs.length >= 2;
 
@@ -174,6 +183,13 @@ export async function POST(req: NextRequest) {
             travelerCount: travelerCount ?? null,
             childrenAges: childrenAges ?? null,
             legs: isMultiLeg ? legs : null,
+            // PHI-100: log the anchor when set so ai_logs reflects whether
+            // the call was hotel-anchored (none here today), neighbourhood-
+            // anchored, or anchor-less.
+            anchorNeighborhood:
+              typeof anchorNeighborhood === "string" && anchorNeighborhood.trim().length > 0
+                ? anchorNeighborhood.trim()
+                : null,
           },
           output,
           latency_ms: Date.now() - startTime,

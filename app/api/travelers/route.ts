@@ -99,6 +99,12 @@ export async function POST(req: NextRequest) {
     // build time and inject them as anchors. Backward compatible — null/
     // empty means existing behaviour unchanged.
     userSeededActivities,
+    // PHI-100: optional neighbourhood the traveller picked from the soft
+    // neighbourhood picker on welcome step 2 when they had no booked hotel.
+    // Used downstream as a soft location anchor in activity-gen / itinerary-
+    // gen prompts. Null = picker not used; the existing hotel path still owns
+    // the location signal.
+    anchorNeighborhood,
   } = body;
 
   const derived = deriveLegs(body);
@@ -154,6 +160,10 @@ export async function POST(req: NextRequest) {
               .filter((s) => s.length > 0),
           }
         : {}),
+      // PHI-100 — only persist when supplied as a non-empty trimmed string.
+      ...(typeof anchorNeighborhood === "string" && anchorNeighborhood.trim().length > 0
+        ? { anchor_neighborhood: anchorNeighborhood.trim() }
+        : {}),
     })
     .select()
     .single();
@@ -208,6 +218,9 @@ export async function PATCH(req: NextRequest) {
     // PHI-90: partial update path. When the user advances past the
     // must-dos step we PATCH the array onto the existing row.
     userSeededActivities,
+    // PHI-100: PATCH the chosen neighbourhood when the soft picker is used
+    // on welcome step 2. Explicit null clears the field; undefined skips it.
+    anchorNeighborhood,
   } = body;
 
   if (!id) {
@@ -260,6 +273,15 @@ export async function PATCH(req: NextRequest) {
     } else {
       updates.user_seeded_activities = null;
     }
+  }
+  // PHI-100: explicit null clears the anchor; a trimmed string sets it.
+  // undefined skips the column entirely so re-saves of unrelated fields
+  // never overwrite the anchor.
+  if (anchorNeighborhood !== undefined) {
+    updates.anchor_neighborhood =
+      typeof anchorNeighborhood === "string" && anchorNeighborhood.trim().length > 0
+        ? anchorNeighborhood.trim()
+        : null;
   }
 
   // PHI-33 PR2: trip-shape updates go through deriveLegs so we always end

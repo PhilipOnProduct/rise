@@ -41,6 +41,14 @@ export type ItineraryGenInputs = {
    * no anchors block, existing behaviour unchanged.
    */
   userSeededActivities?: string[] | null;
+  /**
+   * PHI-100 — soft area anchor from the welcome step-2 neighbourhood
+   * picker. Only consulted when `hotel` is null. When set, the generator
+   * uses it as a base-area hint (final-day evening near here, walking-
+   * distance bias for nearby slots) without inventing hotel-proximity
+   * claims. Multi-leg trips ignore this — per-leg hotels carry the signal.
+   */
+  anchorNeighborhood?: string | null;
 };
 
 // ── Activity-feedback segment ─────────────────────────────────────────────
@@ -211,6 +219,7 @@ export function buildItineraryGenPrompt(args: ItineraryGenInputs): string {
     inspiration,
     legs,
     userSeededActivities,
+    anchorNeighborhood,
   } = args;
 
   const nights = Math.round(
@@ -221,7 +230,20 @@ export function buildItineraryGenPrompt(args: ItineraryGenInputs): string {
   const styleStr = travelerTypes?.length ? `Travel style: ${travelerTypes.join(", ")}.` : "";
   const companyStr = travelCompany ? `Travelling: ${travelCompany}.` : "";
   const budgetStr = budgetTier ? `Budget tier: ${budgetTier}.` : "";
-  const hotelStr = hotel ? `Staying at: ${hotel}.` : "";
+  // PHI-100: hotel is the strong location signal; the neighbourhood anchor
+  // is only used when no hotel is set, and only on single-leg trips
+  // (multi-leg per-leg hotels already carry the signal).
+  const trimmedAnchor =
+    typeof anchorNeighborhood === "string" ? anchorNeighborhood.trim() : "";
+  const useAnchor =
+    trimmedAnchor.length > 0 &&
+    !hotel &&
+    !(Array.isArray(legs) && legs.length >= 2);
+  const hotelStr = hotel
+    ? `Staying at: ${hotel}.`
+    : useAnchor
+      ? `Based in: ${trimmedAnchor} neighbourhood (no specific hotel — treat this as a soft area anchor; do NOT fabricate hotel-proximity claims).`
+      : "";
 
   const feedbackSegment = buildFeedbackSegment(activityFeedback ?? []);
   const composition = buildCompositionSegment(travelerCount, childrenAges);
@@ -347,7 +369,7 @@ Rules:
     isMultiLeg ? " (skip on transition days)" : ""
   }
 - Day 1 morning: arrival/orientation activity
-- Final day evening: something easy near ${hotel ? hotel : "the accommodation"}
+- Final day evening: something easy near ${hotel ? hotel : useAnchor ? `the ${trimmedAnchor} area` : "the accommodation"}
 - Be specific to ${isMultiLeg ? "each leg" : destination} — no generic suggestions
 - Keep descriptions under 20 words
 - id must be unique across all days (e.g. "day1-morning-1")

@@ -89,6 +89,10 @@ export async function POST(req: NextRequest) {
     // to the pre-PHI-90 shape and the existing schema (bare array of days)
     // is returned.
     userSeededActivities,
+    // PHI-100: optional soft area anchor from the welcome step-2 picker.
+    // Only consulted by the prompt when `hotel` is null and the trip is
+    // single-leg. Backward compatible — null/missing = pre-PHI-100 shape.
+    anchorNeighborhood,
   } = (await req.json()) as {
     destination?: string;
     departureDate?: string;
@@ -103,6 +107,7 @@ export async function POST(req: NextRequest) {
     inspiration?: string;
     legs?: TripLeg[];
     userSeededActivities?: string[];
+    anchorNeighborhood?: string | null;
   };
 
   if (!destination || !departureDate || !returnDate) {
@@ -138,6 +143,10 @@ export async function POST(req: NextRequest) {
     inspiration: inspiration ?? null,
     legs: legs ?? null,
     userSeededActivities: hasAnchors ? cleanedSeeds : null,
+    anchorNeighborhood:
+      typeof anchorNeighborhood === "string" && anchorNeighborhood.trim().length > 0
+        ? anchorNeighborhood.trim()
+        : null,
   });
 
   const isMultiLeg = Array.isArray(legs) && legs.length >= 2;
@@ -225,6 +234,13 @@ export async function POST(req: NextRequest) {
         // PHI-90: surface the anchors in ai_logs so Philip can inspect
         // exactly what the prompt received vs. what the model placed.
         userSeededActivities: hasAnchors ? cleanedSeeds : null,
+        // PHI-100: surface the soft area anchor when supplied so ai_logs
+        // shows whether the prompt was hotel-anchored or neighbourhood-
+        // anchored on a per-call basis.
+        anchorNeighborhood:
+          typeof anchorNeighborhood === "string" && anchorNeighborhood.trim().length > 0
+            ? anchorNeighborhood.trim()
+            : null,
       },
       output: jsonStr,
       latency_ms: Date.now() - startTime,

@@ -161,6 +161,13 @@ export type ActivityGenInputs = {
    */
   inspiration?: string;
   legs?: TripLeg[];
+  /**
+   * PHI-100: optional soft area anchor from the welcome step-2 picker.
+   * Surfaced only on single-leg trips (multi-leg per-leg hotels carry the
+   * signal). Treated as a soft hint — the model never fabricates hotel-
+   * proximity claims off it.
+   */
+  anchorNeighborhood?: string | null;
 };
 
 const COMPANY_LABEL: Record<string, string> = {
@@ -198,6 +205,7 @@ export function buildActivityGenUserMessage(args: ActivityGenInputs): string {
     constraintText,
     inspiration,
     legs,
+    anchorNeighborhood,
   } = args;
 
   const nights =
@@ -327,9 +335,20 @@ export function buildActivityGenUserMessage(args: ActivityGenInputs): string {
     }
   }
 
+  // PHI-100: soft area anchor — single-leg only. Multi-leg trips already
+  // carry hotels per leg in the legsBlock; mixing in a single neighbourhood
+  // anchor would conflict. Hallucination guard mirrors the per-leg hotel
+  // rule: don't fabricate hotel-proximity claims off a neighbourhood name.
+  const trimmedAnchor =
+    typeof anchorNeighborhood === "string" ? anchorNeighborhood.trim() : "";
+  const anchorBlock =
+    trimmedAnchor.length > 0 && !isMultiLeg
+      ? `\n\nBased in: ${trimmedAnchor} neighbourhood (no specific hotel — soft area anchor only). You MAY reference walking distance from the ${trimmedAnchor} area in the Why line when genuinely relevant; NEVER invent a hotel name or hotel-proximity claim.`
+      : "";
+
   return (
     `${headline}${profileBlock}${legsBlock}\n` +
     `Budget: ${BUDGET_LABEL[budgetTier ?? "comfortable"] ?? "comfortable"}. Style: ${styleList.join(", ")}.\n` +
-    `Every suggestion must genuinely suit this profile — not generic activities any visitor might do.${reminderBlock}${inspirationBlock}${atlasBlock}`
+    `Every suggestion must genuinely suit this profile — not generic activities any visitor might do.${reminderBlock}${inspirationBlock}${atlasBlock}${anchorBlock}`
   );
 }

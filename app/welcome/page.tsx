@@ -8,6 +8,7 @@ import type { TripIntent } from "@/lib/trip-intent";
 import { newLegId, type PlaceRef, type TripLeg } from "@/lib/trip-schema";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { getHotelPlaceholder } from "@/lib/hotel-placeholders";
+import type { NeighborhoodCard } from "@/lib/neighborhood-gen-prompt";
 
 // PHI-90: Step 4 ("Anything you already want to do?") sits between
 // preferences (3) and the AI activity preview (now 5). Account creation
@@ -603,6 +604,20 @@ function WelcomePageInner() {
   const [returnDate, setReturnDate] = useState("");
   const [hotel, setHotel] = useState("");
 
+  // PHI-100: soft neighbourhood picker on step 2. When the traveller hasn't
+  // booked a hotel they can opt into picking a neighbourhood instead.
+  // `neighborhoodPickerOpen` swaps the hotel input area for the cards.
+  // Selecting one fills `anchorNeighborhood` and continues to step 3 —
+  // downstream activity-gen / itinerary-gen receive it as a soft area
+  // anchor when no hotel is set. No Anthropic call fires until the user
+  // explicitly opens the picker; cards are cached per visit so reopening
+  // doesn't re-bill.
+  const [neighborhoodPickerOpen, setNeighborhoodPickerOpen] = useState(false);
+  const [neighborhoodCards, setNeighborhoodCards] = useState<NeighborhoodCard[]>([]);
+  const [neighborhoodsLoading, setNeighborhoodsLoading] = useState(false);
+  const [neighborhoodsError, setNeighborhoodsError] = useState<string | null>(null);
+  const [anchorNeighborhood, setAnchorNeighborhood] = useState("");
+
   // Preferences (Step 3)
   const [travelCompany, setTravelCompany] = useState("");
   const [adultCount, setAdultCount] = useState(2);
@@ -964,6 +979,8 @@ function WelcomePageInner() {
             constraintText: constraintText.trim() || null,
             // PHI-51: optional creative-inspiration soft bias.
             inspiration: inspiration.trim() || null,
+            // PHI-100: soft area anchor when no hotel is set.
+            anchorNeighborhood: anchorNeighborhood || null,
             ...(legsForApi && { legs: legsForApi }),
           }),
         });
@@ -1069,6 +1086,8 @@ function WelcomePageInner() {
             // how the textarea was filled in. Empty list = no anchors,
             // generator behaves as before.
             userSeededActivities: splitSeededActivities(userSeededText),
+            // PHI-100: soft area anchor when no hotel is set.
+            anchorNeighborhood: anchorNeighborhood || null,
             ...(legsForApi && { legs: legsForApi }),
           }),
         });
@@ -1548,6 +1567,49 @@ function WelcomePageInner() {
     goTo(4);
   }
 
+  // PHI-100: open the soft neighbourhood picker. No Anthropic call on
+  // mount of step 2 — only here, on explicit user click. Idempotent: if
+  // we already have cards for the current destination we skip the fetch.
+  async function openNeighborhoodPicker() {
+    const dest = destination.trim();
+    if (!dest) return;
+    setNeighborhoodPickerOpen(true);
+    setNeighborhoodsError(null);
+    if (neighborhoodCards.length > 0) return;
+    setNeighborhoodsLoading(true);
+    try {
+      const res = await fetch("/api/neighborhoods", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ destination: dest }),
+      });
+      if (!res.ok) {
+        setNeighborhoodsError("Couldn't load neighbourhoods. Try again?");
+        return;
+      }
+      const data = (await res.json()) as { neighborhoods?: NeighborhoodCard[] };
+      if (Array.isArray(data.neighborhoods) && data.neighborhoods.length > 0) {
+        setNeighborhoodCards(data.neighborhoods);
+      } else {
+        setNeighborhoodsError("No neighbourhoods returned. Try again?");
+      }
+    } catch {
+      setNeighborhoodsError("Couldn't load neighbourhoods. Try again?");
+    } finally {
+      setNeighborhoodsLoading(false);
+    }
+  }
+
+  // PHI-100: pick a neighbourhood card. Hotel and anchor are mutually
+  // exclusive — choosing a neighbourhood clears any half-typed hotel,
+  // mirroring the skip link's behaviour.
+  function pickNeighborhood(name: string) {
+    setAnchorNeighborhood(name);
+    setHotel("");
+    setNeighborhoodPickerOpen(false);
+    void handleContinue();
+  }
+
   // PHI-90: PATCH the must-dos onto the traveler row when leaving step 4.
   // Best-effort partial write — if the row isn't created yet (rare —
   // savePreferencesToDb at step 3 creates it), we silently skip and the
@@ -1583,6 +1645,10 @@ function WelcomePageInner() {
             budgetTier: budgetTier || null,
             travelerCount: adultCount + childrenAges.length,
             childrenAges: childrenAges.length > 0 ? childrenAges : null,
+            // PHI-100: persist the soft neighbourhood anchor if picked on
+            // step 2. Empty string is a valid "no anchor" signal — the
+            // server treats it as null.
+            anchorNeighborhood: anchorNeighborhood || null,
           }),
         });
       } else {
@@ -1609,6 +1675,8 @@ function WelcomePageInner() {
             travelerCount: adultCount + childrenAges.length,
             childrenAges: childrenAges.length > 0 ? childrenAges : null,
             activities: [],
+            // PHI-100: include on first write so the row carries the anchor.
+            ...(anchorNeighborhood && { anchorNeighborhood }),
           }),
         });
         if (res.ok) {
@@ -1661,6 +1729,10 @@ function WelcomePageInner() {
             // Re-PATCH the must-dos so they reach the row even if the
             // step-4 partial write failed.
             userSeededActivities: seededAtFinish,
+            // PHI-100: re-PATCH the neighbourhood anchor for the same
+            // reason — guards against a step-3 partial-write that
+            // silently dropped the column.
+            anchorNeighborhood: anchorNeighborhood || null,
           }),
         });
       } else {
@@ -1693,6 +1765,9 @@ function WelcomePageInner() {
             ...(seededAtFinish.length > 0 && {
               userSeededActivities: seededAtFinish,
             }),
+            // PHI-100: same shape as the must-dos — only include the
+            // anchor when set so legacy callers stay clean.
+            ...(anchorNeighborhood && { anchorNeighborhood }),
           }),
         });
         if (res.ok) {
@@ -1728,6 +1803,10 @@ function WelcomePageInner() {
       activities: [],
       ...(legsForStorage && { legs: legsForStorage }),
       ...(seededForStorage.length > 0 && { userSeededActivities: seededForStorage }),
+      // PHI-100: persist the soft neighbourhood anchor so /itinerary and
+      // any later regenerate path can pass it back to the AI prompts when
+      // no hotel is set. Omitted when empty so legacy snapshots stay clean.
+      ...(anchorNeighborhood && { anchorNeighborhood }),
     };
     localStorage.setItem("rise_traveler", JSON.stringify(travelerData));
     localStorage.setItem("rise_onboarded", "true");
@@ -3060,8 +3139,13 @@ function WelcomePageInner() {
 
           {/* Step 2: Hotel (optional). PHI-39: when multi-leg, render
               one hotel field per leg with the leg name as the label.
-              Single-leg path is unchanged. */}
-          {step === 2 && parsedLegs.length < 2 && (
+              Single-leg path is unchanged.
+              PHI-100: single-leg path also exposes a "help me pick a
+              neighbourhood →" affordance below the hotel input. Clicking
+              swaps the hotel area for 4–6 AI-generated neighbourhood cards
+              (lazy — no Anthropic call until clicked). Selecting a card
+              fills `anchorNeighborhood` and continues to step 3. */}
+          {step === 2 && parsedLegs.length < 2 && !neighborhoodPickerOpen && (
             <div className="flex flex-col gap-4">
               <PlacesAutocomplete
                 value={hotel}
@@ -3076,11 +3160,89 @@ function WelcomePageInner() {
                 theme="light"
                 inlineSuggestions
               />
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={() => { setHotel(""); handleContinue(); }}
+                  className="self-start text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                >
+                  I haven&apos;t booked yet — skip &rarr;
+                </button>
+                <button
+                  onClick={openNeighborhoodPicker}
+                  className="self-start text-sm text-[#1a6b7f] hover:text-[var(--text-primary)] underline-offset-4 hover:underline transition-colors"
+                  data-testid="open-neighborhood-picker"
+                >
+                  Don&apos;t know yet — help me pick a neighbourhood &rarr;
+                </button>
+              </div>
+              {anchorNeighborhood && (
+                <p className="text-sm text-[var(--text-secondary)]">
+                  Saved area:{" "}
+                  <span className="font-semibold text-[var(--text-primary)]">{anchorNeighborhood}</span>
+                  {" · "}
+                  <button
+                    onClick={() => setAnchorNeighborhood("")}
+                    className="text-[#1a6b7f] hover:underline"
+                  >
+                    clear
+                  </button>
+                </p>
+              )}
+            </div>
+          )}
+          {step === 2 && parsedLegs.length < 2 && neighborhoodPickerOpen && (
+            <div className="flex flex-col gap-5" data-testid="neighborhood-picker">
+              <p className="text-[var(--text-secondary)]">
+                Pick where to base yourself in {destination}. Each card shows
+                the trade-off a local would tell a friend — pick what fits.
+              </p>
+              {neighborhoodsLoading && (
+                <div className="text-sm text-[var(--text-muted)]">
+                  Generating neighbourhoods…
+                </div>
+              )}
+              {neighborhoodsError && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 flex items-start justify-between gap-3">
+                  <span>{neighborhoodsError}</span>
+                  <button
+                    onClick={() => {
+                      setNeighborhoodCards([]);
+                      void openNeighborhoodPicker();
+                    }}
+                    className="underline shrink-0"
+                  >
+                    Try again
+                  </button>
+                </div>
+              )}
+              {!neighborhoodsLoading && neighborhoodCards.length > 0 && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {neighborhoodCards.map((card) => (
+                    <button
+                      key={card.name}
+                      onClick={() => pickNeighborhood(card.name)}
+                      className="text-left bg-white rounded-2xl border border-[#e8e4de] hover:border-[#1a6b7f] hover:shadow-md transition p-4 flex flex-col gap-2"
+                      data-testid={`neighborhood-card-${card.name}`}
+                    >
+                      <span className="text-lg font-bold text-[var(--text-primary)]">
+                        {card.name}
+                      </span>
+                      <span className="text-sm text-[var(--text-secondary)]">
+                        {card.blurb}
+                      </span>
+                      <span className="text-xs font-semibold text-[#1a6b7f] uppercase tracking-wider">
+                        {card.best_for}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
               <button
-                onClick={() => { setHotel(""); handleContinue(); }}
+                onClick={() => setNeighborhoodPickerOpen(false)}
                 className="self-start text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                data-testid="back-to-hotel-search"
               >
-                I haven&apos;t booked yet — skip →
+                &larr; Back to hotel search
               </button>
             </div>
           )}
