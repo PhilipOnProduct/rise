@@ -11,6 +11,7 @@ import {
   type ItineraryGenFeedbackEntry,
 } from "@/lib/itinerary-gen-prompt";
 import type { TripLeg } from "@/lib/trip-schema";
+import { resolveTripDuration } from "@/lib/trip-duration";
 
 const client = new Anthropic();
 const MODEL = "claude-sonnet-4-6";
@@ -94,6 +95,12 @@ export async function POST(req: NextRequest) {
     // Only consulted by the prompt when `hotel` is null and the trip is
     // single-leg. Backward compatible — null/missing = pre-PHI-100 shape.
     anchorNeighborhood,
+    // PHI-99: flex-mode inputs. When the traveller picked the "Not sure
+    // yet — I'm just exploring" path on welcome step 1, the wizard sends
+    // these instead of departure/return dates. Both must arrive together;
+    // resolveTripDuration enforces and the route returns 400 otherwise.
+    flexMonth,
+    flexNights,
   } = (await req.json()) as {
     destination?: string;
     departureDate?: string;
@@ -109,10 +116,40 @@ export async function POST(req: NextRequest) {
     legs?: TripLeg[];
     userSeededActivities?: string[];
     anchorNeighborhood?: string | null;
+    flexMonth?: string | null;
+    flexNights?: number | null;
   };
 
-  if (!destination || !departureDate || !returnDate) {
+  // PHI-99: trip-duration resolution funnels through the shared helper so
+  // the exact-date and flex-mode paths share a single arithmetic. The
+  // route accepts either dates OR flex columns; missing both = 400.
+  if (!destination) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+  }
+  let duration;
+  try {
+    duration = resolveTripDuration({
+      legs:
+        Array.isArray(legs) && legs.length > 0
+          ? legs
+          : departureDate && returnDate
+            ? [
+                {
+                  id: "synthetic",
+                  place: { name: destination },
+                  startDate: departureDate,
+                  endDate: returnDate,
+                },
+              ]
+            : null,
+      flexMonth: flexMonth ?? null,
+      flexNights: flexNights ?? null,
+    });
+  } catch {
+    return NextResponse.json(
+      { error: "Missing trip duration: provide either departureDate+returnDate or flexMonth+flexNights." },
+      { status: 400 },
+    );
   }
 
   // Hard limit check
@@ -130,8 +167,11 @@ export async function POST(req: NextRequest) {
 
   const prompt = buildItineraryGenPrompt({
     destination,
-    departureDate,
-    returnDate,
+    // PHI-99: empty strings on the flex path so the builder skips the
+    // "Travel dates: X to Y" line and emits "Day N" headers. The duration
+    // helper already produced the canonical nights count.
+    departureDate: duration.mode === "flex" ? "" : (departureDate ?? ""),
+    returnDate: duration.mode === "flex" ? "" : (returnDate ?? ""),
     hotel: hotel ?? null,
     travelCompany: travelCompany ?? null,
     travelerTypes: travelerTypes ?? null,
@@ -146,6 +186,8 @@ export async function POST(req: NextRequest) {
       typeof anchorNeighborhood === "string" && anchorNeighborhood.trim().length > 0
         ? anchorNeighborhood.trim()
         : null,
+    nights: duration.nights,
+    seasonHint: duration.seasonHint,
   });
 
   const isMultiLeg = Array.isArray(legs) && legs.length >= 2;
@@ -240,6 +282,11 @@ export async function POST(req: NextRequest) {
           typeof anchorNeighborhood === "string" && anchorNeighborhood.trim().length > 0
             ? anchorNeighborhood.trim()
             : null,
+        // PHI-99: surface flex inputs so ai_logs can be filtered by mode.
+        flexMonth: duration.mode === "flex" ? (flexMonth ?? null) : null,
+        flexNights: duration.mode === "flex" ? (flexNights ?? null) : null,
+        seasonHint: duration.seasonHint,
+        durationMode: duration.mode,
       },
       output: jsonStr,
       latency_ms: Date.now() - startTime,
@@ -257,25 +304,30 @@ export async function POST(req: NextRequest) {
     // open: if Open-Meteo is down or the trip is beyond the 16-day
     // horizon, badDays is null and the client falls back to showing
     // alternatives universally for outdoor activities.
+    // PHI-99: flex-mode trips have no concrete dates — skip the forecast
+    // entirely. The client treats absent badDays the same as fail-open,
+    // so outdoor items will surface their AI alternative universally.
     let badDays: string[] | null = null;
-    try {
-      const coords = await geocodeCity(destination);
-      if (coords) {
-        const forecast = await fetchForecast(
-          coords.lat,
-          coords.lng,
-          departureDate,
-          returnDate,
-        );
-        await logApiUsage({
-          provider: "open-meteo",
-          apiType: "forecast",
-          feature: "itinerary-generate",
-        });
-        badDays = badDayDates(forecast);
+    if (duration.mode === "exact" && departureDate && returnDate) {
+      try {
+        const coords = await geocodeCity(destination);
+        if (coords) {
+          const forecast = await fetchForecast(
+            coords.lat,
+            coords.lng,
+            departureDate,
+            returnDate,
+          );
+          await logApiUsage({
+            provider: "open-meteo",
+            apiType: "forecast",
+            feature: "itinerary-generate",
+          });
+          badDays = badDayDates(forecast);
+        }
+      } catch (err) {
+        console.warn("[itinerary-generate] forecast failed (fail-open):", err);
       }
-    } catch (err) {
-      console.warn("[itinerary-generate] forecast failed (fail-open):", err);
     }
 
     return NextResponse.json({

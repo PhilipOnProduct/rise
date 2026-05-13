@@ -157,6 +157,37 @@ function tomorrow() {
   return d.toISOString().split("T")[0];
 }
 
+// PHI-99: build the 18-month dropdown options for flex-date entry. Returns
+// `[{ value: "2026-10", label: "October 2026" }, ...]` starting from the
+// current month. Default is current month + 2 (handled at state-init time
+// inside the wizard).
+function buildFlexMonthOptions(today: Date = new Date()): { value: string; label: string }[] {
+  const out: { value: string; label: string }[] = [];
+  const monthNames = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+  ];
+  for (let i = 0; i < 18; i++) {
+    const d = new Date(today.getFullYear(), today.getMonth() + i, 1);
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    out.push({
+      value: `${d.getFullYear()}-${m}`,
+      label: `${monthNames[d.getMonth()]} ${d.getFullYear()}`,
+    });
+  }
+  return out;
+}
+
 function addDays(dateStr: string, days: number) {
   const d = new Date(dateStr);
   d.setDate(d.getDate() + days);
@@ -597,6 +628,16 @@ function WelcomePageInner() {
   const [returnDate, setReturnDate] = useState("");
   const [hotel, setHotel] = useState("");
 
+  // PHI-99: flex-date entry. When the user clicks "Not sure yet — I'm just
+  // exploring →" below the Return field on step 1, we swap the two date
+  // inputs for a month dropdown + nights stepper. Toggling between modes
+  // preserves destination + hotel state — only the date/flex pair flips.
+  // flexMonth carries an ISO month string (e.g. "2026-10") so the server
+  // can parse it unambiguously regardless of locale.
+  const [flexMode, setFlexMode] = useState(false);
+  const [flexMonth, setFlexMonth] = useState("");
+  const [flexNights, setFlexNights] = useState(5);
+
   // PHI-100: soft neighbourhood picker on step 2. When the traveller hasn't
   // booked a hotel they can opt into picking a neighbourhood instead.
   // `neighborhoodPickerOpen` swaps the hotel input area for the cards.
@@ -960,8 +1001,14 @@ function WelcomePageInner() {
           signal: controller.signal,
           body: JSON.stringify({
             destination,
-            departureDate: departureDate || "",
-            returnDate: returnDate || "",
+            // PHI-99: dates only on the exact path; flex columns instead
+            // when the user took the "I'm just exploring" route.
+            ...(flexMode
+              ? { flexMonth, flexNights }
+              : {
+                  departureDate: departureDate || "",
+                  returnDate: returnDate || "",
+                }),
             travelCompany: travelCompany || null,
             styleTags: travelerTypes.length > 0 ? travelerTypes : null,
             budgetTier: budgetTier || null,
@@ -1036,7 +1083,7 @@ function WelcomePageInner() {
     return () => {
       controller.abort();
     };
-  }, [step, destination, departureDate, returnDate, travelCompany, travelerTypes, budgetTier]);
+  }, [step, destination, departureDate, returnDate, flexMode, flexMonth, flexNights, travelCompany, travelerTypes, budgetTier]);
 
   // PHI-31 Part 2 slice 2: generate the itinerary preview when entering
   // the account step, so the user sees the actual product output BEFORE
@@ -1064,8 +1111,10 @@ function WelcomePageInner() {
           signal: controller.signal,
           body: JSON.stringify({
             destination,
-            departureDate,
-            returnDate,
+            // PHI-99: dates vs. flex columns per wizard mode.
+            ...(flexMode
+              ? { flexMonth, flexNights }
+              : { departureDate, returnDate }),
             hotel: hotel || null,
             travelCompany: travelCompany || null,
             travelerTypes,
@@ -1207,7 +1256,12 @@ function WelcomePageInner() {
   // not to anchor on a hotel for that leg.
   function buildLegsForApi(): TripLeg[] | null {
     if (parsedLegs.length < 2) return null;
-    const start = departureDate || undefined;
+    // PHI-99: when the wizard is in flex mode the leg list has no concrete
+    // dates — leg.nights still carries the per-leg duration the parser
+    // produced (or equalSplitNights against flex_nights when the user
+    // edited it). The downstream prompt builders fall back to leg.nights
+    // when startDate/endDate are absent.
+    const start = !flexMode && departureDate ? departureDate : undefined;
     let cursor = start;
     return parsedLegs.map((leg, i) => {
       const startDate = cursor;
@@ -1220,6 +1274,12 @@ function WelcomePageInner() {
         hotel: legHotel,
         ...(startDate && { startDate }),
         ...(endDate && { endDate }),
+        // Always include the leg.nights so the prompt builder can render
+        // per-leg night counts in flex mode. Cheap and harmless in
+        // exact-date mode (startDate/endDate already win).
+        ...(typeof leg.nights === "number" && leg.nights > 0
+          ? { nights: leg.nights }
+          : {}),
       };
     });
   }
@@ -1239,8 +1299,12 @@ function WelcomePageInner() {
       ...(destinationPlace?.lng != null && { destinationLng: destinationPlace.lng }),
       ...(destinationPlace?.type && { destinationPlaceType: destinationPlace.type }),
       ...(legs && { legs }),
-      departureDate,
-      returnDate,
+      // PHI-99: dates only on the exact path; the anonymous-session row
+      // mirrors the same shape so a /api/travelers/claim later doesn't
+      // clobber the flex mode.
+      ...(flexMode
+        ? { flexMonth, flexNights }
+        : { departureDate, returnDate }),
       hotel: hotel || null,
       travelCompany: travelCompany || null,
       styleTags: travelerTypes,
@@ -1642,6 +1706,13 @@ function WelcomePageInner() {
             // step 2. Empty string is a valid "no anchor" signal — the
             // server treats it as null.
             anchorNeighborhood: anchorNeighborhood || null,
+            // PHI-99: keep the row coherent with the wizard mode. When the
+            // user later changes mind on step 1 (or jumps back) the patch
+            // explicitly clears the unused pair so the row never carries
+            // both an exact-date leg and flex columns.
+            ...(flexMode
+              ? { flexMonth, flexNights }
+              : { flexMonth: null, flexNights: null }),
           }),
         });
       } else {
@@ -1659,8 +1730,12 @@ function WelcomePageInner() {
             ...(destinationPlace?.lng != null && { destinationLng: destinationPlace.lng }),
             ...(destinationPlace?.type && { destinationPlaceType: destinationPlace.type }),
             ...(legs && { legs }),
-            departureDate,
-            returnDate,
+            // PHI-99: omit date fields entirely in flex mode so the leg's
+            // startDate/endDate stay undefined. The flex columns carry the
+            // duration signal instead.
+            ...(flexMode
+              ? { flexMonth, flexNights }
+              : { departureDate, returnDate }),
             hotel: hotel || null,
             travelCompany: travelCompany || null,
             styleTags: travelerTypes.length > 0 ? travelerTypes : null,
@@ -1726,6 +1801,12 @@ function WelcomePageInner() {
             // reason — guards against a step-3 partial-write that
             // silently dropped the column.
             anchorNeighborhood: anchorNeighborhood || null,
+            // PHI-99: re-assert the date-or-flex mode on finish too. If
+            // the step-3 partial PATCH already set this, the second write
+            // is idempotent.
+            ...(flexMode
+              ? { flexMonth, flexNights }
+              : { flexMonth: null, flexNights: null }),
           }),
         });
       } else {
@@ -1744,8 +1825,11 @@ function WelcomePageInner() {
             ...(destinationPlace?.lng != null && { destinationLng: destinationPlace.lng }),
             ...(destinationPlace?.type && { destinationPlaceType: destinationPlace.type }),
             ...(legs && { legs }),
-            departureDate,
-            returnDate,
+            // PHI-99: omit date fields in flex mode (same shape as
+            // savePreferencesToDb's POST).
+            ...(flexMode
+              ? { flexMonth, flexNights }
+              : { departureDate, returnDate }),
             hotel: hotel || null,
             travelCompany: travelCompany || null,
             styleTags: travelerTypes.length > 0 ? travelerTypes : null,
@@ -1783,8 +1867,12 @@ function WelcomePageInner() {
       name: finalName,
       email: finalEmail,
       destination,
-      departureDate,
-      returnDate,
+      // PHI-99: in flex mode the dates are empty strings — leave them
+      // empty in the snapshot. The flex pair carries the duration signal
+      // and downstream readers (dashboard, /itinerary) check flexMonth
+      // first.
+      departureDate: flexMode ? "" : departureDate,
+      returnDate: flexMode ? "" : returnDate,
       hotel: hotel || null,
       travelCompany,
       travelerCount: adultCount + childrenAges.length,
@@ -1800,6 +1888,11 @@ function WelcomePageInner() {
       // any later regenerate path can pass it back to the AI prompts when
       // no hotel is set. Omitted when empty so legacy snapshots stay clean.
       ...(anchorNeighborhood && { anchorNeighborhood }),
+      // PHI-99: persist the flex pair so the dashboard date-lock nudge
+      // can detect that the user is in flex mode on a return visit, and
+      // so /itinerary can pass it back to /api/itinerary/generate on a
+      // regenerate without needing to refetch from Supabase.
+      ...(flexMode ? { flexMonth, flexNights } : {}),
     };
     localStorage.setItem("rise_traveler", JSON.stringify(travelerData));
     localStorage.setItem("rise_onboarded", "true");
@@ -2965,11 +3058,13 @@ function WelcomePageInner() {
   const canContinue: Record<number, boolean> = {
     // PHI-30: step 1 also requires destinationVerified — the user might
     // have re-opened the autocomplete here and started editing.
+    // PHI-99: flex mode swaps the date-field gate for a month + nights gate.
     1:
       destination.trim().length > 0 &&
       destinationVerified &&
-      departureDate.length > 0 &&
-      returnDate.length > 0,
+      (flexMode
+        ? flexMonth.length > 0 && flexNights >= 1
+        : departureDate.length > 0 && returnDate.length > 0),
     2: true,
     3: travelCompany.length > 0 && allChildrenHaveAges,
     // PHI-90: must-dos step is fully skippable — empty textarea always
@@ -2984,6 +3079,16 @@ function WelcomePageInner() {
     if (step === 6) { await handleFinish(); return; }
     if (step === 3) { await savePreferencesToDb(); }
     if (step === 4) { await saveSeededActivitiesToDb(); }
+    // PHI-99 — fire a telemetry event on step-1 advance with the mode the
+    // user took. Build-readiness only; we don't act on this signal until
+    // real traffic arrives. Fire-and-forget so a slow logger never blocks
+    // the wizard.
+    if (step === 1) {
+      logOnboardingEvent("welcome_step1_advance", {
+        mode: flexMode ? "flex" : "exact",
+        ...(flexMode ? { flexMonth, flexNights } : {}),
+      });
+    }
     // PHI-57: when the destination is a country (not a city), insert
     // step 3.5 — AI city recommendations — between preferences and the
     // must-dos step. We use step 35 as a sentinel; from 35 we hand off
@@ -3103,30 +3208,132 @@ function WelcomePageInner() {
                   </button>
                 )}
               </div>
-              <div>
-                <label className="block text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-widest mb-3">
-                  Departure
-                </label>
-                <input
-                  type="date"
-                  value={departureDate}
-                  min={tomorrow()}
-                  onChange={(e) => setDepartureDate(e.target.value)}
-                  className={darkInput}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-widest mb-3">
-                  Return
-                </label>
-                <input
-                  type="date"
-                  value={returnDate}
-                  min={departureDate || tomorrow()}
-                  onChange={(e) => setReturnDate(e.target.value)}
-                  className={darkInput}
-                />
-              </div>
+              {/* PHI-99: dual mode entry. Default is the exact-date pair;
+                  clicking "Not sure yet — I'm just exploring →" swaps in
+                  a month dropdown + nights stepper without clearing
+                  destination/hotel state. Toggling back reuses the same
+                  date values when the user already typed them. */}
+              {!flexMode ? (
+                <>
+                  <div>
+                    <label className="block text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-widest mb-3">
+                      Departure
+                    </label>
+                    <input
+                      type="date"
+                      value={departureDate}
+                      min={tomorrow()}
+                      onChange={(e) => setDepartureDate(e.target.value)}
+                      className={darkInput}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-widest mb-3">
+                      Return
+                    </label>
+                    <input
+                      type="date"
+                      value={returnDate}
+                      min={departureDate || tomorrow()}
+                      onChange={(e) => setReturnDate(e.target.value)}
+                      className={darkInput}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // Pre-fill the month dropdown the first time the user
+                      // enters flex mode. Default = current month + 2.
+                      if (!flexMonth) {
+                        const opts = buildFlexMonthOptions();
+                        setFlexMonth(opts[2]?.value ?? opts[0]?.value ?? "");
+                      }
+                      setFlexMode(true);
+                    }}
+                    data-testid="enter-flex-mode"
+                    className="self-start text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                  >
+                    Not sure yet — I&apos;m just exploring &rarr;
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label
+                      htmlFor="flex-month"
+                      className="block text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-widest mb-3"
+                    >
+                      Month
+                    </label>
+                    <select
+                      id="flex-month"
+                      value={flexMonth}
+                      onChange={(e) => setFlexMonth(e.target.value)}
+                      className={darkInput}
+                      data-testid="flex-month-select"
+                    >
+                      {buildFlexMonthOptions().map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-widest mb-3">
+                      Nights
+                    </label>
+                    <div className="flex items-center gap-3" data-testid="flex-nights-stepper">
+                      <button
+                        type="button"
+                        onClick={() => setFlexNights((n) => Math.max(1, n - 1))}
+                        className="w-10 h-10 rounded-xl border border-[#d4cfc5] bg-white text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[#b8b3a9] transition-colors text-lg leading-none flex items-center justify-center"
+                        aria-label="Decrease nights"
+                      >
+                        &minus;
+                      </button>
+                      <span
+                        data-testid="flex-nights-value"
+                        className="min-w-[3rem] text-center font-bold text-[var(--text-primary)] text-2xl"
+                      >
+                        {flexNights}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setFlexNights((n) => Math.min(30, n + 1))}
+                        className="w-10 h-10 rounded-xl border border-[#d4cfc5] bg-white text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[#b8b3a9] transition-colors text-lg leading-none flex items-center justify-center"
+                        aria-label="Increase nights"
+                      >
+                        +
+                      </button>
+                      <span className="text-sm text-[var(--text-muted)] ml-1">
+                        {flexNights === 1 ? "night" : "nights"}
+                      </span>
+                    </div>
+                  </div>
+                  {flexMonth.length > 0 && (
+                    <p
+                      data-testid="flex-summary"
+                      className="text-sm text-[var(--text-secondary)]"
+                    >
+                      We&apos;ll plan around{" "}
+                      <span className="font-semibold text-[var(--text-primary)]">
+                        {buildFlexMonthOptions().find((o) => o.value === flexMonth)?.label ??
+                          flexMonth}
+                      </span>
+                      , {flexNights} {flexNights === 1 ? "night" : "nights"}.
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setFlexMode(false)}
+                    data-testid="exit-flex-mode"
+                    className="self-start text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                  >
+                    Got dates after all? &rarr;
+                  </button>
+                </>
+              )}
             </div>
           )}
 

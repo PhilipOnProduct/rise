@@ -168,6 +168,14 @@ export type ActivityGenInputs = {
    * proximity claims off it.
    */
   anchorNeighborhood?: string | null;
+  /**
+   * PHI-99 — seasonal calibration hint ("October 2026") for flex-mode
+   * trips with no committed dates. When null/absent, the prompt is
+   * byte-identical to pre-PHI-99. When set, a single sentence is appended
+   * after the headline asking Claude to calibrate seasonal references
+   * (weather, daylight, festivals) without making date-specific claims.
+   */
+  seasonHint?: string | null;
 };
 
 const COMPANY_LABEL: Record<string, string> = {
@@ -206,6 +214,7 @@ export function buildActivityGenUserMessage(args: ActivityGenInputs): string {
     inspiration,
     legs,
     anchorNeighborhood,
+    seasonHint,
   } = args;
 
   const nights =
@@ -346,9 +355,19 @@ export function buildActivityGenUserMessage(args: ActivityGenInputs): string {
       ? `\n\nBased in: ${trimmedAnchor} neighbourhood (no specific hotel — soft area anchor only). You MAY reference walking distance from the ${trimmedAnchor} area in the Why line when genuinely relevant; NEVER invent a hotel name or hotel-proximity claim.`
       : "";
 
+  // PHI-99: seasonal calibration hint when the traveller is in flex mode.
+  // Empty / absent on the exact-date path so the prompt stays byte-identical
+  // to pre-PHI-99. When set, the model gets one sentence to calibrate
+  // seasonal references but is explicitly told not to fabricate dates.
+  const trimmedSeason =
+    typeof seasonHint === "string" ? seasonHint.trim() : "";
+  const seasonBlock = trimmedSeason.length
+    ? `\n\nTraveller is planning for ${trimmedSeason}, exact dates not yet decided. Calibrate seasonal references (weather, daylight, festivals, peak-vs-shoulder) accordingly; avoid date-specific claims.`
+    : "";
+
   return (
     `${headline}${profileBlock}${legsBlock}\n` +
     `Budget: ${BUDGET_LABEL[budgetTier ?? "comfortable"] ?? "comfortable"}. Style: ${styleList.join(", ")}.\n` +
-    `Every suggestion must genuinely suit this profile — not generic activities any visitor might do.${reminderBlock}${inspirationBlock}${atlasBlock}${anchorBlock}`
+    `Every suggestion must genuinely suit this profile — not generic activities any visitor might do.${reminderBlock}${inspirationBlock}${atlasBlock}${anchorBlock}${seasonBlock}`
   );
 }

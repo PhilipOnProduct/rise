@@ -43,6 +43,13 @@ export type TripLeg = {
   /** ISO date within the trip envelope. Absent = inferred from neighbours. */
   startDate?: string;
   endDate?: string;
+  /**
+   * PHI-99 — optional per-leg duration. Carried when the trip is in flex
+   * mode (no concrete dates) so the prompt builders can still emit
+   * per-leg night counts. When startDate/endDate are present, those win
+   * and `nights` is purely informational.
+   */
+  nights?: number;
   /** Optional rough cost estimate (USD) for budget rollups. */
   costEstimate?: number;
   /** IANA timezone (e.g. "Europe/Lisbon") — populated when known. */

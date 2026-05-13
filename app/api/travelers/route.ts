@@ -106,6 +106,14 @@ export async function POST(req: NextRequest) {
     // gen prompts. Null = picker not used; the existing hotel path still owns
     // the location signal.
     anchorNeighborhood,
+    // PHI-99: flexible-date entry. When the traveller takes the "Not sure
+    // yet — I'm just exploring" path on welcome step 1, the wizard sends
+    // these instead of legs[*].startDate / endDate. ISO month + nights
+    // count. Mutually exclusive with leg dates: when the caller is in
+    // flex mode they leave leg dates unset; the duration helper
+    // (lib/trip-duration.ts) treats either path uniformly downstream.
+    flexMonth,
+    flexNights,
   } = body;
 
   const derived = deriveLegs(body);
@@ -158,6 +166,16 @@ export async function POST(req: NextRequest) {
       // PHI-100 — only persist when supplied as a non-empty trimmed string.
       ...(typeof anchorNeighborhood === "string" && anchorNeighborhood.trim().length > 0
         ? { anchor_neighborhood: anchorNeighborhood.trim() }
+        : {}),
+      // PHI-99 — flex columns. Only persist when both fields are present
+      // and well-formed; otherwise leave the columns null (legacy / exact-
+      // date path). The wizard guarantees they arrive paired.
+      ...(typeof flexMonth === "string" && /^\d{4}-\d{2}$/.test(flexMonth.trim()) &&
+        typeof flexNights === "number" && Number.isFinite(flexNights) && flexNights >= 1
+        ? {
+            flex_month: flexMonth.trim(),
+            flex_nights: Math.max(1, Math.min(30, Math.round(flexNights))),
+          }
         : {}),
     })
     .select()
@@ -216,6 +234,13 @@ export async function PATCH(req: NextRequest) {
     // PHI-100: PATCH the chosen neighbourhood when the soft picker is used
     // on welcome step 2. Explicit null clears the field; undefined skips it.
     anchorNeighborhood,
+    // PHI-99: flex columns on the PATCH path. The dashboard nudge sends
+    // these as explicit nulls when the traveller locks in real dates, so
+    // a row never ends up carrying both an exact-date leg AND flex
+    // columns. Explicit null clears; undefined skips; well-formed pair
+    // writes.
+    flexMonth,
+    flexNights,
   } = body;
 
   if (!id) {
@@ -271,6 +296,22 @@ export async function PATCH(req: NextRequest) {
     updates.anchor_neighborhood =
       typeof anchorNeighborhood === "string" && anchorNeighborhood.trim().length > 0
         ? anchorNeighborhood.trim()
+        : null;
+  }
+  // PHI-99: flex columns. Explicit null clears the field (the dashboard
+  // date-lock nudge does this when the user fills in real dates). A
+  // well-formed value writes. undefined skips so unrelated PATCHes don't
+  // touch the flex pair.
+  if (flexMonth !== undefined) {
+    updates.flex_month =
+      typeof flexMonth === "string" && /^\d{4}-\d{2}$/.test(flexMonth.trim())
+        ? flexMonth.trim()
+        : null;
+  }
+  if (flexNights !== undefined) {
+    updates.flex_nights =
+      typeof flexNights === "number" && Number.isFinite(flexNights) && flexNights >= 1
+        ? Math.max(1, Math.min(30, Math.round(flexNights)))
         : null;
   }
 

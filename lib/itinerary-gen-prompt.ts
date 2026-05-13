@@ -23,6 +23,13 @@ export type ItineraryGenFeedbackEntry = {
 
 export type ItineraryGenInputs = {
   destination: string;
+  /**
+   * PHI-99 — leg dates remain strings to keep the existing exact-date path
+   * byte-identical; in flex mode the route passes empty strings here and
+   * provides `nights` + `seasonHint` directly so the builder can skip
+   * date arithmetic. Empty string in either field flips the builder into
+   * flex rendering (no "Travel dates" line, day labels carry no date).
+   */
   departureDate: string;
   returnDate: string;
   hotel?: string | null;
@@ -49,6 +56,19 @@ export type ItineraryGenInputs = {
    * claims. Multi-leg trips ignore this — per-leg hotels carry the signal.
    */
   anchorNeighborhood?: string | null;
+  /**
+   * PHI-99 — pre-resolved trip duration. When set, overrides the
+   * date-diff computation inside the builder. The route always passes
+   * `nights` from `resolveTripDuration` so both exact-date and flex paths
+   * funnel through the same number. Null = legacy date-diff path.
+   */
+  nights?: number | null;
+  /**
+   * PHI-99 — human-readable month-year ("October 2026") to inject as a
+   * seasonal calibration hint when the traveller is in flex mode. Null =
+   * exact-date path; the prompt is byte-identical to pre-PHI-99.
+   */
+  seasonHint?: string | null;
 };
 
 // ── Activity-feedback segment ─────────────────────────────────────────────
@@ -198,6 +218,8 @@ function buildMultiLegBlock(legs: TripLeg[]): string {
   return `\n\nThis is a MULTI-LEG trip. Plan day-by-day across all legs in order.\n\nLegs (in order):\n${legs
     .map((leg, i) => {
       const name = leg.place?.name ?? `Leg ${i + 1}`;
+      // PHI-99: prefer date-diff (exact path) → leg.nights (flex path) →
+      // unknown. The flex path is the new branch; exact stays byte-identical.
       const legNights =
         leg.startDate && leg.endDate
           ? Math.round(
@@ -205,7 +227,9 @@ function buildMultiLegBlock(legs: TripLeg[]): string {
                 new Date(leg.startDate).getTime()) /
                 86_400_000
             )
-          : null;
+          : typeof leg.nights === "number" && leg.nights > 0
+            ? leg.nights
+            : null;
       const nightsStr = legNights
         ? ` (${legNights} night${legNights === 1 ? "" : "s"})`
         : "";
@@ -237,12 +261,28 @@ export function buildItineraryGenPrompt(args: ItineraryGenInputs): string {
     legs,
     userSeededActivities,
     anchorNeighborhood,
+    nights: nightsOverride,
+    seasonHint,
   } = args;
 
-  const nights = Math.round(
-    (new Date(returnDate).getTime() - new Date(departureDate).getTime()) / 86_400_000
-  );
+  // PHI-99: flex mode flips on when the caller passes empty strings for
+  // departure/return AND supplies a pre-resolved nights count (via the
+  // duration helper). The exact-date path keeps the same date-diff
+  // computation, so existing trips render byte-identically.
+  const flexMode = !departureDate || !returnDate;
+  const nights =
+    typeof nightsOverride === "number" && nightsOverride > 0
+      ? nightsOverride
+      : Math.round(
+          (new Date(returnDate).getTime() - new Date(departureDate).getTime()) / 86_400_000,
+        );
   const days = Math.max(1, nights);
+  const trimmedSeason =
+    typeof seasonHint === "string" ? seasonHint.trim() : "";
+  const seasonNote =
+    flexMode && trimmedSeason.length > 0
+      ? `\nTraveller is planning for ${trimmedSeason}, exact dates not yet decided. Calibrate seasonal references (weather, daylight, festivals, peak-vs-shoulder) accordingly; avoid date-specific claims.`
+      : "";
 
   const styleStr = travelerTypes?.length ? `Travel style: ${travelerTypes.join(", ")}.` : "";
   const companyStr = travelCompany ? `Travelling: ${travelCompany}.` : "";
@@ -320,8 +360,20 @@ export function buildItineraryGenPrompt(args: ItineraryGenInputs): string {
     ? `\n\nReturn shape (when anchors are present):\nReturn an OBJECT with shape { "days": [<day objects>], "placement_notes": "<string or null>", "seeded_anchor_resolutions": [<one entry per anchor>] } — NOT a bare array. Use "placement_notes" whenever an anchor was vague-resolved (mode 2, surface the substitution), vague-flagged (mode 3, ask the user to be more specific), filtered as wrong-city, or could not be placed for capacity reasons. Set it to null only when every anchor was placed verbatim (mode 1) and nothing needed surfacing. "seeded_anchor_resolutions" is REQUIRED on every response with anchors — see the anchor block above for the per-entry shape and modes.`
     : "";
 
+  // PHI-99: header line differs by mode. Exact stays byte-identical;
+  // flex swaps in a trip-duration line + a seasonal calibration note.
+  const tripLine = flexMode
+    ? `Trip duration: ${days} night${days === 1 ? "" : "s"}.${seasonNote}`
+    : `Travel dates: ${departureDate} to ${returnDate}.`;
+  // Day-shape instructions for the `date` field also differ by mode —
+  // flex tells the model NOT to fabricate a date string; the page renders
+  // "Day N" headers instead.
+  const dateFieldComment = flexMode
+    ? `"date": "",            // leave blank — traveller is in flex mode, no concrete dates yet`
+    : `"date": "YYYY-MM-DD",   // starting from ${departureDate}`;
+
   return `${headline}
-Travel dates: ${departureDate} to ${returnDate}.
+${tripLine}
 ${companyStr}
 ${hotelStr}
 ${styleStr}
@@ -335,7 +387,7 @@ Return ONLY valid JSON — no markdown, no explanation, no code fences. ${
 
 Each day object:
 {
-  "date": "YYYY-MM-DD",   // starting from ${departureDate}
+  ${dateFieldComment}
   "day_number": 1,         // 1-indexed
   "items": [...]${
     isMultiLeg

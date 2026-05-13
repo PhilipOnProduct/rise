@@ -10,6 +10,7 @@ import {
   ACTIVITY_GEN_SYSTEM,
   buildActivityGenUserMessage,
 } from "@/lib/activity-gen-prompt";
+import { resolveTripDuration } from "@/lib/trip-duration";
 // PHI-53: forecast helpers — wired in here so the welcome step-4
 // preview can surface a "some days look wet" hint before the user
 // has saved a trip. The saved-itinerary path runs its own forecast
@@ -47,6 +48,11 @@ export async function POST(req: NextRequest) {
     // only on single-leg trips. Backward compatible — null/missing keeps
     // the prompt byte-identical to pre-PHI-100.
     anchorNeighborhood,
+    // PHI-99: flex-mode inputs. Either departure/return dates OR these
+    // flex columns; mutually exclusive at the row level. The duration
+    // helper resolves the canonical nights count for both paths.
+    flexMonth,
+    flexNights,
   } = (await req.json()) as {
     destination?: string;
     departureDate?: string;
@@ -61,6 +67,8 @@ export async function POST(req: NextRequest) {
     inspiration?: string;
     legs?: TripLeg[];
     anchorNeighborhood?: string | null;
+    flexMonth?: string | null;
+    flexNights?: number | null;
   };
 
   // Hard limit check
@@ -69,12 +77,48 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "API limit exceeded", provider: "anthropic", spentUsd: limit.spentUsd, limitUsd: limit.limitUsd }, { status: 429 });
   }
 
+  // PHI-99: resolve duration up-front so the activity stream can format a
+  // canonical "N-night trip" label even when the caller is in flex mode
+  // (no departure/return dates). When neither path can produce a duration
+  // (mid-onboarding partial payload, etc.) we fall through to the existing
+  // string fallback ("trip") by leaving duration null.
+  let duration: ReturnType<typeof resolveTripDuration> | null = null;
+  try {
+    duration = resolveTripDuration({
+      legs:
+        Array.isArray(legs) && legs.length > 0
+          ? legs
+          : departureDate && returnDate && destination
+            ? [
+                {
+                  id: "synthetic",
+                  place: { name: destination },
+                  startDate: departureDate,
+                  endDate: returnDate,
+                },
+              ]
+            : null,
+      flexMonth: flexMonth ?? null,
+      flexNights: flexNights ?? null,
+    });
+  } catch {
+    duration = null;
+  }
+  const flexDuration =
+    duration?.mode === "flex"
+      ? `${duration.nights}-night trip`
+      : undefined;
+
   // PHI-43: SYSTEM and the user-message construction live in
   // lib/activity-gen-prompt.ts so the eval harness uses identical text.
   const userMessage = buildActivityGenUserMessage({
     destination,
-    departureDate,
-    returnDate,
+    // PHI-99: flex mode hides concrete dates from the prompt; pass empty
+    // strings + an explicit duration label so the headline still reads
+    // "(N-night trip)".
+    departureDate: duration?.mode === "flex" ? "" : departureDate,
+    returnDate: duration?.mode === "flex" ? "" : returnDate,
+    duration: flexDuration,
     travelCompany,
     styleTags,
     budgetTier,
@@ -88,6 +132,7 @@ export async function POST(req: NextRequest) {
       typeof anchorNeighborhood === "string" && anchorNeighborhood.trim().length > 0
         ? anchorNeighborhood.trim()
         : null,
+    seasonHint: duration?.seasonHint ?? null,
   });
   const isMultiLeg = Array.isArray(legs) && legs.length >= 2;
 
@@ -105,6 +150,9 @@ export async function POST(req: NextRequest) {
     (Array.isArray(legs) && legs[0]?.place?.name) ??
     null;
   const forecastPromise: Promise<string[] | null> = (async () => {
+    // PHI-99: flex-mode trips have no concrete window, so skip the
+    // forecast entirely. Client treats absence as "no banner".
+    if (duration?.mode === "flex") return null;
     if (!forecastCity || !departureDate || !returnDate) return null;
     try {
       const coords = await geocodeCity(forecastCity);
@@ -190,6 +238,11 @@ export async function POST(req: NextRequest) {
               typeof anchorNeighborhood === "string" && anchorNeighborhood.trim().length > 0
                 ? anchorNeighborhood.trim()
                 : null,
+            // PHI-99: surface flex inputs so admin can filter by mode.
+            flexMonth: duration?.mode === "flex" ? (flexMonth ?? null) : null,
+            flexNights: duration?.mode === "flex" ? (flexNights ?? null) : null,
+            seasonHint: duration?.seasonHint ?? null,
+            durationMode: duration?.mode ?? null,
           },
           output,
           latency_ms: Date.now() - startTime,

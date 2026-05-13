@@ -100,11 +100,21 @@ export async function POST(req: NextRequest) {
       ? `\n\nDo not suggest any of these — the user already declined them: ${(rejectedTitles as string[]).join(", ")}.`
       : "";
 
-  const dateFormatted = new Date(date).toLocaleDateString("en-GB", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-  });
+  // PHI-99: flex-mode trips have no concrete date string for the day. The
+  // client sends empty (or a non-ISO marker) and the prompt drops the date
+  // suffix — "Day N, afternoon slot" instead of "Day N — Wed 5 Oct,
+  // afternoon slot". new Date("") yields Invalid Date; guard explicitly so
+  // we never feed "Invalid Date" into the prompt.
+  const trimmedDate = typeof date === "string" ? date.trim() : "";
+  const parsedDate = trimmedDate ? new Date(trimmedDate) : null;
+  const dateFormatted =
+    parsedDate && !Number.isNaN(parsedDate.getTime())
+      ? parsedDate.toLocaleDateString("en-GB", {
+          weekday: "long",
+          day: "numeric",
+          month: "long",
+        })
+      : "";
 
   const locationConstraint =
     `\n\nCRITICAL: The activity MUST be physically located in or immediately around ${destination}. ` +
@@ -130,11 +140,15 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // PHI-99: flex mode drops the date dash so the line reads cleanly.
+  const dayHeader = dateFormatted
+    ? `Day ${dayNumber} — ${dateFormatted}, ${block}`
+    : `Day ${dayNumber}, ${block}`;
   let prompt: string;
   if (mode === "swap") {
     prompt =
       `You are a travel planner helping a ${profile} in ${destination}.\n` +
-      `Day ${dayNumber} — ${dateFormatted}, ${block} slot.\n` +
+      `${dayHeader} slot.\n` +
       `The user wants to replace: "${replacingItem.title}" — ${replacingItem.description}${dayContext}\n\n` +
       `Suggest one specific ${block} activity in ${destination} that fits this traveller and the day's flow. ` +
       `It should be a confident, specific recommendation — not a generic tourist activity unless it's genuinely the best fit. ` +
@@ -146,7 +160,7 @@ export async function POST(req: NextRequest) {
   } else {
     prompt =
       `You are a travel planner helping a ${profile} in ${destination}.\n` +
-      `Day ${dayNumber} — ${dateFormatted}, ${block} has a free slot.${dayContext}\n\n` +
+      `${dayHeader} has a free slot.${dayContext}\n\n` +
       `Suggest one specific ${block} activity in ${destination} that fits this traveller and the day's flow. ` +
       `It should complement what's already planned and feel like it belongs in the itinerary.` +
       locationConstraint +

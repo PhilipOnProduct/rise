@@ -213,7 +213,7 @@ rise/
 
 | Table | Purpose |
 |---|---|
-| `travelers` | Onboarding data — destination, dates, hotel, activities, account, traveler_count (int), children_ages (text[]), travel_company (text), style_tags (text[]), budget_tier (text), auth_user_id (uuid, FK → auth.users.id, PHI-59), is_primary (bool, default true, PHI-60), claimed_at (timestamptz, PHI-60), user_seeded_activities (text[], nullable, PHI-90 — traveller-typed must-dos captured at welcome step 4 and passed to /api/itinerary/generate as anchors; null/absent = existing prompt path runs unchanged), anchor_neighborhood (text, nullable, PHI-100 — soft area anchor selected via the welcome step-2 neighbourhood picker; only consulted by activity-gen / itinerary-gen when no hotel is set and the trip is single-leg; null/absent = existing prompt path runs unchanged). Name and email are nullable (collected at the account step, after row creation). `auth_user_id` is null until the user clicks the magic link; nullable so existing localStorage-only travellers keep working. PHI-60 (claim flow): a single `auth_user_id` may own multiple rows; `is_primary=true` marks the row the dashboard defaults to (claim flow ensures exactly one primary per user); `claimed_at` is stamped when the row is linked via the claim flow (null for legacy rows linked silently in PHI-59). |
+| `travelers` | Onboarding data — destination, dates, hotel, activities, account, traveler_count (int), children_ages (text[]), travel_company (text), style_tags (text[]), budget_tier (text), auth_user_id (uuid, FK → auth.users.id, PHI-59), is_primary (bool, default true, PHI-60), claimed_at (timestamptz, PHI-60), user_seeded_activities (text[], nullable, PHI-90 — traveller-typed must-dos captured at welcome step 4 and passed to /api/itinerary/generate as anchors; null/absent = existing prompt path runs unchanged), anchor_neighborhood (text, nullable, PHI-100 — soft area anchor selected via the welcome step-2 neighbourhood picker; only consulted by activity-gen / itinerary-gen when no hotel is set and the trip is single-leg; null/absent = existing prompt path runs unchanged), flex_month (text, nullable, PHI-99 — ISO month e.g. "2026-10" captured when the traveller chose "Not sure yet — I'm just exploring →" on welcome step 1; mutually exclusive with leg dates), flex_nights (integer, nullable, PHI-99 — duration paired with flex_month, 1–30). Name and email are nullable (collected at the account step, after row creation). `auth_user_id` is null until the user clicks the magic link; nullable so existing localStorage-only travellers keep working. PHI-60 (claim flow): a single `auth_user_id` may own multiple rows; `is_primary=true` marks the row the dashboard defaults to (claim flow ensures exactly one primary per user); `claimed_at` is stamped when the row is linked via the claim flow (null for legacy rows linked silently in PHI-59). |
 | `guides` | Local guide profiles — email, name, points |
 | `tips` | Guide tips — city, content, view count, guide_id |
 | `tip_ratings` | One row per rating event — tip_id, value |
@@ -263,6 +263,14 @@ alter table travelers
   add column if not exists user_seeded_activities text[];
 ```
 Nullable, no default. Rows without a seeded list keep generating exactly as today — the `/api/itinerary/generate` prompt path is byte-identical when the column is null/empty.
+
+**PHI-99 migration — flexible dates** (run once, idempotent; `db/migrations/0013_flex_dates.sql`):
+```sql
+alter table travelers
+  add column if not exists flex_month text,
+  add column if not exists flex_nights integer;
+```
+Both columns are nullable / additive. The PRD pointed at filename `0012_flex_dates.sql` but `0012` is taken by PHI-100 — `0013` is the next free slot. When `flex_month` AND `flex_nights` are null AND the row has legs with `startDate`/`endDate` populated, every downstream consumer (prompts, /itinerary, dashboard) renders byte-identically to pre-PHI-99. When the flex pair is set AND the legs have no dates, the activity-gen + itinerary-gen prompts inject a one-line seasonal calibration note ("Traveller is planning for October 2026, exact dates not yet decided…") and the day timeline renders "Day N" headers with no fabricated dates. The dashboard date-lock nudge writes dates onto the legs and explicitly nulls both flex columns, keeping the row mutually exclusive between the two paths.
 
 **PHI-100 migration — anchor neighbourhood + cache** (run once, idempotent; `db/migrations/0012_anchor_neighborhood.sql`):
 ```sql
@@ -524,7 +532,7 @@ function dbErr(err: unknown): string {
 ### localStorage keys
 | Key | Contents |
 |---|---|
-| `rise_traveler` | Full traveller object (name, email, destination, dates, hotel, travelCompany, travelerCount, childrenAges, travelerTypes, budgetTier, activities, **userSeededActivities** — PHI-90 must-dos captured at welcome step 4, optional `string[]`, omitted when the user skipped the step, **anchorNeighborhood** — PHI-100 soft area anchor selected via the welcome step-2 picker, optional `string`, omitted when not used) |
+| `rise_traveler` | Full traveller object (name, email, destination, dates, hotel, travelCompany, travelerCount, childrenAges, travelerTypes, budgetTier, activities, **userSeededActivities** — PHI-90 must-dos captured at welcome step 4, optional `string[]`, omitted when the user skipped the step, **anchorNeighborhood** — PHI-100 soft area anchor selected via the welcome step-2 picker, optional `string`, omitted when not used, **flexMonth** + **flexNights** — PHI-99 flex-mode duration captured when the traveller picked "Not sure yet" on welcome step 1; optional `string` + `integer`, both omitted on the exact-date path. The dashboard date-lock nudge clears these and writes dates onto the row in place) |
 | `rise_onboarded` | `"true"` — gates redirect from `/welcome` to `/dashboard` |
 | `rise_itinerary` | Cached `ItineraryDay[]` array — cleared and regenerated when user clicks Regenerate |
 | `rise_itinerary_placement_notes` | PHI-90: plain-text `placement_notes` string from the last `/api/itinerary/generate` response, surfaced as an amber callout above Day 1 on `/itinerary`. Cleared on a clean generate (no notes) so stale notes don't survive a Regenerate. |

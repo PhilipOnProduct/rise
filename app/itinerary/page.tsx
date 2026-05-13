@@ -765,6 +765,7 @@ function DaySection({
   onRejectAdd,
   showWeatherAlternative,
   onAlternativeEngage,
+  effectiveDate,
 }: {
   day: ItineraryDay;
   scrollMarginTop: number;
@@ -787,6 +788,14 @@ function DaySection({
   // surfaces the AI's alternative for outdoor items inline.
   showWeatherAlternative: boolean;
   onAlternativeEngage: (activityId: string, alternativeTitle: string) => void;
+  // PHI-99: parent-computed date string for the header. Either:
+  //   - day.date as it arrived from the model (exact-date trip), OR
+  //   - departureDate + (day_number - 1) when the user later locked in
+  //     real dates after a flex-mode generate (dashboard nudge), OR
+  //   - "" in true flex mode (no date suffix rendered).
+  // Computed in the parent so the same shape is used for /itinerary,
+  // the trip-shape bar, and any other consumer.
+  effectiveDate: string;
 }) {
   const sorted = sortActivities(day.activities);
   const grouped = groupByBlock(sorted);
@@ -804,9 +813,9 @@ function DaySection({
       {/* Day header */}
       <div className="flex items-baseline gap-3 mb-5">
         <h2 className="text-xl font-extrabold tracking-tight text-[var(--text-primary)]">{day.label}</h2>
-        {day.date && (
+        {effectiveDate && (
           <span className="text-sm text-[var(--text-muted)]">
-            {new Date(day.date).toLocaleDateString("en-GB", {
+            {new Date(effectiveDate).toLocaleDateString("en-GB", {
               weekday: "short",
               day: "numeric",
               month: "short",
@@ -941,11 +950,17 @@ type StoredTraveler = {
   // PHI-37: full legs[] when the trip is multi-leg. Persisted by the
   // welcome page on save so /itinerary can render leg headers and the
   // transition-day chrome without an extra fetch.
-  legs?: { id?: string; place?: { name?: string }; startDate?: string; endDate?: string }[];
+  legs?: { id?: string; place?: { name?: string }; startDate?: string; endDate?: string; nights?: number }[];
   // PHI-90: traveller-seeded must-dos, captured at welcome step 4. Stored
   // on the local snapshot so a Regenerate (which calls generate() fresh)
   // still passes the anchors through to the prompt.
   userSeededActivities?: string[];
+  // PHI-99: flex-mode duration. Populated when the traveller took the
+  // "Not sure yet" path on welcome step 1. The dashboard date-lock nudge
+  // clears these and writes departureDate/returnDate instead; the cached
+  // itinerary survives the transition and is relabelled in place.
+  flexMonth?: string | null;
+  flexNights?: number | null;
 };
 
 export default function ItineraryViewPage() {
@@ -957,6 +972,11 @@ export default function ItineraryViewPage() {
   const [departureDate, setDepartureDate] = useState("");
   const [returnDate, setReturnDate] = useState("");
   const [hotel, setHotel] = useState("");
+  // PHI-99: flex-mode duration. Populated only when the traveller has not
+  // (yet) committed to dates. Used as a fallback for the skeleton day
+  // count when departureDate is empty so the loading shell still reflects
+  // the right number of cards.
+  const [flexNights, setFlexNights] = useState<number | null>(null);
   // PHI-37: leg metadata for the trip — populated from the StoredTraveler
   // snapshot. Empty for single-leg trips, in which case the page renders
   // the day list flat (existing behaviour).
@@ -1087,11 +1107,21 @@ export default function ItineraryViewPage() {
     // wrong-destination content under the new trip's header. Returning
     // false here also prevents the stale days from being written into
     // Supabase under the new traveler_id by the cache-rehydration path.
+    //
+    // PHI-99 — flex mode: a flex trip's cached days have date: "". The
+    // match passes when the cached first-day's date is empty, even if
+    // the traveller has since locked in real dates via the dashboard
+    // date-lock nudge (the PRD requires the cache to survive that
+    // transition and the headers to be relabelled in place). Trip
+    // switching (PHI-60) explicitly clears `rise_itinerary` so empty-
+    // date cache from trip A can't bleed into trip B.
     function itineraryMatchesTrip(days: unknown, departureDate: string): boolean {
       if (!Array.isArray(days) || days.length === 0) return false;
-      if (!departureDate) return false;
       const firstDate = (days[0] as { date?: unknown })?.date;
-      return typeof firstDate === "string" && firstDate === departureDate;
+      if (typeof firstDate !== "string") return false;
+      if (firstDate === "") return true; // flex-shape cache — survive flex→exact transition
+      if (!departureDate) return false;
+      return firstDate === departureDate;
     }
 
     async function load(traveler: StoredTraveler) {
@@ -1173,8 +1203,12 @@ export default function ItineraryViewPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           destination: t.destination,
-          departureDate: t.departureDate,
-          returnDate: t.returnDate,
+          // PHI-99: dates vs. flex columns. Flex-mode trips have no
+          // concrete dates; the route's resolveTripDuration uses the
+          // flex pair instead. Mirror the welcome-page payload shape.
+          ...(t.flexMonth && t.flexNights
+            ? { flexMonth: t.flexMonth, flexNights: t.flexNights }
+            : { departureDate: t.departureDate, returnDate: t.returnDate }),
           hotel: t.hotel ?? null,
           travelCompany: t.travelCompany ?? "",
           travelerTypes: t.travelerTypes ?? [],
@@ -1261,6 +1295,12 @@ export default function ItineraryViewPage() {
       setHotel(traveler.hotel ?? "");
       // PHI-37: hydrate leg metadata for the leg-aware day timeline.
       setLegs(Array.isArray(traveler.legs) ? traveler.legs : []);
+      // PHI-99: flex pair drives the skeleton fallback in flex mode.
+      setFlexNights(
+        typeof traveler.flexNights === "number" && traveler.flexNights >= 1
+          ? traveler.flexNights
+          : null,
+      );
       travelerRef.current = traveler;
       void load(traveler);
     })();
@@ -1747,14 +1787,21 @@ export default function ItineraryViewPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           destination: t.destination,
-          departureDate: t.departureDate,
-          returnDate: t.returnDate,
+          // PHI-99: mirror the load-time generate payload — flex columns
+          // when the trip is in flex mode, exact dates otherwise.
+          ...(t.flexMonth && t.flexNights
+            ? { flexMonth: t.flexMonth, flexNights: t.flexNights }
+            : { departureDate: t.departureDate, returnDate: t.returnDate }),
           hotel: t.hotel ?? null,
           travelCompany: t.travelCompany ?? "",
           travelerTypes: t.travelerTypes ?? [],
           activityFeedback,
           travelerCount: t.travelerCount ?? null,
           childrenAges: t.childrenAges ?? null,
+          ...(Array.isArray(t.userSeededActivities) &&
+          t.userSeededActivities.length > 0
+            ? { userSeededActivities: t.userSeededActivities }
+            : {}),
         }),
       });
 
@@ -1814,7 +1861,12 @@ export default function ItineraryViewPage() {
   // PHI-79: number of skeleton day cards to render during loading/regenerate.
   // Derived from the traveler's date range so first load (after traveler
   // hydrates) and Regenerate both keep the page structure visible.
-  const skeletonDayCount = tripDayCount(departureDate, returnDate);
+  // PHI-99: flex-mode trips have no concrete date range; fall back to
+  // flex_nights so the skeleton still reflects the right card count.
+  const skeletonDayCount =
+    departureDate && returnDate
+      ? tripDayCount(departureDate, returnDate)
+      : flexNights ?? 0;
 
   return (
     <div className="min-h-screen bg-[#f8f6f1]">
@@ -2003,6 +2055,19 @@ export default function ItineraryViewPage() {
               // alternatives universally on outdoor activities).
               const dayIsRainy = (date: string) =>
                 badDayDates === null || badDayDates.includes(date);
+              // PHI-99: compute the effective date for each day header.
+              // Order of preference: (1) the model-emitted day.date (exact
+              // path); (2) departureDate + (day_number - 1) when the user
+              // later locked in dates after a flex-mode generate (dashboard
+              // nudge); (3) "" if still flex.
+              const effectiveDateFor = (day: ItineraryDay): string => {
+                if (day.date) return day.date;
+                if (!departureDate) return "";
+                const d = new Date(departureDate);
+                if (Number.isNaN(d.getTime())) return "";
+                d.setDate(d.getDate() + (day.day_number - 1));
+                return d.toISOString().slice(0, 10);
+              };
               if (!isMultiLeg) {
                 return days.map((day) => (
                   <DaySection
@@ -2025,6 +2090,7 @@ export default function ItineraryViewPage() {
                     onRejectAdd={rejectAdd}
                     showWeatherAlternative={dayIsRainy(day.date)}
                     onAlternativeEngage={logWeatherAlternativeEngage}
+                    effectiveDate={effectiveDateFor(day)}
                   />
                 ));
               }
@@ -2089,6 +2155,7 @@ export default function ItineraryViewPage() {
                         onRejectAdd={rejectAdd}
                         showWeatherAlternative={dayIsRainy(day.date)}
                         onAlternativeEngage={logWeatherAlternativeEngage}
+                        effectiveDate={effectiveDateFor(day)}
                       />
                     )}
                   </div>
