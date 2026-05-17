@@ -231,7 +231,7 @@ rise/
 | `api_usage` | API call cost tracking — provider (`anthropic`/`google`), api_type, feature, input_tokens, output_tokens, request_count, estimated_cost_usd |
 | `api_limits` | Per-provider monthly limits — provider (unique), monthly_limit_usd, warning_threshold_pct (default 80), hard_limit_enabled (default true) |
 | `travel_connectors` | Inter-activity travel data — traveler_id, day_number, sequence_index, from/to activity IDs and names, from/to lat/lng, walk/transit/drive seconds and meters, walk_adjusted_seconds (family modifier), transit_fare, gap_seconds, gap_flagged (bool), flag_reason, error. Indexed on traveler_id. |
-| `destination_neighborhoods` | PHI-100 cache for the welcome step-2 soft picker — destination_key (unique, lowercased), destination_display, neighborhoods (jsonb array of `{name, blurb, best_for}`), model. First visitor for a destination triggers the Claude Haiku call; every subsequent visitor reads from cache. |
+| `destination_neighborhoods` | PHI-100 cache for the welcome step-2 soft picker — destination_key (lowercased), destination_display, has_children (bool, default false, PHI-107 — sharding flag so the family-mode prompt has its own cache row), neighborhoods (jsonb array of `{name, blurb, best_for}`), model. Unique index on (destination_key, has_children) — up to two rows per destination, one per composition shard. First visitor for a destination + composition triggers the Claude Haiku call; every subsequent visitor in the same shard reads from cache. |
 
 **Required SQL to add composition columns to `travelers` table:**
 ```sql
@@ -290,6 +290,16 @@ create unique index if not exists idx_destination_neighborhoods_key
   on destination_neighborhoods(destination_key);
 ```
 Both columns are nullable / additive. The cache lookup is case-insensitive (`destination_key` is lowercased). When `anchor_neighborhood` is null AND no hotel is set, the AI prompts run byte-identically to pre-PHI-100. Multi-leg trips ignore the anchor — per-leg hotels carry the location signal.
+
+**PHI-107 migration — neighbourhood family-mode shard** (run once, idempotent; `db/migrations/0014_neighborhood_composition.sql`):
+```sql
+alter table destination_neighborhoods
+  add column if not exists has_children boolean not null default false;
+drop index if exists idx_destination_neighborhoods_key;
+create unique index if not exists idx_destination_neighborhoods_key
+  on destination_neighborhoods(destination_key, has_children);
+```
+Additive + idempotent. Existing rows take the default `has_children = false`, which is correct — they were generated without composition context. After this migration the cache has up to two rows per destination, one per shard. The route (`app/api/neighborhoods/route.ts`) computes `hasChildren = Array.isArray(childrenAges) && childrenAges.length > 0` from the POST body, filters the cache lookup on both `destination_key` and `has_children`, and writes new rows with the shard flag set. The Family mode block in `NEIGHBORHOOD_GEN_SYSTEM` is always present in the prompt but is only activated when the user message carries the composition note (added by `buildNeighborhoodGenUserMessage(dest, { hasChildren: true })`). The non-family path (`hasChildren=false`) is byte-identical to pre-PHI-107 — same system + user message, same cache row.
 
 **Required SQL for `objectives` table** (run in Supabase dashboard if not yet created):
 ```sql

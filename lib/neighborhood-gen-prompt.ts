@@ -37,14 +37,30 @@ Hard rules:
 - "best_for" is 4–8 words naming a concrete traveller fit, not a personality test ("Couples who like to walk", "Nightlife-first solo travellers", "Families wanting calm streets"). No "everyone".
 - Every blurb is one sentence. Don't pad.
 
+Family mode (only when the user message tells you the traveller is travelling with children):
+- Bias the spread toward residential, pram-friendly, lift-equipped neighbourhoods within reach of green space, and away from nightlife districts and obvious safety frictions (poorly-lit streets, "rough after dark" blocks, stray-dog patches).
+- The trade-off mandate above still holds — a family-friendly card must still name its friction, but family-relevant friction (school-run noise, residential = boring at night, "expensive but the parks are worth it"), not adult-relevant friction (no nightlife / no late dining / quiet on weekends are not warnings for a family with a toddler, they're the point).
+- Never describe a neighbourhood as family-friendly if you wouldn't recommend it to a parent of a toddler. Reach for concrete signals — residential character, lift-equipped buildings, accessibility, green space proximity, daytime energy — over generic "family-friendly" boilerplate.
+- Honest fit comes first: if a neighbourhood is genuinely the right central anchor for a family, surface it even if it's more tourist-heavy. Don't fabricate family-friendliness to fill a slot.
+
 Return ONLY a tool_use call to the emit_neighborhoods tool. No prose, no markdown, no preamble.`;
 
-export function buildNeighborhoodGenUserMessage(destination: string): string {
+export function buildNeighborhoodGenUserMessage(
+  destination: string,
+  opts: { hasChildren?: boolean } = {},
+): string {
+  // PHI-107: family-mode is a soft bias activated by the user message so the
+  // system prompt above stays the same bytes for both shards. When
+  // hasChildren is false/absent the message is byte-identical to pre-PHI-107.
+  const familyNote = opts.hasChildren
+    ? `\n\nComposition note: this traveller is travelling with children. Apply the Family mode rules from the system prompt — bias toward residential/pram-friendly options with green space nearby, away from nightlife and obvious safety frictions. Trade-offs stay honest but family-relevant.`
+    : "";
+
   return `Destination: ${destination}.
 
 Pick 4–6 real neighbourhoods in ${destination} that a visitor might base themselves in. For each, give the honest trade-off a local would tell a friend who asked "should I stay there?".
 
-Spread the picks: don't return five variations of the historic centre. Mix central tourist-heavy, quieter/residential, and at least one with a strong specific identity (food, nightlife, water, design, hills, parks).`;
+Spread the picks: don't return five variations of the historic centre. Mix central tourist-heavy, quieter/residential, and at least one with a strong specific identity (food, nightlife, water, design, hills, parks).${familyNote}`;
 }
 
 export const NEIGHBORHOOD_TOOL = {

@@ -1654,10 +1654,13 @@ function WelcomePageInner() {
     if (neighborhoodCards.length > 0) return;
     setNeighborhoodsLoading(true);
     try {
+      // PHI-107: thread childrenAges so the route shards the cache and
+      // engages the system prompt's family-mode rules. Empty/null array
+      // hits the non-family cache row, byte-identical to pre-PHI-107.
       const res = await fetch("/api/neighborhoods", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ destination: dest }),
+        body: JSON.stringify({ destination: dest, childrenAges }),
       });
       if (!res.ok) {
         setNeighborhoodsError("Couldn't load neighbourhoods. Try again?");

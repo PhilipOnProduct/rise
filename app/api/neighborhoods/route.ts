@@ -24,20 +24,30 @@ function dbErr(err: unknown): string {
 }
 
 export async function POST(req: NextRequest) {
-  const { destination } = (await req.json()) as { destination?: string };
+  const { destination, childrenAges } = (await req.json()) as {
+    destination?: string;
+    childrenAges?: string[] | null;
+  };
   const trimmed = typeof destination === "string" ? destination.trim() : "";
   if (!trimmed) {
     return NextResponse.json({ error: "destination is required." }, { status: 400 });
   }
+  // PHI-107: family-mode shard. Any child triggers it — age-band sub-clauses
+  // are out of scope. Non-family path stays byte-identical to pre-PHI-107
+  // (system + user message, cache row, all unchanged).
+  const hasChildren = Array.isArray(childrenAges) && childrenAges.length > 0;
 
   const cacheKey = neighborhoodCacheKey(trimmed);
   const supabase = getSupabaseAdminClient();
 
-  // Cache hit — case-insensitive lookup. Skip the API entirely.
+  // Cache hit — case-insensitive lookup, sharded by has_children. Skip the
+  // API entirely. The composite unique index (destination_key, has_children)
+  // is what gives us the two-row-per-destination shape.
   const { data: cached, error: cacheErr } = await supabase
     .from("destination_neighborhoods")
     .select("neighborhoods")
     .eq("destination_key", cacheKey)
+    .eq("has_children", hasChildren)
     .maybeSingle();
   if (cacheErr) {
     // Non-fatal — fall through to generation. Logged for visibility.
@@ -59,7 +69,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const userMessage = buildNeighborhoodGenUserMessage(trimmed);
+  const userMessage = buildNeighborhoodGenUserMessage(trimmed, { hasChildren });
   const sessionId = req.cookies.get("rise_session_id")?.value ?? null;
 
   const startTime = Date.now();
@@ -89,7 +99,7 @@ export async function POST(req: NextRequest) {
       feature: "neighborhoods",
       model: MODEL,
       prompt: `${NEIGHBORHOOD_GEN_SYSTEM}\n\n---\n\n${userMessage}`,
-      input: { destination: trimmed },
+      input: { destination: trimmed, hasChildren },
       output: JSON.stringify(neighborhoods),
       latency_ms: Date.now() - startTime,
       input_tokens: response.usage.input_tokens,
@@ -107,17 +117,20 @@ export async function POST(req: NextRequest) {
     });
 
     // Cache the result. Best-effort — a failure here doesn't fail the
-    // request; next visitor for this destination will just regenerate.
+    // request; next visitor for this destination + composition will just
+    // regenerate. onConflict targets the composite (destination_key,
+    // has_children) so the two shards never overwrite each other.
     const { error: upsertErr } = await supabase
       .from("destination_neighborhoods")
       .upsert(
         {
           destination_key: cacheKey,
           destination_display: trimmed,
+          has_children: hasChildren,
           neighborhoods,
           model: MODEL,
         },
-        { onConflict: "destination_key" },
+        { onConflict: "destination_key,has_children" },
       );
     if (upsertErr) {
       console.warn("[neighborhoods] cache write failed:", dbErr(upsertErr));
