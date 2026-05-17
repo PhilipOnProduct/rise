@@ -40,6 +40,20 @@ export type TripLeg = {
   place: PlaceRef;
   /** Optional hotel — free-text or a future place ID. Null = not booked / skip. */
   hotel?: string | null;
+  /**
+   * PHI-111 — optional rich hotel place data captured when the user selects
+   * a `PlacesAutocomplete` suggestion that resolved to a real Place. All
+   * four fields land together (or none do — if the Places Details fetch
+   * fails, only the `hotel` name string is set). Per-leg by design so a
+   * multi-leg trip's leg 2 hotel doesn't overwrite leg 1's coords.
+   * Downstream consumers (PHI-105 anchor resolution, future "near where
+   * you're staying" surfaces) treat absence as "no hotel coords" — same
+   * fallback as a skipped hotel step.
+   */
+  hotelPlaceId?: string;
+  hotelLat?: number;
+  hotelLng?: number;
+  hotelNeighborhood?: string | null;
   /** ISO date within the trip envelope. Absent = inferred from neighbours. */
   startDate?: string;
   endDate?: string;
@@ -151,6 +165,13 @@ export function buildSingleLegTrip(args: {
   departureDate?: string;
   returnDate?: string;
   hotel?: string | null;
+  /** PHI-111 — optional rich hotel place data. Threaded into the leg when
+   *  the welcome step-2 PlacesAutocomplete delivered an `onSelectRich`
+   *  payload alongside the name. All four travel as a unit. */
+  hotelPlaceId?: string;
+  hotelLat?: number;
+  hotelLng?: number;
+  hotelNeighborhood?: string | null;
   costEstimate?: number;
   timezone?: string;
 }): Trip {
@@ -166,6 +187,15 @@ export function buildSingleLegTrip(args: {
     id: newLegId(),
     place,
     hotel: args.hotel ?? null,
+    // PHI-111: only set the rich hotel fields when supplied — keeps the
+    // single-leg JSONB shape byte-identical for callers that don't carry
+    // coords (existing wizard path, e2e fixtures).
+    ...(args.hotelPlaceId && { hotelPlaceId: args.hotelPlaceId }),
+    ...(args.hotelLat != null && { hotelLat: args.hotelLat }),
+    ...(args.hotelLng != null && { hotelLng: args.hotelLng }),
+    ...(args.hotelNeighborhood !== undefined && {
+      hotelNeighborhood: args.hotelNeighborhood,
+    }),
     startDate: args.departureDate,
     endDate: args.returnDate,
     ...(args.costEstimate != null && { costEstimate: args.costEstimate }),

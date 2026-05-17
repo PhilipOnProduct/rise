@@ -627,6 +627,18 @@ function WelcomePageInner() {
   const [departureDate, setDepartureDate] = useState("");
   const [returnDate, setReturnDate] = useState("");
   const [hotel, setHotel] = useState("");
+  // PHI-111: rich hotel payload captured when the user picks a Places
+  // suggestion in step 2 (single-leg path). null when the user typed a
+  // hotel name without picking a suggestion, or skipped the step entirely.
+  // Flows to the API on save so the row's flat hotel_lat/lng columns and
+  // legs[0]'s rich fields land in one shot.
+  type HotelRich = {
+    placeId: string;
+    lat: number;
+    lng: number;
+    neighborhood: string | null;
+  };
+  const [hotelRich, setHotelRich] = useState<HotelRich | null>(null);
 
   // PHI-99: flex-date entry. When the user clicks "Not sure yet — I'm just
   // exploring →" below the Return field on step 1, we swap the two date
@@ -774,6 +786,12 @@ function WelcomePageInner() {
   // and the existing `hotel` state is the source of truth. Sized in
   // applyParsedIntentAndAdvance + chip-edit handlers to match parsedLegs.
   const [legHotels, setLegHotels] = useState<string[]>([]);
+  // PHI-111: per-leg rich hotel payloads — parallel array to legHotels.
+  // null entries = no rich data for that leg (user typed without picking,
+  // or skipped). Persisted into legs[i] before save so each leg carries
+  // its own coords; leg 0's coords additionally mirror to the flat
+  // hotel_* columns for single-leg-aware consumers.
+  const [legHotelsRich, setLegHotelsRich] = useState<(HotelRich | null)[]>([]);
 
   // Activity cards + feedback
   const [parsedActivities, setParsedActivities] = useState<ParsedActivity[]>([]);
@@ -1135,6 +1153,7 @@ function WelcomePageInner() {
               ? { flexMonth, flexNights }
               : { departureDate, returnDate }),
             hotel: hotel || null,
+            ...buildRichHotelFields(),
             travelCompany: travelCompany || null,
             travelerTypes,
             activityFeedback: feedbackArray,
@@ -1273,6 +1292,21 @@ function WelcomePageInner() {
   // edits on the wizard flow through naturally. PHI-39 adds per-leg
   // hotels from legHotels — empty strings become null so the prompt knows
   // not to anchor on a hotel for that leg.
+  // PHI-111: emit the four rich hotel fields onto the POST/PATCH body when
+  // (a) the user picked a real Places suggestion and (b) the visible hotel
+  // string is non-empty (skipping the step or clearing the typed text
+  // invalidates a captured payload). Single-leg path only — multi-leg
+  // routes the rich fields inside legs[i] via buildLegsForApi above.
+  function buildRichHotelFields(): Record<string, unknown> {
+    if (!hotelRich || !hotel.trim()) return {};
+    return {
+      hotelPlaceId: hotelRich.placeId,
+      hotelLat: hotelRich.lat,
+      hotelLng: hotelRich.lng,
+      hotelNeighborhood: hotelRich.neighborhood,
+    };
+  }
+
   function buildLegsForApi(): TripLeg[] | null {
     if (parsedLegs.length < 2) return null;
     // PHI-99: when the wizard is in flex mode the leg list has no concrete
@@ -1287,10 +1321,23 @@ function WelcomePageInner() {
       const endDate = cursor ? addDays(cursor, leg.nights) : undefined;
       cursor = endDate;
       const legHotel = legHotels[i]?.trim() || null;
+      // PHI-111: only attach rich coords when (a) the user picked a real
+      // suggestion (legHotelsRich[i] is set) AND (b) the visible hotel
+      // string still matches that selection. The onChange handler clears
+      // the rich entry on free-text edits, so this guard is belt-and-
+      // braces against an edge race where the typed string drifts.
+      const rich = legHotelsRich[i];
+      const richValid = !!rich && !!legHotel;
       return {
         id: newLegId(),
         place: leg.place,
         hotel: legHotel,
+        ...(richValid && rich.placeId ? { hotelPlaceId: rich.placeId } : {}),
+        ...(richValid && typeof rich.lat === "number" ? { hotelLat: rich.lat } : {}),
+        ...(richValid && typeof rich.lng === "number" ? { hotelLng: rich.lng } : {}),
+        ...(richValid && rich.neighborhood !== undefined
+          ? { hotelNeighborhood: rich.neighborhood }
+          : {}),
         ...(startDate && { startDate }),
         ...(endDate && { endDate }),
         // Always include the leg.nights so the prompt builder can render
@@ -1325,6 +1372,7 @@ function WelcomePageInner() {
         ? { flexMonth, flexNights }
         : { departureDate, returnDate }),
       hotel: hotel || null,
+      ...buildRichHotelFields(),
       travelCompany: travelCompany || null,
       styleTags: travelerTypes,
       budgetTier: budgetTier || null,
@@ -1685,6 +1733,9 @@ function WelcomePageInner() {
   function pickNeighborhood(name: string) {
     setAnchorNeighborhood(name);
     setHotel("");
+    // PHI-111: picking a neighbourhood is mutually exclusive with a booked
+    // hotel — drop any rich payload we captured before the user pivoted.
+    setHotelRich(null);
     setNeighborhoodPickerOpen(false);
     void handleContinue();
   }
@@ -1759,6 +1810,7 @@ function WelcomePageInner() {
               ? { flexMonth, flexNights }
               : { departureDate, returnDate }),
             hotel: hotel || null,
+            ...buildRichHotelFields(),
             travelCompany: travelCompany || null,
             styleTags: travelerTypes.length > 0 ? travelerTypes : null,
             budgetTier: budgetTier || null,
@@ -1853,6 +1905,7 @@ function WelcomePageInner() {
               ? { flexMonth, flexNights }
               : { departureDate, returnDate }),
             hotel: hotel || null,
+            ...buildRichHotelFields(),
             travelCompany: travelCompany || null,
             styleTags: travelerTypes.length > 0 ? travelerTypes : null,
             budgetTier: budgetTier || null,
@@ -1896,6 +1949,7 @@ function WelcomePageInner() {
       departureDate: flexMode ? "" : departureDate,
       returnDate: flexMode ? "" : returnDate,
       hotel: hotel || null,
+      ...buildRichHotelFields(),
       travelCompany,
       travelerCount: adultCount + childrenAges.length,
       childrenAges: childrenAges.length > 0 ? childrenAges : null,
@@ -2142,11 +2196,14 @@ function WelcomePageInner() {
       // PHI-39: initialise per-leg hotel slots (one empty string per leg).
       // The user fills these in step 2.
       setLegHotels(new Array(dests.length).fill(""));
+      // PHI-111: parallel rich-payload array, same length as legHotels.
+      setLegHotelsRich(new Array(dests.length).fill(null));
     } else {
       // Single-leg: keep parsedLegs empty so persistence falls through
       // to the existing single-leg path.
       setParsedLegs([]);
       setLegHotels([]);
+      setLegHotelsRich([]);
     }
     // PHI-109: capture the parser's nights inference so the date-default
     // effect uses it (instead of the hardcoded 7) when the user only set a
@@ -3380,8 +3437,22 @@ function WelcomePageInner() {
             <div className="flex flex-col gap-4">
               <PlacesAutocomplete
                 value={hotel}
-                onChange={setHotel}
+                onChange={(v) => {
+                  setHotel(v);
+                  // Typed edit invalidates a previous rich capture — the
+                  // user is now describing a different place than the one
+                  // they previously selected.
+                  if (hotelRich) setHotelRich(null);
+                }}
                 onSelect={(v) => setHotel(v.split(",")[0].trim())}
+                onSelectRich={(rich) =>
+                  setHotelRich({
+                    placeId: rich.placeId,
+                    lat: rich.lat,
+                    lng: rich.lng,
+                    neighborhood: rich.neighborhood,
+                  })
+                }
                 placeholder={getHotelPlaceholder(destination)}
                 types={["establishment"]}
                 locationBias={destinationBias}
@@ -3393,7 +3464,7 @@ function WelcomePageInner() {
               />
               <div className="flex flex-col gap-2">
                 <button
-                  onClick={() => { setHotel(""); handleContinue(); }}
+                  onClick={() => { setHotel(""); setHotelRich(null); handleContinue(); }}
                   className="self-start text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
                 >
                   I haven&apos;t booked yet — skip &rarr;
@@ -3496,17 +3567,42 @@ function WelcomePageInner() {
                   </label>
                   <PlacesAutocomplete
                     value={legHotels[i] ?? ""}
-                    onChange={(v) =>
+                    onChange={(v) => {
                       setLegHotels((prev) => {
                         const next = [...prev];
                         next[i] = v;
                         return next;
-                      })
-                    }
+                      });
+                      // PHI-111: invalidate any prior rich payload for this
+                      // leg when the user keeps typing — the captured
+                      // place no longer matches the typed text.
+                      setLegHotelsRich((prev) => {
+                        if (!prev[i]) return prev;
+                        const next = [...prev];
+                        next[i] = null;
+                        return next;
+                      });
+                    }}
                     onSelect={(v) =>
                       setLegHotels((prev) => {
                         const next = [...prev];
                         next[i] = v.split(",")[0].trim();
+                        return next;
+                      })
+                    }
+                    onSelectRich={(rich) =>
+                      setLegHotelsRich((prev) => {
+                        const next = [...prev];
+                        // Make sure the array is long enough — initial
+                        // sizing already pads to parsedLegs.length, but
+                        // be defensive in case of re-render races.
+                        while (next.length <= i) next.push(null);
+                        next[i] = {
+                          placeId: rich.placeId,
+                          lat: rich.lat,
+                          lng: rich.lng,
+                          neighborhood: rich.neighborhood,
+                        };
                         return next;
                       })
                     }
@@ -3526,8 +3622,9 @@ function WelcomePageInner() {
               ))}
               <button
                 onClick={() => {
-                  // Skip-all: clear every leg's hotel.
+                  // Skip-all: clear every leg's hotel and any rich coords.
                   setLegHotels(new Array(parsedLegs.length).fill(""));
+                  setLegHotelsRich(new Array(parsedLegs.length).fill(null));
                   handleContinue();
                 }}
                 className="self-start text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"

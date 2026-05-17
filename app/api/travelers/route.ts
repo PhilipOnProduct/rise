@@ -52,6 +52,14 @@ function deriveLegs(body: {
   departureDate?: string;
   returnDate?: string;
   hotel?: string | null;
+  // PHI-111: optional rich hotel payload — single-leg path. Multi-leg
+  // payloads carry the same fields inside legs[i] (the welcome page's
+  // buildLegsForApi adds them per leg), so this top-level pair is only
+  // honoured on the synthesised-from-flat-fields branch below.
+  hotelPlaceId?: string;
+  hotelLat?: number;
+  hotelLng?: number;
+  hotelNeighborhood?: string | null;
 }): { legs: TripLeg[]; trip: Trip } | null {
   // PHI-34 path: caller already sent a leg-aware shape — use it as-is.
   if (Array.isArray(body.legs) && body.legs.length > 0) {
@@ -74,8 +82,36 @@ function deriveLegs(body: {
     departureDate: body.departureDate,
     returnDate: body.returnDate,
     hotel: body.hotel ?? null,
+    // PHI-111: thread rich fields onto leg 0 when supplied. Single-leg
+    // callers (welcome step 2 single-destination path) get the same per-
+    // leg coord shape as multi-leg payloads, so downstream readers walk
+    // legs[*].hotelLat uniformly.
+    hotelPlaceId: body.hotelPlaceId,
+    hotelLat: body.hotelLat,
+    hotelLng: body.hotelLng,
+    hotelNeighborhood: body.hotelNeighborhood,
   });
   return { legs: trip.legs, trip };
+}
+
+/**
+ * PHI-111 — pick the row-level hotel coordinate flat columns from a derived
+ * leg array. Mirrors legs[0]'s rich fields (when present) so single-leg-
+ * aware downstream consumers can read coordinates off the row directly,
+ * without walking the legs JSONB. Returns an empty object when leg 0 has
+ * no coords — letting the route omit the columns from the insert/update
+ * payload so legacy/skipped-hotel rows stay null.
+ */
+function flatHotelColumnsFromLegs(legs: TripLeg[] | undefined | null): Record<string, unknown> {
+  const leg0 = legs?.[0];
+  if (!leg0) return {};
+  const cols: Record<string, unknown> = {};
+  if (leg0.hotelPlaceId) cols.hotel_place_id = leg0.hotelPlaceId;
+  if (typeof leg0.hotelLat === "number") cols.hotel_lat = leg0.hotelLat;
+  if (typeof leg0.hotelLng === "number") cols.hotel_lng = leg0.hotelLng;
+  if (leg0.hotelNeighborhood !== undefined)
+    cols.hotel_neighborhood = leg0.hotelNeighborhood;
+  return cols;
 }
 
 export async function POST(req: NextRequest) {
@@ -142,6 +178,11 @@ export async function POST(req: NextRequest) {
       // PHI-33 PR2: legs is now the only place trip shape lives. Legacy
       // destination/hotel/departure_date/return_date columns dropped.
       legs: derived.legs,
+      // PHI-111: mirror legs[0]'s hotel coords onto the flat columns so
+      // downstream consumers that just want "the trip's hotel coords"
+      // have a one-query path. Multi-leg's per-leg coords still live in
+      // legs JSONB — the flat columns are the primary-leg convenience.
+      ...flatHotelColumnsFromLegs(derived.legs),
       activities: activities ?? [],
       travel_company: travelCompany || null,
       style_tags: styleTags || null,
@@ -336,6 +377,22 @@ export async function PATCH(req: NextRequest) {
         );
       }
       updates.legs = derived.legs;
+      // PHI-111: keep the flat hotel-coord columns in sync with legs[0]
+      // on any trip-shape change. If leg 0 carries no coords (skipped /
+      // pre-PHI-111 row), the helper returns {} and the columns stay
+      // untouched on this UPDATE — which can leave stale coords from a
+      // prior hotel pick. Clear them explicitly when leg 0's hotel name
+      // is unset, so a skip-after-pick path doesn't carry old coords.
+      const leg0 = derived.legs?.[0];
+      const flat = flatHotelColumnsFromLegs(derived.legs);
+      if (Object.keys(flat).length > 0) {
+        Object.assign(updates, flat);
+      } else if (leg0 && (!leg0.hotel || leg0.hotel.trim().length === 0)) {
+        updates.hotel_place_id = null;
+        updates.hotel_lat = null;
+        updates.hotel_lng = null;
+        updates.hotel_neighborhood = null;
+      }
     }
   }
 

@@ -8,10 +8,35 @@ type Suggestion = {
   secondaryText: string;
 };
 
+/**
+ * PHI-111 — rich Place payload delivered alongside the description string
+ * when the caller opts in via `onSelectRich`. All four fields land together
+ * — if the Places Details lookup fails or the rate-limit gate triggers,
+ * `onSelectRich` is simply not called and the caller falls back to
+ * `onSelect(description)` (which fires first, always).
+ */
+export type PlaceRichSelection = {
+  description: string;
+  placeId: string;
+  lat: number;
+  lng: number;
+  neighborhood: string | null;
+};
+
 type Props = {
   value: string;
   onChange: (value: string) => void;
   onSelect: (description: string) => void;
+  /**
+   * PHI-111 — optional rich-payload callback. When supplied, the component
+   * issues a Places Details lookup after the user picks a suggestion, then
+   * fires `onSelectRich` with the lat/lng/neighborhood. `onSelect` always
+   * fires too (description-string) so callers without `onSelectRich` are
+   * unaffected. On rate-limit-exceeded or Places Details failure the
+   * callback is skipped — the rich fields stay absent and downstream
+   * features fall back to their no-coords behaviour.
+   */
+  onSelectRich?: (rich: PlaceRichSelection) => void;
   placeholder?: string;
   types?: string[];
   locationBias?: { lat: number; lng: number } | null;
@@ -67,6 +92,7 @@ export default function PlacesAutocomplete({
   value,
   onChange,
   onSelect,
+  onSelectRich,
   placeholder = "",
   types,
   locationBias,
@@ -190,8 +216,52 @@ export default function PlacesAutocomplete({
       setOpen(false);
       // Renew session token after selection
       tokenRef.current = new google.maps.places.AutocompleteSessionToken();
+
+      // PHI-111 — when a caller opted into the rich payload, follow up with
+      // a Places Details lookup so the consumer can persist lat/lng + the
+      // resolved neighbourhood. Server-side rate-limit + cost-logging is
+      // POSTed to a small API surface so the budget gate and api_usage row
+      // land alongside every other Google call. On any failure (limit hit,
+      // network, missing place, no neighborhood component) the rich
+      // callback is silently skipped — `onSelect(description)` has already
+      // fired so the user is never blocked.
+      if (onSelectRich) {
+        void (async () => {
+          try {
+            const res = await fetch("/api/places/details", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ placeId: s.placeId }),
+            });
+            if (!res.ok) return;
+            const data = (await res.json()) as {
+              placeId?: string;
+              lat?: number;
+              lng?: number;
+              neighborhood?: string | null;
+            };
+            if (
+              typeof data.placeId !== "string" ||
+              typeof data.lat !== "number" ||
+              typeof data.lng !== "number"
+            ) {
+              return;
+            }
+            onSelectRich({
+              description,
+              placeId: data.placeId,
+              lat: data.lat,
+              lng: data.lng,
+              neighborhood: data.neighborhood ?? null,
+            });
+          } catch {
+            // Swallow — onSelect already fired and the caller's no-coords
+            // fallback is the same as the "user skipped hotel" path.
+          }
+        })();
+      }
     },
-    [onChange, onSelect]
+    [onChange, onSelect, onSelectRich]
   );
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {

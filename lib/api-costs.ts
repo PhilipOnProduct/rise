@@ -14,6 +14,7 @@ const ANTHROPIC_PRICING: Record<string, { input: number; output: number }> = {
 const GOOGLE_PRICING: Record<string, number> = {
   "places-search":      0.017,
   "places-text-search": 0.032,
+  "places-details":     0.017,
   "routes-compute":     0.005,
   "geocoding":          0.005,
 };
