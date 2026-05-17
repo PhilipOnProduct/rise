@@ -638,6 +638,12 @@ function WelcomePageInner() {
   const [flexMonth, setFlexMonth] = useState("");
   const [flexNights, setFlexNights] = useState(5);
 
+  // PHI-109: when the free-form parser inferred a duration ("5 days late
+  // September") without explicit dates, capture that here so the
+  // departure-date default effect uses the parser's number instead of the
+  // hardcoded 7. Null on the structured-wizard path so the 7 fallback holds.
+  const [parserInferredNights, setParserInferredNights] = useState<number | null>(null);
+
   // PHI-100: soft neighbourhood picker on step 2. When the traveller hasn't
   // booked a hotel they can opt into picking a neighbourhood instead.
   // `neighborhoodPickerOpen` swaps the hotel input area for the cards.
@@ -859,9 +865,22 @@ function WelcomePageInner() {
     };
   }, []);
 
+  // PHI-109: only default the return date when it is currently empty.
+  // The parser-confirm inline editor sets both `departureDate` and
+  // `returnDate` in the same batch via applyParsedIntentAndAdvance; without
+  // the empty-guard this effect would fire on the departure change and
+  // silently overwrite the user's explicit return with departure + 7,
+  // turning a typed 5-night trip into a 7-night one. The parser's
+  // `durationNights` inference (captured in `parserInferredNights`) is the
+  // preferred offset when the user came through the free-form path and only
+  // gave us a duration; otherwise we fall back to 7 for the structured-
+  // wizard path.
   useEffect(() => {
-    if (departureDate) setReturnDate(addDays(departureDate, 7));
-  }, [departureDate]);
+    if (!departureDate) return;
+    setReturnDate((current) =>
+      current || addDays(departureDate, parserInferredNights ?? 7),
+    );
+  }, [departureDate, parserInferredNights]);
 
   // PHI-48 / PHI-58: seed once from query params sent by the landing page.
   // `?parser_text=` (PHI-58) takes precedence — when the homepage detects
@@ -2125,6 +2144,15 @@ function WelcomePageInner() {
       // to the existing single-leg path.
       setParsedLegs([]);
       setLegHotels([]);
+    }
+    // PHI-109: capture the parser's nights inference so the date-default
+    // effect uses it (instead of the hardcoded 7) when the user only set a
+    // duration on the chip screen and picks a departure on step 1.
+    if (
+      typeof parsedIntent.dates.durationNights === "number" &&
+      parsedIntent.dates.durationNights > 0
+    ) {
+      setParserInferredNights(parsedIntent.dates.durationNights);
     }
     if (parsedIntent.dates.departure) setDepartureDate(parsedIntent.dates.departure);
     if (parsedIntent.dates.return) setReturnDate(parsedIntent.dates.return);
