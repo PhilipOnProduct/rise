@@ -17,6 +17,7 @@
     "eval:activities": "tsx --env-file=.env.local scripts/eval-activities.ts",
     "eval:anchors": "tsx --env-file=.env.local scripts/eval-itinerary-anchors.ts",
     "eval:country-destination": "tsx --env-file=.env.local scripts/eval-country-destination.ts",
+    "eval:popular-picks": "tsx --env-file=.env.local scripts/eval-popular-picks.ts",
     "validate:atlas": "tsx scripts/validate-atlas.ts",
     "report:multi-leg-cost": "tsx --env-file=.env.local scripts/multi-leg-cost-report.ts"
   },

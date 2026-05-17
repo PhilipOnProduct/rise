@@ -107,6 +107,15 @@ export async function POST(req: NextRequest) {
     // resolveTripDuration enforces and the route returns 400 otherwise.
     flexMonth,
     flexNights,
+    // PHI-105: optional rich hotel coordinates from welcome step 2 (set
+    // via PHI-111). When `hotel` is non-empty AND both lat/lng arrive,
+    // the route builds the hotelContext object for the anchor-resolution
+    // prompt. Null / missing = anchor-resolution prompt path is byte-
+    // identical to pre-PHI-105.
+    hotelPlaceId,
+    hotelLat,
+    hotelLng,
+    hotelNeighborhood,
   } = (await req.json()) as {
     destination?: string;
     departureDate?: string;
@@ -124,6 +133,10 @@ export async function POST(req: NextRequest) {
     anchorNeighborhood?: string | null;
     flexMonth?: string | null;
     flexNights?: number | null;
+    hotelPlaceId?: string | null;
+    hotelLat?: number | null;
+    hotelLng?: number | null;
+    hotelNeighborhood?: string | null;
   };
 
   // PHI-99: trip-duration resolution funnels through the shared helper so
@@ -171,6 +184,26 @@ export async function POST(req: NextRequest) {
   const cleanedSeeds = cleanUserSeededActivities(userSeededActivities);
   const hasAnchors = cleanedSeeds.length > 0;
 
+  // PHI-105: assemble the optional hotel-context object for the anchor
+  // block. Requires both coords AND a hotel name to be set — neighbourhood
+  // is optional (we can work from coords alone). Single-leg only: the
+  // prompt builder's anchor segment doesn't yet consume per-leg coords.
+  const isMultiLegForCtx = Array.isArray(legs) && legs.length >= 2;
+  const hotelContext =
+    !isMultiLegForCtx &&
+    typeof hotel === "string" &&
+    hotel.trim().length > 0 &&
+    typeof hotelLat === "number" &&
+    typeof hotelLng === "number"
+      ? {
+          name: hotel.trim(),
+          neighborhood: hotelNeighborhood ?? null,
+          lat: hotelLat,
+          lng: hotelLng,
+          childrenAges: childrenAges ?? null,
+        }
+      : null;
+
   const prompt = buildItineraryGenPrompt({
     destination,
     // PHI-99: empty strings on the flex path so the builder skips the
@@ -194,6 +227,7 @@ export async function POST(req: NextRequest) {
         : null,
     nights: duration.nights,
     seasonHint: duration.seasonHint,
+    hotelContext,
   });
 
   const isMultiLeg = Array.isArray(legs) && legs.length >= 2;
@@ -331,6 +365,18 @@ export async function POST(req: NextRequest) {
         flexNights: duration.mode === "flex" ? (flexNights ?? null) : null,
         seasonHint: duration.seasonHint,
         durationMode: duration.mode,
+        // PHI-105: log the hotel-context object (or null) so the admin
+        // can see at a glance which generate calls had a coord-anchored
+        // resolve path vs the legacy text-only path.
+        hotelContext: hotelContext
+          ? {
+              name: hotelContext.name,
+              neighborhood: hotelContext.neighborhood,
+              lat: hotelContext.lat,
+              lng: hotelContext.lng,
+            }
+          : null,
+        hotelPlaceId: hotelPlaceId ?? null,
       },
       output: jsonStr,
       latency_ms: Date.now() - startTime,

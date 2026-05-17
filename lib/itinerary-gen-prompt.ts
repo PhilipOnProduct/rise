@@ -69,6 +69,15 @@ export type ItineraryGenInputs = {
    * exact-date path; the prompt is byte-identical to pre-PHI-99.
    */
   seasonHint?: string | null;
+  /**
+   * PHI-105 — optional hotel context (lat/lng/neighbourhood) used by the
+   * anchors block to resolve hotel-relative entries ("near our hotel").
+   * Null / missing coords = byte-identical to pre-PHI-105; the anchors
+   * block has no hotel-context subsection. Single-leg only — multi-leg
+   * trips can carry per-leg coords inside legs[i].hotelLat already, but
+   * the anchor-resolution prompt only consumes the primary hotel context.
+   */
+  hotelContext?: AnchorHotelContext | null;
 };
 
 // ── Activity-feedback segment ─────────────────────────────────────────────
@@ -151,10 +160,30 @@ export function cleanUserSeededActivities(input: unknown): string[] {
 
 const DEST_PLACEHOLDER = "<<DESTINATION>>";
 
+/**
+ * PHI-105 — optional hotel context. When supplied AND lat/lng are both
+ * numbers, `buildUserSeededAnchorsSegment` appends a "Hotel context"
+ * subsection so the model has the signal to resolve "near our hotel" /
+ * "across from where we're staying" / etc. anchors. When null OR missing
+ * coords, the segment is byte-identical to the pre-PHI-105 PHI-103 shape.
+ *
+ * `childrenAges` flows through so the walking-radius cue can flip between
+ * the couples-and-solo (10–15 min) and families-with-small-kids (5–10 min)
+ * thresholds; the cue is a soft preference, not a hard radius filter.
+ */
+export type AnchorHotelContext = {
+  name: string;
+  neighborhood: string | null;
+  lat: number;
+  lng: number;
+  childrenAges?: string[] | null;
+};
+
 export function buildUserSeededAnchorsSegment(
   userSeededActivities: string[] | null | undefined,
   destination: string,
   legs?: TripLeg[] | null,
+  hotelContext?: AnchorHotelContext | null,
 ): string {
   if (!Array.isArray(userSeededActivities)) return "";
   const cleaned = userSeededActivities
@@ -168,6 +197,35 @@ export function buildUserSeededAnchorsSegment(
     : destination;
 
   const list = cleaned.map((s) => `- ${s}`).join("\n");
+
+  // PHI-105: hotel context is appended at the END of the anchor block so
+  // the model has read the resolve-vs-flag rules first, and the radius cue
+  // is part of the anchor reasoning rather than a separate guidance layer.
+  // We DO NOT loosen the flag-bias from PHI-103 — hotel context narrows
+  // ambiguity but doesn't eliminate it. When the hotel sits in a generic
+  // business district (Elena's flag), the model is still expected to flag
+  // hotel-relative entries rather than fabricate.
+  const hotelContextStr = (() => {
+    if (
+      !hotelContext ||
+      typeof hotelContext.lat !== "number" ||
+      typeof hotelContext.lng !== "number"
+    ) {
+      return "";
+    }
+    const hasSmallKids =
+      Array.isArray(hotelContext.childrenAges) &&
+      hotelContext.childrenAges.some((a) => a === "Under 2" || a === "2–4");
+    const radiusCue = hasSmallKids
+      ? "5–10 minutes walking (travellers with small kids tire fast; keep the radius tight)"
+      : "10–15 minutes walking";
+    const neighborhoodLine = hotelContext.neighborhood
+      ? `Neighbourhood: ${hotelContext.neighborhood}.`
+      : "Neighbourhood: not resolved — work from the coordinates and the city's known shape.";
+    const lat = hotelContext.lat.toFixed(4);
+    const lng = hotelContext.lng.toFixed(4);
+    return `\n\n**Hotel context (PHI-105).** Use this to resolve hotel-relative anchors ("near our hotel", "across from where we're staying", "the place by our hotel"). Do NOT fabricate venues or pretend to know the actual street-level surroundings beyond what the persisted neighbourhood implies.\n\n- Hotel name: ${hotelContext.name}.\n- ${neighborhoodLine}\n- Coordinates (rough): ${lat}, ${lng}.\n- Walking-distance cue for hotel-relative anchors: ${radiusCue}. This is a soft preference, NOT a hard radius filter; honour it when picking which candidate to surface, but don't reject a great match a couple minutes further.\n\n**Hotel-context flag rule (mode 3 override).** When the hotel sits in a neighbourhood with real personality (Tanjong Pagar, Cais do Sodré, Shimokitazawa, Le Marais, Trastevere) and the hotel-relative anchor has a confident single candidate within walking distance, mode 2 (resolve) applies — name the resolved venue, surface the resolution in placement_notes. When the hotel sits in a generic business district / airport area / motorway-junction chain hotel (Pullman CDG, anywhere with no walking-distance personality), or when the description ("the place the concierge mentioned") doesn't pin a venue Rise could know, mode 3 (flag) applies — do not fabricate, ask the user to be more specific. Mode 3 always wins ties: a confident wrong answer near the hotel is worse than a friendly clarifying question.`;
+  })();
 
   // Hard rules — every one of these is load-bearing. Treat them as
   // non-negotiable in the same way the life-impacting constraints in
@@ -209,7 +267,7 @@ export function buildUserSeededAnchorsSegment(
   { \"verbatim\": \"that famous pastéis place\", \"mode\": \"resolved\", \"placed_title\": \"Pastéis de Belém\", \"reason\": \"well-known Lisbon bakery — single clear answer\" },
   { \"verbatim\": \"the famous viewpoint\", \"mode\": \"flagged\", \"reason\": \"multiple Lisbon viewpoints could plausibly match — flagged for user clarification\" }
 ]
-\"mode\" is \"verbatim\" (rule 1), \"resolved\" (rule 2), or \"flagged\" (rule 3 OR wrong-city). \"placed_title\" is REQUIRED for verbatim and resolved modes (the title that landed on the day) and OMITTED for flagged. \"reason\" is REQUIRED for resolved and flagged modes and optional for verbatim. This field is for downstream debugging — emit it on every response with anchors.`;
+\"mode\" is \"verbatim\" (rule 1), \"resolved\" (rule 2), or \"flagged\" (rule 3 OR wrong-city). \"placed_title\" is REQUIRED for verbatim and resolved modes (the title that landed on the day) and OMITTED for flagged. \"reason\" is REQUIRED for resolved and flagged modes and optional for verbatim. This field is for downstream debugging — emit it on every response with anchors.${hotelContextStr}`;
 }
 
 // ── Headline + multi-leg block ────────────────────────────────────────────
@@ -263,6 +321,7 @@ export function buildItineraryGenPrompt(args: ItineraryGenInputs): string {
     anchorNeighborhood,
     nights: nightsOverride,
     seasonHint,
+    hotelContext,
   } = args;
 
   // PHI-99: flex mode flips on when the caller passes empty strings for
@@ -334,11 +393,14 @@ export function buildItineraryGenPrompt(args: ItineraryGenInputs): string {
     }
   }
 
-  // PHI-90: user-seeded anchors block.
+  // PHI-90: user-seeded anchors block. PHI-105: optional hotel context for
+  // anchor resolution flows through here so the segment can append a
+  // "Hotel context" subsection when the traveller has coords.
   const userSeededStr = buildUserSeededAnchorsSegment(
     userSeededActivities,
     destination,
     legs,
+    hotelContext ?? null,
   );
 
   const isMultiLeg = Array.isArray(legs) && legs.length >= 2;

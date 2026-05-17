@@ -1016,6 +1016,14 @@ type StoredTraveler = {
   // itinerary survives the transition and is relabelled in place.
   flexMonth?: string | null;
   flexNights?: number | null;
+  // PHI-111 / PHI-105: rich hotel coordinates captured at welcome step 2.
+  // Optional everywhere — legacy snapshots without these fields stay valid
+  // and the anchor-resolution prompt falls back to its no-hotel-context
+  // behaviour. Threaded through to /api/itinerary/generate on regenerate.
+  hotelPlaceId?: string | null;
+  hotelLat?: number | null;
+  hotelLng?: number | null;
+  hotelNeighborhood?: string | null;
 };
 
 export default function ItineraryViewPage() {
@@ -1265,6 +1273,17 @@ export default function ItineraryViewPage() {
             ? { flexMonth: t.flexMonth, flexNights: t.flexNights }
             : { departureDate: t.departureDate, returnDate: t.returnDate }),
           hotel: t.hotel ?? null,
+          // PHI-105: thread rich hotel coords through on regenerate so the
+          // anchor-resolution prompt has the same hotel-context signal it
+          // had on the welcome-flow first generate. Omitted when the
+          // snapshot doesn't carry them (legacy or skipped-hotel) — the
+          // prompt falls back to the no-context PHI-103 path.
+          ...(t.hotelPlaceId ? { hotelPlaceId: t.hotelPlaceId } : {}),
+          ...(typeof t.hotelLat === "number" ? { hotelLat: t.hotelLat } : {}),
+          ...(typeof t.hotelLng === "number" ? { hotelLng: t.hotelLng } : {}),
+          ...(t.hotelNeighborhood !== undefined && t.hotelNeighborhood !== null
+            ? { hotelNeighborhood: t.hotelNeighborhood }
+            : {}),
           travelCompany: t.travelCompany ?? "",
           travelerTypes: t.travelerTypes ?? [],
           activityFeedback,
@@ -1848,6 +1867,13 @@ export default function ItineraryViewPage() {
             ? { flexMonth: t.flexMonth, flexNights: t.flexNights }
             : { departureDate: t.departureDate, returnDate: t.returnDate }),
           hotel: t.hotel ?? null,
+          // PHI-105: thread rich hotel coords on regenerate too.
+          ...(t.hotelPlaceId ? { hotelPlaceId: t.hotelPlaceId } : {}),
+          ...(typeof t.hotelLat === "number" ? { hotelLat: t.hotelLat } : {}),
+          ...(typeof t.hotelLng === "number" ? { hotelLng: t.hotelLng } : {}),
+          ...(t.hotelNeighborhood !== undefined && t.hotelNeighborhood !== null
+            ? { hotelNeighborhood: t.hotelNeighborhood }
+            : {}),
           travelCompany: t.travelCompany ?? "",
           travelerTypes: t.travelerTypes ?? [],
           activityFeedback,

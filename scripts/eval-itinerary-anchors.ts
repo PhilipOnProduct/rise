@@ -96,6 +96,14 @@ type GenerateRequest = {
   // (which still pins the first leg). The route uses leg_index on each
   // returned day to tag which leg the day belongs to.
   legs?: TripLeg[];
+  // PHI-105: optional rich hotel coordinates so the anchor-resolution
+  // prompt has the signal to resolve "near our hotel" / hotel-relative
+  // anchors. When set on a single-leg case the route builds the
+  // hotelContext object and threads it through buildUserSeededAnchorsSegment.
+  hotelPlaceId?: string | null;
+  hotelLat?: number | null;
+  hotelLng?: number | null;
+  hotelNeighborhood?: string | null;
 };
 
 type TestCase = {
@@ -273,6 +281,97 @@ const anchorsAreFlagged = ({ anchors, days }: ProgrammaticArgs) => {
   }
   return { ok: true };
 };
+
+// PHI-105 — hotel-relative anchor resolves to a real, in-destination,
+// walking-distance venue (not the verbatim text, not a fabricated name).
+// The model should pick mode 2 (resolved) and surface the substitution
+// in placement_notes — the helper checks the structural shape; the
+// judge scores plausibility of the resolved venue.
+function hotelRelativeAnchorResolves(verbatim: string) {
+  return ({ seededAnchorResolutions, seededItems, placementNotes }: ProgrammaticArgs) => {
+    const lower = verbatim.toLowerCase();
+    if (!Array.isArray(seededAnchorResolutions)) {
+      return { ok: false, reason: "seeded_anchor_resolutions missing — PHI-103 field required when anchors present" };
+    }
+    const entry = seededAnchorResolutions.find(
+      (r) => r.verbatim.toLowerCase().trim() === lower.trim(),
+    );
+    if (!entry) {
+      return { ok: false, reason: `no seeded_anchor_resolutions entry for "${verbatim}"` };
+    }
+    if (entry.mode !== "resolved") {
+      return {
+        ok: false,
+        reason: `expected resolve (mode 2) but model picked mode "${entry.mode}" — hotel-context resolve path failed for "${verbatim}"`,
+      };
+    }
+    if (!entry.placed_title || entry.placed_title.toLowerCase().trim() === lower.trim()) {
+      return {
+        ok: false,
+        reason: `resolve mode missing placed_title or shipped the verbatim as the title — "${entry.placed_title ?? "<missing>"}"`,
+      };
+    }
+    const placedItem = seededItems.find(
+      (i) => i.title.toLowerCase().trim() === entry.placed_title!.toLowerCase().trim(),
+    );
+    if (!placedItem) {
+      return {
+        ok: false,
+        reason: `resolved venue "${entry.placed_title}" was not placed as a seededByUser item`,
+      };
+    }
+    // Sanity: surface the substitution in placement_notes (per PHI-103 / Maya's surface-the-verbatim rule).
+    const notes = (placementNotes ?? "").toLowerCase();
+    if (!notes.includes(lower) || !notes.includes(entry.placed_title.toLowerCase())) {
+      return {
+        ok: false,
+        reason: `resolved venue "${entry.placed_title}" not surfaced in placement_notes — silent resolution`,
+      };
+    }
+    return { ok: true };
+  };
+}
+
+// PHI-105 — hotel-relative anchor flags rather than fabricating when the
+// hotel sits in a generic business-district / airport area with no
+// walking-distance personality. Model should pick mode 3 (flagged) and
+// surface the ambiguity in placement_notes.
+function hotelRelativeAnchorFlags(verbatim: string) {
+  return ({ seededAnchorResolutions, seededItems, placementNotes }: ProgrammaticArgs) => {
+    const lower = verbatim.toLowerCase().trim();
+    if (!Array.isArray(seededAnchorResolutions)) {
+      return { ok: false, reason: "seeded_anchor_resolutions missing — PHI-103 field required when anchors present" };
+    }
+    const entry = seededAnchorResolutions.find(
+      (r) => r.verbatim.toLowerCase().trim() === lower,
+    );
+    if (!entry) {
+      return { ok: false, reason: `no seeded_anchor_resolutions entry for "${verbatim}"` };
+    }
+    if (entry.mode !== "flagged") {
+      return {
+        ok: false,
+        reason: `expected flag (mode 3) — hotel in undifferentiated area should NOT resolve — but model picked mode "${entry.mode}"`,
+      };
+    }
+    // No matching seededByUser item should exist when flagged.
+    const placedHit = seededItems.find((i) => i.title.toLowerCase().includes("noodle"));
+    if (placedHit) {
+      return {
+        ok: false,
+        reason: `flagged anchor "${verbatim}" still placed item "${placedHit.title}" — flag-mode should not place`,
+      };
+    }
+    const notes = (placementNotes ?? "").toLowerCase();
+    if (!notes.includes(lower)) {
+      return {
+        ok: false,
+        reason: `flagged anchor "${verbatim}" not surfaced verbatim in placement_notes`,
+      };
+    }
+    return { ok: true };
+  };
+}
 
 // PHI-95 — Multi-leg per-leg anchor routing.
 //
@@ -801,6 +900,81 @@ const TEST_CASES: TestCase[] = [
       "No anchor lands on a transition day (is_transition: true) — anchors are real activities, not travel",
       "The full trip respects the multi-leg structure — exactly one transition day between consecutive legs, leg_index on every day",
       "Each leg's content is specific to that city — no cross-leg activities (no Kyoto items on Tokyo days, no Seoul items on Kyoto days, etc.)",
+    ],
+  },
+  // ---------------------------------------------------------------------
+  // PHI-105 #10 — Hotel-context resolve. Marcus in Singapore at the Pullman
+  // Hill Street (Tanjong Pagar / Clarke Quay — a neighbourhood with real
+  // personality). The "near our hotel" anchor should resolve to a real
+  // walking-distance noodle shop with the substitution surfaced in
+  // placement_notes; bare verbatim or fabricated venue = fail.
+  // ---------------------------------------------------------------------
+  {
+    label: "PHI-105 #10: Singapore Tanjong Pagar hotel — 'noodle place near our hotel' resolves to a real walking-distance shop",
+    request: {
+      destination: "Singapore",
+      departureDate: "2026-10-12",
+      returnDate: "2026-10-15",
+      hotel: "Pullman Singapore Hill Street",
+      hotelPlaceId: "ChIJWX_2D2sZ2jERnzCWf8QqL9Q",
+      hotelLat: 1.290272,
+      hotelLng: 103.849819,
+      hotelNeighborhood: "Clarke Quay",
+      travelCompany: "solo",
+      travelerTypes: ["Food-led", "Cultural"],
+      budgetTier: "comfortable",
+      travelerCount: 1,
+      childrenAges: null,
+      userSeededActivities: ["the noodle place near our hotel"],
+    },
+    programmatic: [
+      allAnchorsPlacedOrNoted,
+      tripStaysInDestination,
+      hotelRelativeAnchorResolves("the noodle place near our hotel"),
+    ],
+    judgeCriteria: [
+      "The resolved venue is a real, in-Singapore noodle / hawker shop a resident of Tanjong Pagar / Clarke Quay would recognise — not a fabricated name",
+      "The resolved venue is plausibly within 10–15 minutes walking from Pullman Singapore Hill Street (Clarke Quay area)",
+      "placement_notes surfaces the substitution clearly — quotes the verbatim 'noodle place near our hotel' AND names the resolved venue",
+      "Trip remains in Singapore; no fabricated venues; the rest of the itinerary respects the hotel-anchored neighbourhood",
+    ],
+  },
+  // ---------------------------------------------------------------------
+  // PHI-105 #11 — Hotel-context flag. Same anchor text, but the hotel sits
+  // in a generic business / airport-adjacent area with no walking
+  // personality. The model must NOT fabricate a "noodle place near the
+  // airport hotel"; it must flag in placement_notes and let the user
+  // specify. A confident wrong answer here is the failure mode this card
+  // exists to prevent.
+  // ---------------------------------------------------------------------
+  {
+    label: "PHI-105 #11: Singapore generic Changi-area hotel — 'noodle place near our hotel' flags rather than fabricating",
+    request: {
+      destination: "Singapore",
+      departureDate: "2026-10-12",
+      returnDate: "2026-10-15",
+      hotel: "Crowne Plaza Changi Airport",
+      hotelPlaceId: "ChIJ_-_-_-_-_-_-_-_-_-_-_-_-",
+      hotelLat: 1.359,
+      hotelLng: 103.987,
+      hotelNeighborhood: "Changi",
+      travelCompany: "solo",
+      travelerTypes: ["Food-led"],
+      budgetTier: "comfortable",
+      travelerCount: 1,
+      childrenAges: null,
+      userSeededActivities: ["the noodle place near our hotel"],
+    },
+    programmatic: [
+      allAnchorsPlacedOrNoted,
+      tripStaysInDestination,
+      hotelRelativeAnchorFlags("the noodle place near our hotel"),
+    ],
+    judgeCriteria: [
+      "The anchor is flagged in placement_notes (NOT placed as a day item) — Changi airport-area hotels have no walking-distance noodle personality",
+      "placement_notes quotes the verbatim and frames the flag as a clarifying question (e.g. 'try a specific name', 'we weren't sure which spot you meant')",
+      "No fabricated venue name appears anywhere in the itinerary or notes — the model did not invent a 'Changi Noodle House' or similar to fill the slot",
+      "Trip remains in Singapore; the rest of the itinerary still works (the flag doesn't cascade and ruin other days)",
     ],
   },
 ];

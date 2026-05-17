@@ -695,6 +695,31 @@ function WelcomePageInner() {
   // the existing prompt path runs unchanged.
   const [userSeededText, setUserSeededText] = useState("");
 
+  // PHI-102 — popular picks panel state. Local to step 4; reset on
+  // destination change because the cache key includes city. The panel is
+  // collapsed by default so users who already have anchors aren't tempted
+  // to skip their own typing. picksDisabled stays true for a destination
+  // when Haiku returns <3 picks (sub-minimum fallback), so the affordance
+  // hides for the rest of the session.
+  type PopularPickRow = {
+    name: string;
+    context_note: string;
+    category: "friction" | "fit" | "pro_tip";
+  };
+  const [popularPicksOpen, setPopularPicksOpen] = useState(false);
+  const [popularPicks, setPopularPicks] = useState<PopularPickRow[]>([]);
+  const [popularPicksLoading, setPopularPicksLoading] = useState(false);
+  const [popularPicksError, setPopularPicksError] = useState<string | null>(null);
+  // Per-destination disable — when Haiku returned <3 picks for this city,
+  // hide the affordance for the rest of the session so the user isn't
+  // staring at a dead button.
+  const [popularPicksDisabledForDest, setPopularPicksDisabledForDest] = useState<string | null>(null);
+  // Soft-cap nudge — once the user has added 5 picks via the panel in
+  // this session, surface a one-time "Add anything else?" line. Fires
+  // once per session regardless of which destination.
+  const [popularPicksAddedCount, setPopularPicksAddedCount] = useState(0);
+  const popularPicksNudgeFiredRef = useRef(false);
+
   // Account
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -1738,6 +1763,118 @@ function WelcomePageInner() {
     setHotelRich(null);
     setNeighborhoodPickerOpen(false);
     void handleContinue();
+  }
+
+  // PHI-102 — fetch popular picks. Lazy; only fires on explicit "See popular
+  // picks" click. Idempotent for the same (destination, profile) — if we
+  // already have picks loaded for the current destination we don't refetch.
+  async function openPopularPicks() {
+    const dest = destination.trim();
+    if (!dest) return;
+    setPopularPicksOpen(true);
+    setPopularPicksError(null);
+    if (popularPicks.length > 0) return;
+    if (popularPicksDisabledForDest === dest) return;
+    setPopularPicksLoading(true);
+    try {
+      const res = await fetch("/api/destination/popular-picks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          destination: dest,
+          travelCompany: travelCompany || null,
+          childrenAges: childrenAges.length > 0 ? childrenAges : null,
+          styleTags: travelerTypes,
+        }),
+      });
+      if (!res.ok) {
+        setPopularPicksError("Couldn't load popular picks. Try again?");
+        return;
+      }
+      const data = (await res.json()) as { picks?: PopularPickRow[] };
+      const picks = Array.isArray(data.picks) ? data.picks : [];
+      if (picks.length === 0) {
+        // Sub-minimum fallback — disable the affordance for this dest.
+        setPopularPicksDisabledForDest(dest);
+        setPopularPicks([]);
+      } else {
+        setPopularPicks(picks);
+        // Telemetry — fire one pick_shown event per surfaced row, in the
+        // shape extended by the route's metadata-harvest path (PHI-45).
+        for (const pick of picks) {
+          void fetch("/api/activity-feedback", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              event: "pick_shown",
+              activityName: pick.name,
+              activityCategory: pick.category,
+              city: dest,
+              travelCompany: travelCompany || null,
+              picks_source: "popular-picks",
+            }),
+          }).catch(() => {});
+        }
+      }
+    } catch {
+      setPopularPicksError("Couldn't load popular picks. Try again?");
+    } finally {
+      setPopularPicksLoading(false);
+    }
+  }
+
+  // PHI-102 — derive added/not-added state from the textarea on every
+  // render. Textarea is the single source of truth (hard constraint).
+  // Match case-insensitive on the trimmed pick name appearing on its own
+  // line in the textarea.
+  function isPickAdded(pickName: string): boolean {
+    const target = pickName.trim().toLowerCase();
+    if (!target) return false;
+    const lines = userSeededText.split(/\r?\n/);
+    return lines.some((line) => line.trim().toLowerCase() === target);
+  }
+
+  function addPick(pick: { name: string; category: string }) {
+    if (isPickAdded(pick.name)) return;
+    const current = userSeededText;
+    const sep = current.length === 0 || current.endsWith("\n") ? "" : "\n";
+    setUserSeededText(current + sep + pick.name);
+    const nextCount = popularPicksAddedCount + 1;
+    setPopularPicksAddedCount(nextCount);
+    void fetch("/api/activity-feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        event: "pick_added",
+        activityName: pick.name,
+        activityCategory: pick.category,
+        city: destination.trim(),
+        travelCompany: travelCompany || null,
+        picks_source: "popular-picks",
+      }),
+    }).catch(() => {});
+  }
+
+  function removePick(pick: { name: string; category: string }) {
+    const target = pick.name.trim().toLowerCase();
+    if (!target) return;
+    const next = userSeededText
+      .split(/\r?\n/)
+      .filter((line) => line.trim().toLowerCase() !== target)
+      .join("\n");
+    setUserSeededText(next);
+    void fetch("/api/activity-feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        event: "pick_removed",
+        activityName: pick.name,
+        activityCategory: pick.category,
+        city: destination.trim(),
+        travelCompany: travelCompany || null,
+        picks_source: "popular-picks",
+      }),
+    }).catch(() => {});
   }
 
   // PHI-90: PATCH the must-dos onto the traveler row when leaving step 4.
@@ -3938,8 +4075,44 @@ function WelcomePageInner() {
             const tooLong = rawLines.filter((l) => l.length > 200).length;
             const overCount = Math.max(0, rawLines.length - 20);
             const filteredAny = tooLong > 0 || overCount > 0;
+            // PHI-102 — show the popular-picks trigger ABOVE the textarea so
+            // the soft keyboard on mobile doesn't push it below the fold.
+            // The expanded panel renders below the textarea (also per spec).
+            // Hide the trigger entirely when this destination's been
+            // disabled (sub-minimum fallback) or when a country-level
+            // destination is selected (country flow has its own discovery).
+            const dest = destination.trim();
+            const showPopularPicksTrigger =
+              dest.length > 0 &&
+              popularPicksDisabledForDest !== dest &&
+              countryRecommendations.length === 0;
+            const showSoftCapNudge =
+              popularPicksOpen &&
+              popularPicksAddedCount >= 5 &&
+              !popularPicksNudgeFiredRef.current &&
+              ((popularPicksNudgeFiredRef.current = true) || true);
+
             return (
               <div className="flex flex-col gap-4" data-testid="welcome-must-dos-step">
+                {showPopularPicksTrigger && !popularPicksOpen && (
+                  <button
+                    type="button"
+                    onClick={() => void openPopularPicks()}
+                    className="self-start text-sm text-[#1a6b7f] hover:text-[var(--text-primary)] underline-offset-4 hover:underline transition-colors"
+                    data-testid="open-popular-picks"
+                  >
+                    Need ideas? See popular picks ▾
+                  </button>
+                )}
+                {showPopularPicksTrigger && popularPicksOpen && (
+                  <button
+                    type="button"
+                    onClick={() => setPopularPicksOpen(false)}
+                    className="self-start text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                  >
+                    Hide picks ▴
+                  </button>
+                )}
                 <label className="block">
                   <span className="block text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-widest mb-3">
                     Your must-dos (optional)
@@ -3952,6 +4125,91 @@ function WelcomePageInner() {
                     className="w-full min-h-[160px] bg-white border border-[#b8b3a9] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-[var(--text-primary)] text-base placeholder-[#9ca3af] transition-colors resize-y"
                   />
                 </label>
+                {/* PHI-102 — popular picks panel renders BELOW the textarea
+                    so the textarea stays anchored where the user is typing
+                    on mobile. */}
+                {popularPicksOpen && (
+                  <div
+                    className="flex flex-col gap-3 rounded-2xl border border-[#e8e4de] bg-white p-4"
+                    data-testid="popular-picks-panel"
+                  >
+                    <p className="text-xs font-bold text-[var(--text-secondary)] uppercase tracking-widest">
+                      Popular picks
+                    </p>
+                    {popularPicksLoading && (
+                      <p className="text-sm text-[var(--text-muted)]">
+                        Loading popular picks…
+                      </p>
+                    )}
+                    {popularPicksError && (
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 flex items-start justify-between gap-3">
+                        <span>{popularPicksError}</span>
+                        <button
+                          onClick={() => {
+                            setPopularPicks([]);
+                            void openPopularPicks();
+                          }}
+                          className="underline shrink-0"
+                        >
+                          Try again
+                        </button>
+                      </div>
+                    )}
+                    {!popularPicksLoading &&
+                      !popularPicksError &&
+                      popularPicks.length === 0 &&
+                      popularPicksDisabledForDest === dest && (
+                        <p className="text-sm text-[var(--text-muted)]">
+                          No popular picks for this destination yet — type your own ↓
+                        </p>
+                      )}
+                    {popularPicks.length > 0 && (
+                      <ul className="flex flex-col divide-y divide-[#e8e4de]">
+                        {popularPicks.map((pick) => {
+                          const added = isPickAdded(pick.name);
+                          return (
+                            <li
+                              key={pick.name}
+                              className="flex items-start justify-between gap-3 py-2.5"
+                              data-testid={`popular-pick-${pick.name}`}
+                            >
+                              <div className="flex flex-col gap-0.5 min-w-0">
+                                <span className="text-sm font-semibold text-[var(--text-primary)]">
+                                  {pick.name}
+                                </span>
+                                <span className="text-xs text-[var(--text-muted)] leading-snug">
+                                  {pick.context_note}
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  added ? removePick(pick) : addPick(pick)
+                                }
+                                aria-label={added ? `Remove ${pick.name}` : `Add ${pick.name}`}
+                                className={`shrink-0 min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-xl text-sm font-bold transition-colors ${
+                                  added
+                                    ? "bg-[#1a6b7f]/10 text-[#1a6b7f]"
+                                    : "text-[#1a6b7f] hover:bg-[#1a6b7f]/5"
+                                }`}
+                              >
+                                {added ? "✓" : "+ Add"}
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                    {showSoftCapNudge && (
+                      <p
+                        className="text-xs text-[var(--text-muted)] mt-1"
+                        data-testid="popular-picks-soft-cap"
+                      >
+                        Add anything else? ↓
+                      </p>
+                    )}
+                  </div>
+                )}
                 {filteredAny && (
                   <p
                     data-testid="must-dos-filter-hint"
