@@ -656,6 +656,23 @@ function WelcomePageInner() {
   // hardcoded 7. Null on the structured-wizard path so the 7 fallback holds.
   const [parserInferredNights, setParserInferredNights] = useState<number | null>(null);
 
+  // PHI-109 (regression fix): explicit "user has set Return" flag. The
+  // previous empty-guard misfires on Chrome's `<input type="date">` —
+  // when the user types `01/10/2026` keystroke-by-keystroke, the input
+  // emits `onChange` after each year-segment completion (`0001-10-01`,
+  // `0010-10-01`, `0102-10-01`, `2026-10-01`). With an empty-guard, the
+  // FIRST emit (year 0001) lands the auto-default at year 0002, and
+  // subsequent Departure-year emits don't update Return any more. The
+  // flag lets the effect re-fire on every Departure change as long as
+  // the user hasn't explicitly set Return — both the parser-typed-both-
+  // dates case (flag flips true in applyParsedIntentAndAdvance) and the
+  // user-typed-Return-on-step-1 case (flag flips true in the Return
+  // input's onChange) keep their explicit value, while the keyboard-
+  // typing-Departure-only case re-derives Return until Departure
+  // stabilises. Cleared when Return is wiped so a future Departure edit
+  // re-auto-fills.
+  const [userTypedReturn, setUserTypedReturn] = useState(false);
+
   // PHI-100: soft neighbourhood picker on step 2. When the traveller hasn't
   // booked a hotel they can opt into picking a neighbourhood instead.
   // `neighborhoodPickerOpen` swaps the hotel input area for the cards.
@@ -908,22 +925,19 @@ function WelcomePageInner() {
     };
   }, []);
 
-  // PHI-109: only default the return date when it is currently empty.
-  // The parser-confirm inline editor sets both `departureDate` and
-  // `returnDate` in the same batch via applyParsedIntentAndAdvance; without
-  // the empty-guard this effect would fire on the departure change and
-  // silently overwrite the user's explicit return with departure + 7,
-  // turning a typed 5-night trip into a 7-night one. The parser's
-  // `durationNights` inference (captured in `parserInferredNights`) is the
-  // preferred offset when the user came through the free-form path and only
-  // gave us a duration; otherwise we fall back to 7 for the structured-
-  // wizard path.
+  // PHI-109: re-derive Return from Departure ONLY when the user hasn't
+  // explicitly set Return yet. `userTypedReturn` is the source of truth —
+  // see the state definition above for why the original empty-guard
+  // misfired on Chrome keyboard typing. When the parser supplies an
+  // inferred duration (`parserInferredNights`), that's the preferred
+  // offset over the hardcoded 7. The effect re-fires on every Departure
+  // change so structured-wizard keyboard typing — which emits partial
+  // dates per year-segment — eventually lands on the correct full year.
   useEffect(() => {
     if (!departureDate) return;
-    setReturnDate((current) =>
-      current || addDays(departureDate, parserInferredNights ?? 7),
-    );
-  }, [departureDate, parserInferredNights]);
+    if (userTypedReturn) return;
+    setReturnDate(addDays(departureDate, parserInferredNights ?? 7));
+  }, [departureDate, parserInferredNights, userTypedReturn]);
 
   // PHI-48 / PHI-58: seed once from query params sent by the landing page.
   // `?parser_text=` (PHI-58) takes precedence — when the homepage detects
@@ -2352,7 +2366,15 @@ function WelcomePageInner() {
       setParserInferredNights(parsedIntent.dates.durationNights);
     }
     if (parsedIntent.dates.departure) setDepartureDate(parsedIntent.dates.departure);
-    if (parsedIntent.dates.return) setReturnDate(parsedIntent.dates.return);
+    if (parsedIntent.dates.return) {
+      setReturnDate(parsedIntent.dates.return);
+      // PHI-109 regression fix: when the parser hands off an explicit
+      // return date (the user typed it on the confirmation page's inline
+      // editor, or the parser captured both endpoints from the free
+      // text), mark it as user-typed so the date-default effect doesn't
+      // re-derive Return = Departure + N on the wizard step.
+      setUserTypedReturn(true);
+    }
     if (parsedIntent.party.adults) setAdultCount(parsedIntent.party.adults);
     if (parsedIntent.party.children?.length) {
       setChildrenAges(
@@ -3460,7 +3482,17 @@ function WelcomePageInner() {
                       type="date"
                       value={returnDate}
                       min={departureDate || tomorrow()}
-                      onChange={(e) => setReturnDate(e.target.value)}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setReturnDate(v);
+                        // PHI-109 regression fix: any user edit on the
+                        // Return input marks the value as explicitly user-
+                        // set so subsequent Departure changes don't re-
+                        // derive Return = Departure + N. Clearing Return
+                        // flips the flag back off so a future Departure
+                        // edit will re-auto-fill.
+                        setUserTypedReturn(!!v);
+                      }}
                       className={darkInput}
                     />
                   </div>
