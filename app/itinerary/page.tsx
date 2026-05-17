@@ -10,6 +10,7 @@ import type {
   TimeBlock,
 } from "@/types/itinerary";
 import { WeatherAlternative } from "@/app/components/WeatherAlternative";
+import { FROM_YOUR_LIST } from "@/lib/copy";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -66,6 +67,10 @@ type RawItem = {
   // response to a traveller-seeded must-do entry. Persisted across the
   // generate → cache → render hop so the badge survives a reload.
   seededByUser?: boolean;
+  // PHI-104: verbatim must-do text the user typed when the model resolved
+  // it to a different specific venue. Optional on read — legacy caches
+  // (pre-PHI-104) won't have it and the renderer falls back to badge-only.
+  seededVerbatim?: string;
 };
 
 type RawDay = {
@@ -139,9 +144,13 @@ function mapRawDays(rawDays: RawDay[]): ItineraryDay[] {
           type: item.alternative.type,
         },
       }),
-      // PHI-90: forward the anchor flag to the rendering layer so the
-      // "You added this" badge surfaces on the card.
+      // PHI-90 / PHI-104: forward the anchor flag and the optional
+      // verbatim must-do text to the rendering layer so the "from your
+      // list" badge + verbatim subtitle surface on the card.
       ...(item.seededByUser === true && { seededByUser: true }),
+      ...(typeof item.seededVerbatim === "string" && item.seededVerbatim.trim().length > 0
+        ? { seededVerbatim: item.seededVerbatim }
+        : {}),
     })),
     // PHI-37: pass through leg metadata so the UI can render leg headers
     // and transition days. Absent on single-leg trips.
@@ -512,6 +521,24 @@ type ActivityCardProps = {
 function ActivityCard({ activity, onRemove, onSwap, swapping, swapError, swapSuggestion, onAcceptSwap, onRejectSwap, showWeatherAlternative, onAlternativeEngage }: ActivityCardProps) {
   const categoryIcon = CATEGORY_ICON[activity.category];
 
+  // PHI-104: resolve which seeded-anchor flavour to render.
+  // - Verbatim-as-title (badge only): seededByUser true + (no verbatim OR
+  //   verbatim equals the title case-insensitively). Legacy localStorage
+  //   caches without `seededVerbatim` land here cleanly.
+  // - Resolved-from-verbatim (badge + verbatim subtitle): seededByUser true
+  //   + non-empty verbatim that differs from the title case-insensitively.
+  // Flagged anchors don't get a day card at all — that's the placement_notes
+  // banner's job (PHI-90 / PHI-103).
+  const verbatim = activity.seededVerbatim?.trim();
+  const showVerbatimSubtitle =
+    activity.seededByUser === true &&
+    !!verbatim &&
+    verbatim.toLowerCase() !== activity.name.trim().toLowerCase();
+  // Tap-to-expand for the truncated verbatim. Off by default — the subtitle
+  // renders with `truncate` so long entries ellipsise on a 360px viewport;
+  // tapping toggles to wrapped, tapping again re-truncates. No modal/toast.
+  const [verbatimExpanded, setVerbatimExpanded] = useState(false);
+
   // PHI-75: render the swap suggestion as the card's content (not an absolute
   // overlay) so the card grows vertically with long conflict-warning text
   // instead of bleeding onto the next time block.
@@ -598,18 +625,46 @@ function ActivityCard({ activity, onRemove, onSwap, swapping, swapError, swapSug
           {categoryIcon}
         </span>
         <div className="flex-1 min-w-0">
-          <h3 className="font-semibold text-[var(--text-primary)] text-sm leading-snug">{activity.name}</h3>
-          {/* PHI-90: anchor badge. Visible only on items the generator
-              placed in response to a traveller-seeded must-do, so the
-              user can quickly confirm "yes, my picks landed". The badge
-              wraps under the title on narrow viewports — no fixed width. */}
-          {activity.seededByUser && (
-            <span
-              data-testid="seeded-by-user-badge"
-              className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-md bg-[#1a6b7f]/10 text-[#1a6b7f] text-[10px] font-semibold uppercase tracking-widest"
+          {/* PHI-104: title + "from your list" badge sit in a single
+              flex-wrap row. On a short title the badge sits to the right
+              of the title (desktop and mobile); on a long title that fills
+              the row the badge wraps to its own line below the title —
+              never inline with title text. `pr-16` reserves space for the
+              absolute-positioned swap/remove buttons in the top-right of
+              the card so the badge doesn't slide under them. */}
+          <div className="flex items-baseline flex-wrap gap-x-2 gap-y-1 pr-16">
+            <h3 className="font-semibold text-[var(--text-primary)] text-sm leading-snug">
+              {activity.name}
+            </h3>
+            {activity.seededByUser && (
+              <span
+                data-testid="seeded-by-user-badge"
+                className="inline-flex items-center px-2 py-0.5 rounded-full bg-[#f0ede8] text-[var(--text-muted)] text-xs font-medium"
+              >
+                {FROM_YOUR_LIST}
+              </span>
+            )}
+          </div>
+          {/* PHI-104: verbatim subtitle for the resolved-from-verbatim
+              flavour. Tap toggles the truncation so long entries
+              ("that ramen place from that one episode where Bourdain
+              went to Shinjuku") expand inline without a modal. */}
+          {showVerbatimSubtitle && (
+            <button
+              type="button"
+              onClick={() => setVerbatimExpanded((v) => !v)}
+              aria-label={
+                verbatimExpanded
+                  ? "Collapse the original must-do entry you typed"
+                  : "Expand the original must-do entry you typed"
+              }
+              aria-expanded={verbatimExpanded}
+              className={`block w-full text-left text-xs italic text-[var(--text-muted)] mt-1 ${
+                verbatimExpanded ? "" : "truncate"
+              }`}
             >
-              ★ You added this
-            </span>
+              {FROM_YOUR_LIST}: &ldquo;{verbatim}&rdquo;
+            </button>
           )}
           {activity.description && (
             <p className="text-sm text-[var(--text-secondary)] mt-1 leading-relaxed">{activity.description}</p>

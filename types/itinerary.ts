@@ -23,10 +23,19 @@ export type Activity = {
   /** PHI-53: paired wet-weather indoor/covered alternative. Only populated
    *  when is_outdoor is true and the AI found a real in-destination option. */
   alternative?: WeatherAlternativeData;
-  /** PHI-90: true on items the generator placed in response to a user-seeded
-   *  must-do entry. The /itinerary view renders an inline "You added this"
-   *  badge on these cards so the traveller can confirm their picks landed. */
+  /** PHI-90 / PHI-104: true on items the generator placed in response to a
+   *  user-seeded must-do entry. The /itinerary view renders an inline
+   *  "from your list" badge (canonical copy in `lib/copy.ts`) so the
+   *  traveller can confirm their picks landed. */
   seededByUser?: boolean;
+  /** PHI-104: the verbatim must-do entry the user typed, threaded through
+   *  by the generate route when Claude resolved a vague entry to a specific
+   *  venue (e.g. "that famous pastéis place" → "Pastéis de Belém"). When
+   *  present AND the title differs (case-insensitive), `/itinerary` renders
+   *  a muted italic subtitle under the title. Optional on read — legacy
+   *  localStorage caches from before PHI-104 won't have it; treat absence
+   *  as the verbatim-as-title flavour (badge only). */
+  seededVerbatim?: string;
 };
 
 export type ItineraryDay = {

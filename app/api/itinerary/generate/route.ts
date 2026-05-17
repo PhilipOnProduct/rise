@@ -45,10 +45,16 @@ type ItineraryItem = {
   // PHI-53: AI-classified outdoor flag and paired wet-weather alternative.
   is_outdoor?: boolean;
   alternative?: WeatherAlternative;
-  // PHI-90: true on items the AI placed in response to a user-seeded
-  // must-do entry. The /itinerary view renders an inline "You added this"
-  // badge on these cards.
+  // PHI-90 / PHI-104: true on items the AI placed in response to a
+  // user-seeded must-do entry. The /itinerary view renders an inline
+  // "from your list" badge on these cards (canonical copy in lib/copy.ts).
   seededByUser?: boolean;
+  // PHI-104: the verbatim must-do entry the user typed. Stamped here by the
+  // post-processing pass below from `seeded_anchor_resolutions`. Only set
+  // when the model resolved a vague entry to a specific venue (the title
+  // differs from the verbatim, case-insensitive) — otherwise omitted so
+  // the renderer falls back to the verbatim-as-title flavour (badge only).
+  seededVerbatim?: string;
 };
 
 type ItineraryDay = {
@@ -247,6 +253,44 @@ export async function POST(req: NextRequest) {
         { error: "AI returned malformed JSON. Please try again." },
         { status: 500 }
       );
+    }
+
+    // PHI-104: stamp `seededVerbatim` on each item the model placed for a
+    // user-seeded anchor. We look up the resolution by the placed_title
+    // (case-insensitive) so the badge on /itinerary can render the
+    // verbatim subtitle when the resolved title differs from what the user
+    // typed. Skipped entirely when there are no anchors / resolutions, so
+    // the non-PHI-104 path is byte-identical for callers that don't pass
+    // userSeededActivities.
+    if (
+      hasAnchors &&
+      seededAnchorResolutions &&
+      Array.isArray(days_data)
+    ) {
+      const titleToVerbatim = new Map<string, string>();
+      for (const r of seededAnchorResolutions) {
+        if (
+          (r.mode === "verbatim" || r.mode === "resolved") &&
+          typeof r.placed_title === "string" &&
+          r.placed_title.trim().length > 0 &&
+          typeof r.verbatim === "string" &&
+          r.verbatim.trim().length > 0
+        ) {
+          titleToVerbatim.set(r.placed_title.trim().toLowerCase(), r.verbatim);
+        }
+      }
+      if (titleToVerbatim.size > 0) {
+        for (const day of days_data) {
+          if (!Array.isArray(day.items)) continue;
+          for (const item of day.items) {
+            if (item.seededByUser !== true) continue;
+            const verbatim = titleToVerbatim.get(item.title.trim().toLowerCase());
+            if (verbatim) {
+              item.seededVerbatim = verbatim;
+            }
+          }
+        }
+      }
     }
 
     // PHI-88: fire after a clean parse, before logging/response. Awaited
