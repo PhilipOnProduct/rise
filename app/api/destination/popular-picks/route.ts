@@ -34,10 +34,15 @@ import {
 } from "@/lib/popular-picks-prompt";
 
 const client = new Anthropic();
-// PHI-102 — Haiku, same tier as PHI-100 neighbourhoods. The output is a
-// small structured list of real venues; Haiku is enough and the per-call
-// cost ($~0.001) matters because this is on the welcome funnel.
-const MODEL = "claude-haiku-4-5-20251001";
+// PHI-102 — first ship targeted Haiku for cost (`$~0.001`/call) per PRD,
+// but the eval failed at 3.72/4.0 because Haiku hallucinated ~25% of
+// venue names ("Tsukiji" on Kyoto, "Mizuki Shikibu Museum", "Pastel de
+// Nata de Belém"). Switched to Sonnet 4.6 at ~5× the per-call cost — the
+// cache covers >70% of expected traffic per the PRD's own cost posture,
+// so net production-cost impact is small. Documented in CLAUDE.md and the
+// PHI-102 closing comment as a deliberate spec deviation from the PRD's
+// Haiku starting point.
+const MODEL = "claude-sonnet-4-6";
 
 function dbErr(err: unknown): string {
   if (!err || typeof err !== "object") return String(err);

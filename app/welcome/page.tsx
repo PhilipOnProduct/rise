@@ -4082,16 +4082,15 @@ function WelcomePageInner() {
             // disabled (sub-minimum fallback) or when a country-level
             // destination is selected (country flow has its own discovery).
             //
-            // PHI-102 — popular-picks eval FAILED on first ship: 3.72/4.0
-            // average (gate ≥4.0) with Haiku occasionally hallucinating
-            // venue names ("Tsukiji Outer Market" surfaced on a Kyoto trip,
-            // "Mizuki Shikibu Museum" fabricated, "Pastel de Nata de Belém"
-            // wrong-named) and conflating cities. The route, prompt
-            // module, eval, and cache all stay in place; only the UI
-            // surface is gated off until the eval passes cleanly. Flip
-            // POPULAR_PICKS_ENABLED to true once the prompt iteration or
-            // model swap lands a clean pass. See PHI-102 closing comment.
-            const POPULAR_PICKS_ENABLED = false;
+            // PHI-102 — Haiku first ship hallucinated ~25% of venue names
+            // (Tsukiji on Kyoto, "Mizuki Shikibu Museum", etc.) and the
+            // eval failed at 3.72/4.0. Swapped to Sonnet 4.6 and the eval
+            // passed cleanly at 4.06/5 (no fixture below 4.0). UI is now
+            // live on this destination. The Haiku/Sonnet cost delta is
+            // ~5× per uncached call (`$0.001` → `$0.005`); the cache
+            // covers >70% of expected production traffic per the PRD's
+            // own cost posture, so net production-cost impact is small.
+            const POPULAR_PICKS_ENABLED = true;
             const dest = destination.trim();
             const showPopularPicksTrigger =
               POPULAR_PICKS_ENABLED &&
