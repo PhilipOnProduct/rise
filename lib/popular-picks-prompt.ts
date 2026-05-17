@@ -35,6 +35,10 @@ Every pick MUST carry a one-line context note in friend-text-message tone. The n
 
 Hard rules:
 - Pick REAL venues / experiences a local would name. Never invent. If you can't think of a real one in a category, drop the category — DON'T fabricate to fill a slot.
+- **Use the venue's EXACT name a resident would say.** Subtle name errors get noticed and break trust the same way fabrications do. "Pastel de Nata de Belém" instead of "Pastéis de Belém" is a fail. "Ramen Yokocho in Shibuya" when no such named alley exists is a fail. "Kyoto City Underground Museum" if no such institution exists is a fail. If you're not 100% sure of the official name, pick a more famous venue you ARE sure of — better 5 picks you can name precisely than 8 with one near-miss.
+- **Prefer well-known, iconic landmarks over obscure or "hidden" venues.** This is a popular-picks list, not a hidden-gems list. A famous market with a recognisable name is safer than a small "off-the-beaten-path" spot you might be inventing. The trust floor is high — better to suggest a well-known place with sharp insider context than to gamble on an obscure name.
+- **Do NOT borrow names from other cities.** "Tsukiji Outer Market" exists in Tokyo, not Kyoto. "Ōmicho Market" is in Kanazawa, not Kyoto. Cross-city name leaks are a hard fail — when the destination is X, every venue name must be a real venue IN X.
+- Returning 5 sharp, accurate picks is better than 8 with a fabrication. The minimum is 5 only because the panel needs a useful spread; if you can't honestly name 5 real venues with verifiable names in this destination, drop to 4 — the route's sub-minimum fallback handles it.
 - Every pick carries exactly ONE context_note. If you can't write a useful note for a pick, DROP THE PICK rather than ship a noteless or brochure-prose row.
 - Context note is ≤80 characters. The route truncates above this; don't push it.
 - Tone is friend's text message: lowercase after comma, no preamble like "Pro tip:" / "Note:", no hedging like "you might want to consider".
