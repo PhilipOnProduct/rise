@@ -256,12 +256,19 @@ export async function POST(req: NextRequest) {
     // resolution choices and ai_logs has a paper trail when a real walk
     // turns up a weird substitution.
     let seededAnchorResolutions: SeededAnchorResolution[] | null = null;
+    // PHI-114: time-sensitive travel facts the traveller must verify or act
+    // on (closures, pre-booking, seasonal calibration, peak-time advice,
+    // transport quirks). Cap at 4 defensively to match the prompt's soft cap
+    // and the eval's hard cap. Trim and drop blanks at the boundary so
+    // /welcome and /itinerary never render a "⚠ " row with empty body.
+    let timeSensitiveAlerts: string[] | null = null;
     try {
       const parsed = JSON.parse(jsonStr);
       if (hasAnchors) {
         // Anchors-mode response: object with { days, placement_notes,
-        // seeded_anchor_resolutions }. Bare-array fallback retained — older
-        // or confused model outputs shouldn't strand a user mid-flow.
+        // seeded_anchor_resolutions, time_sensitive_alerts }. Bare-array
+        // fallback retained — older or confused model outputs shouldn't
+        // strand a user mid-flow.
         if (Array.isArray(parsed)) {
           days_data = parsed;
         } else if (parsed && Array.isArray((parsed as { days?: unknown }).days)) {
@@ -274,6 +281,20 @@ export async function POST(req: NextRequest) {
             .seeded_anchor_resolutions;
           if (Array.isArray(resolutions)) {
             seededAnchorResolutions = resolutions as SeededAnchorResolution[];
+          }
+          // PHI-114: time_sensitive_alerts — accept string[] (clean + cap at
+          // 4) or null; coerce anything else to null. Defensive cleaning at
+          // the boundary so the prompt's soft cap is also a hard cap, and
+          // empty / non-string entries don't reach the UI.
+          const alerts = (parsed as { time_sensitive_alerts?: unknown })
+            .time_sensitive_alerts;
+          if (Array.isArray(alerts)) {
+            const cleaned = alerts
+              .filter((a): a is string => typeof a === "string")
+              .map((a) => a.trim())
+              .filter((a) => a.length > 0)
+              .slice(0, 4);
+            timeSensitiveAlerts = cleaned.length > 0 ? cleaned : null;
           }
         } else {
           throw new Error("unexpected shape");
@@ -377,6 +398,9 @@ export async function POST(req: NextRequest) {
             }
           : null,
         hotelPlaceId: hotelPlaceId ?? null,
+        // PHI-114: surface the cleaned time-sensitive alerts in ai_logs so
+        // Philip can audit alert quality alongside placement_notes.
+        timeSensitiveAlerts,
       },
       output: jsonStr,
       latency_ms: Date.now() - startTime,
@@ -430,6 +454,11 @@ export async function POST(req: NextRequest) {
       // PHI-103: per-anchor debug record. Eval asserts on this; the
       // /itinerary UI doesn't render it yet (tracked separately).
       seeded_anchor_resolutions: seededAnchorResolutions,
+      // PHI-114: time-sensitive travel facts (closures, pre-booking,
+      // seasonal cutoffs, peak-time advice, transport quirks). Rendered as
+      // a "Before you go" amber block ABOVE the placement_notes callout on
+      // both /welcome step 6 preview and /itinerary above Day 1.
+      time_sensitive_alerts: timeSensitiveAlerts,
     });
   } catch (err) {
     console.error("[itinerary-generate]", err);

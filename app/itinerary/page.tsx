@@ -1055,6 +1055,13 @@ export default function ItineraryViewPage() {
   // nothing to surface. Persisted to localStorage so the callout survives a
   // reload alongside the cached itinerary.
   const [placementNotes, setPlacementNotes] = useState<string | null>(null);
+  // PHI-114: top-level "time_sensitive_alerts" — one-sentence facts the
+  // traveller must verify or act on (closures, pre-booking, seasonal
+  // cutoffs, peak-time advice, transport quirks). Rendered as a "Before
+  // you go" amber block ABOVE the placement_notes callout. Persisted as
+  // JSON-encoded string[] in localStorage so the alerts survive a reload
+  // alongside the cached itinerary. Null = nothing actionable to flag.
+  const [timeSensitiveAlerts, setTimeSensitiveAlerts] = useState<string[] | null>(null);
   const [swappingId, setSwappingId] = useState<string | null>(null);
   const [swapErrorId, setSwapErrorId] = useState<string | null>(null);
   const [swapSuggestion, setSwapSuggestion] = useState<{
@@ -1226,6 +1233,23 @@ export default function ItineraryViewPage() {
             setPlacementNotes(cachedNotes);
           }
         } catch { /* ignore */ }
+        // PHI-114: restore the "Before you go" alerts on cache hydration so
+        // a /itinerary reload (without regenerate) keeps the block visible.
+        // JSON-encoded string[]; ignore on parse failure to fail safe.
+        try {
+          const cachedAlerts = localStorage.getItem("rise_itinerary_time_sensitive_alerts");
+          if (cachedAlerts) {
+            const parsed = JSON.parse(cachedAlerts);
+            if (Array.isArray(parsed)) {
+              const cleaned = parsed
+                .filter((a): a is string => typeof a === "string")
+                .map((a) => a.trim())
+                .filter((a) => a.length > 0)
+                .slice(0, 4);
+              if (cleaned.length > 0) setTimeSensitiveAlerts(cleaned);
+            }
+          }
+        } catch { /* ignore */ }
         if (cached) {
           try {
             const parsed = JSON.parse(cached) as RawDay[];
@@ -1243,8 +1267,11 @@ export default function ItineraryViewPage() {
             // so a Regenerate or re-render doesn't repopulate from them.
             localStorage.removeItem("rise_itinerary");
             localStorage.removeItem("rise_itinerary_placement_notes");
+            // PHI-114: alerts are trip-scoped too — wipe alongside notes.
+            localStorage.removeItem("rise_itinerary_time_sensitive_alerts");
             localStorage.removeItem("rise_bad_day_dates");
             setPlacementNotes(null);
+            setTimeSensitiveAlerts(null);
             setBadDayDates(null);
           } catch { /* ignore invalid cache */ }
         }
@@ -1310,6 +1337,7 @@ export default function ItineraryViewPage() {
         days?: RawDay[];
         bad_day_dates?: string[] | null;
         placement_notes?: string | null;
+        time_sensitive_alerts?: string[] | null;
       };
       if (!data.days?.length) {
         setError("Couldn't generate your itinerary. Please try again.");
@@ -1344,6 +1372,27 @@ export default function ItineraryViewPage() {
       } else {
         localStorage.removeItem("rise_itinerary_placement_notes");
         setPlacementNotes(null);
+      }
+      // PHI-114: cache time_sensitive_alerts alongside placement_notes so
+      // the "Before you go" block survives a reload. Clean + cap at 4
+      // client-side; empty/null clears the key so a clean generate wipes
+      // stale alerts from the previous run.
+      const cleanedAlerts = Array.isArray(data.time_sensitive_alerts)
+        ? data.time_sensitive_alerts
+            .filter((a): a is string => typeof a === "string")
+            .map((a) => a.trim())
+            .filter((a) => a.length > 0)
+            .slice(0, 4)
+        : [];
+      if (cleanedAlerts.length > 0) {
+        localStorage.setItem(
+          "rise_itinerary_time_sensitive_alerts",
+          JSON.stringify(cleanedAlerts),
+        );
+        setTimeSensitiveAlerts(cleanedAlerts);
+      } else {
+        localStorage.removeItem("rise_itinerary_time_sensitive_alerts");
+        setTimeSensitiveAlerts(null);
       }
       const mapped = mapRawDays(data.days);
       setDays(mapped);
@@ -2109,6 +2158,27 @@ export default function ItineraryViewPage() {
                 scrollMarginTop={scrollMarginTop}
               />
             ))}
+          </div>
+        )}
+        {/* PHI-114: time-sensitive alerts callout — "Before you go" block
+            stacked ABOVE the placement_notes note so action-items
+            (closures, pre-booking, peak-time advice) lead. Same amber
+            palette so it reads as one continuous attention surface above
+            Day 1. Null/empty = no block. */}
+        {!loading && timeSensitiveAlerts && timeSensitiveAlerts.length > 0 && (
+          <div
+            data-testid="itinerary-time-sensitive-alerts"
+            className="mt-6 rounded-xl border border-[#f4d49e] bg-[#fef3e2] px-4 py-3 text-sm text-[var(--text-primary)]"
+          >
+            <span className="font-semibold">Before you go</span>
+            <ul className="mt-2 space-y-1.5 text-[var(--text-secondary)]">
+              {timeSensitiveAlerts.map((alert, i) => (
+                <li key={i} className="flex gap-2">
+                  <span aria-hidden>⚠</span>
+                  <span>{alert}</span>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
         {/* PHI-90: placement_notes callout — above Day 1 so the user sees

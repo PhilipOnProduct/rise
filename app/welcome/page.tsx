@@ -767,6 +767,14 @@ function WelcomePageInner() {
   // the response shape returned to /itinerary so the preview surfaces it
   // here too rather than swallowing it silently.
   const [itineraryPlacementNotes, setItineraryPlacementNotes] = useState<string | null>(null);
+  // PHI-114: top-level "time_sensitive_alerts" — one-sentence facts the
+  // traveller must verify or act on (closures, pre-booking, seasonal
+  // cutoffs, peak-time advice, transport quirks). Rendered as a "Before
+  // you go" amber block ABOVE the placement_notes callout. Null = nothing
+  // actionable to flag; UI renders nothing in that case.
+  const [itineraryTimeSensitiveAlerts, setItineraryTimeSensitiveAlerts] = useState<
+    string[] | null
+  >(null);
   const itineraryAbortRef = useRef<AbortController | null>(null);
   const itineraryViewedFiredRef = useRef(false);
 
@@ -1219,6 +1227,7 @@ function WelcomePageInner() {
         const data = (await res.json()) as {
           days?: PreviewDay[];
           placement_notes?: string | null;
+          time_sensitive_alerts?: string[] | null;
         };
         if (Array.isArray(data.days) && data.days.length > 0) {
           setItineraryPreview(data.days);
@@ -1230,6 +1239,18 @@ function WelcomePageInner() {
           } else {
             setItineraryPlacementNotes(null);
           }
+          // PHI-114: clean + cap alerts at 4 client-side as a belt-and-
+          // braces guard against an oversized server response. The route
+          // already enforces this, but the preview renders the array
+          // directly so double-checking here keeps the UI consistent.
+          const cleanedAlerts = Array.isArray(data.time_sensitive_alerts)
+            ? data.time_sensitive_alerts
+                .filter((a): a is string => typeof a === "string")
+                .map((a) => a.trim())
+                .filter((a) => a.length > 0)
+                .slice(0, 4)
+            : [];
+          setItineraryTimeSensitiveAlerts(cleanedAlerts.length > 0 ? cleanedAlerts : null);
           // Cache for /itinerary so we don't regenerate after signup
           if (typeof window !== "undefined") {
             localStorage.setItem("rise_itinerary", JSON.stringify(data.days));
@@ -1240,6 +1261,17 @@ function WelcomePageInner() {
               );
             } else {
               localStorage.removeItem("rise_itinerary_placement_notes");
+            }
+            // PHI-114: persist alerts so /itinerary picks them up on the
+            // post-signup hydration path. JSON-encoded array; empty/null
+            // clears the key so a clean generate wipes stale alerts.
+            if (cleanedAlerts.length > 0) {
+              localStorage.setItem(
+                "rise_itinerary_time_sensitive_alerts",
+                JSON.stringify(cleanedAlerts),
+              );
+            } else {
+              localStorage.removeItem("rise_itinerary_time_sensitive_alerts");
             }
           }
           // Telemetry — fire once per session
@@ -4476,6 +4508,27 @@ function WelcomePageInner() {
                 <h2 className="text-xs font-bold text-[var(--text-secondary)] uppercase tracking-widest mb-3">
                   Your trip plan
                 </h2>
+                {/* PHI-114: time-sensitive alerts — "Before you go" amber
+                    block stacked ABOVE the placement_notes callout so the
+                    action-items (Keukenhof closure, Anne Frank pre-booking
+                    etc.) lead, with anchor surfacing below. Null/empty =
+                    no block. */}
+                {itineraryTimeSensitiveAlerts && itineraryTimeSensitiveAlerts.length > 0 && (
+                  <div
+                    data-testid="welcome-time-sensitive-alerts"
+                    className="rounded-xl border border-[#f4d49e] bg-[#fef3e2] px-4 py-3 text-sm text-[var(--text-primary)] mb-3"
+                  >
+                    <span className="font-semibold">Before you go</span>
+                    <ul className="mt-2 space-y-1.5 text-[var(--text-secondary)]">
+                      {itineraryTimeSensitiveAlerts.map((alert, i) => (
+                        <li key={i} className="flex gap-2">
+                          <span aria-hidden>⚠</span>
+                          <span>{alert}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 {/* PHI-90: placement_notes — surface in the preview the same
                     way /itinerary does, so the user finds out about a
                     misspecified anchor or unfittable item BEFORE they

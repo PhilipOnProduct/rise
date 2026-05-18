@@ -419,7 +419,40 @@ export function buildItineraryGenPrompt(args: ItineraryGenInputs): string {
     ? `,\n  "seededByUser": false   // true ONLY on the items that match a user-seeded must-do; omit/false otherwise`
     : "";
   const placementNotesNote = hasAnchors
-    ? `\n\nReturn shape (when anchors are present):\nReturn an OBJECT with shape { "days": [<day objects>], "placement_notes": "<string or null>", "seeded_anchor_resolutions": [<one entry per anchor>] } — NOT a bare array. Use "placement_notes" whenever an anchor was vague-resolved (mode 2, surface the substitution), vague-flagged (mode 3, ask the user to be more specific), filtered as wrong-city, or could not be placed for capacity reasons. Set it to null only when every anchor was placed verbatim (mode 1) and nothing needed surfacing. "seeded_anchor_resolutions" is REQUIRED on every response with anchors — see the anchor block above for the per-entry shape and modes.`
+    ? `\n\nReturn shape (when anchors are present):\nReturn an OBJECT with shape { "days": [<day objects>], "placement_notes": "<string or null>", "seeded_anchor_resolutions": [<one entry per anchor>], "time_sensitive_alerts": [<string or null>] } — NOT a bare array. Use "placement_notes" whenever an anchor was vague-resolved (mode 2, surface the substitution), vague-flagged (mode 3, ask the user to be more specific), filtered as wrong-city, or could not be placed for capacity reasons. Set it to null only when every anchor was placed verbatim (mode 1) and nothing needed surfacing. "seeded_anchor_resolutions" is REQUIRED on every response with anchors — see the anchor block above for the per-entry shape and modes.
+
+TIME-SENSITIVE ALERTS (PHI-114, new field):
+- "time_sensitive_alerts" is a SHORT, high-bar list. MAXIMUM 4 per trip. Each alert is ONE sentence, plain traveller voice, action-oriented. **MOST trips correctly return null** — populating this field is the exception, not the default.
+
+**ABSOLUTE PROHIBITIONS — read these FIRST. Every alert candidate must clear all four before it can ship:**
+
+1. **Forbidden: alerts about restaurants YOU chose for the itinerary.** If a venue is not LITERALLY in the user-seeded must-do list shown above, you may not alert about its booking difficulty — regardless of how famous, Michelin-starred, or hard-to-book it is. This applies to every restaurant you picked: Cervejaria Ramiro, Tasca do Chico, Belcanto, Alma, Odette, Burnt Ends, Sushi Saito (if not anchored), Pasteis de Belém, every fado house, every hawker stall, every tapas bar. Booking pressure for your picks goes in the item description, not here.
+
+2. **Forbidden: alerts about sights YOU chose for the itinerary.** Same rule: if a sight is not in the user-seeded must-do list, no alert. Forbidden examples include Mosteiro dos Jerónimos, Castelo de São Jorge, Pena Palace, Quinta da Regaleira, Sintra excursions, Belém Tower, every cathedral, every museum the user didn't anchor. The ONLY exception is CHECK 1 below (seasonal-flagship cutoff straddling trip dates) — and that exception is narrow.
+
+3. **Forbidden: evergreen / generic content.** Pickpocket advice, "watch your bags", "peak season is crowded", "summer is busy", "verify opening hours before visiting" — all NEVER alerts.
+
+4. **Forbidden: alerts you cannot tie back to one of the three checks below.** If you write an alert and can't say which check it satisfies, delete it.
+
+**THE ONLY THREE CHECKS THAT CAN PRODUCE AN ALERT:**
+
+**CHECK 1 — Seasonal-flagship cutoff straddling the trip dates.** A famous attraction that LITERALLY CLOSES on a date that falls inside the trip window. Examples: Amsterdam in late May → Keukenhof (closes around mid-May); winter Norway → summer-only ferries not running; ski resorts off-season → lifts closed; Japan post-foliage-peak → autumn-leaves window passed. Required even when the traveller did not anchor the attraction. Example output: "Keukenhof typically closes around mid-May — verify the 2026 closing date before booking, since your trip starts 19 May." Generic "season is busy" or "summer is high season" is NOT a seasonal cutoff.
+
+**CHECK 2 — Hard pre-booking burden on a USER-SEEDED anchor (anchor must literally appear in the must-do list above).** For each venue the user explicitly typed as a must-do, ask: does THIS venue have a well-known reputation for selling out weeks/months ahead or requiring a special channel? Examples: user anchored "Anne Frank House" → "Anne Frank House tickets sell out weeks ahead — book your timed-entry slot online before you arrive." User anchored "Sushi Saito" → "Sushi Saito requires a personal introduction or concierge channel — start working on a reservation 3–6 months out." Only well-known hard-ticket cases.
+
+**CHECK 3 — Date-driven service change.** A transport / monument / service that operates differently on the specific trip dates: closed on a weekday that falls in the trip, strike, festival road closure, summer-only ferry not yet running. Generic crowding is not a service change.
+
+**FINAL SELF-AUDIT (apply before returning):** for each alert in your draft list, write the answer to "which check does this satisfy AND which user-seeded anchor does it tie back to?" If the answer is "CHECK 2" you must name the exact user-seeded anchor it refers to. If the answer is "CHECK 1" the cutoff must be a literal closure on dates in the trip window. If the answer is "neither, but it's useful advice" — DELETE THE ALERT and put the advice in the item description instead. If after the self-audit you have zero alerts left, return null. That is the correct outcome for most trips.
+
+PLACEMENT_NOTES (PHI-114, scope narrowed):
+- "placement_notes" is for ANCHOR SURFACING ONLY: mode-2 resolutions, mode-3 flags, wrong-city omissions, capacity overflow. The full rules for what goes here are in the anchor block above.
+- Vague-anchor mode-3 flags ALWAYS go in placement_notes, never in time_sensitive_alerts. Mode 3 = "the user typed something I can't pin to one venue" — that is anchor surfacing, not a travel fact. When the user typed a vague entry like "the famous viewpoint" and you cannot resolve it, you MUST quote the verbatim in placement_notes and ask for clarification — never route it to time_sensitive_alerts.
+- Do NOT include travel facts in "placement_notes" — closures, pre-booking warnings, seasonal calibration, transport quirks all go in "time_sensitive_alerts" instead.
+- Do NOT include a rejection audit of activities filtered by user preferences. The user told us their preferences; replaying the filter is noise that reads as if the traveller did something wrong.
+
+VOICE (PHI-114, applies to placement_notes AND time_sensitive_alerts):
+- Plain prose, in a travel-planner-taking-notes voice. No CAPS section headers, no labels like "ANCHOR PLACEMENTS & NOTES:" or "REJECTED ACTIVITY NOTES:".
+- Forbidden tokens in either field (case-insensitive): "REJECTED", "placed verbatim", "ANCHOR PLACEMENTS", "verbatim". Speak as a planner, not as a system explaining its work.`
     : "";
 
   // PHI-99: header line differs by mode. Exact stays byte-identical;
@@ -443,7 +476,7 @@ ${budgetStr}${compositionStr}${inspirationStr}${atlasStr}${feedbackSegment}${use
 
 Return ONLY valid JSON — no markdown, no explanation, no code fences. ${
     hasAnchors
-      ? `Top-level shape: { "days": [...], "placement_notes": "<string or null>", "seeded_anchor_resolutions": [...] }. The "days" array MUST have exactly ${days} elements, one per day. The "seeded_anchor_resolutions" array MUST have exactly one entry per anchor in the order they were given.`
+      ? `Top-level shape: { "days": [...], "placement_notes": "<string or null>", "seeded_anchor_resolutions": [...], "time_sensitive_alerts": [<one-sentence strings, max 4> | null] }. The "days" array MUST have exactly ${days} elements, one per day. The "seeded_anchor_resolutions" array MUST have exactly one entry per anchor in the order they were given. The "time_sensitive_alerts" field is REQUIRED — set to null when there is nothing actionable to flag; never omit the key.`
       : `The response MUST be a JSON array with exactly ${days} elements, one per day.`
   }
 
