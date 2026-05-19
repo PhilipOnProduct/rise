@@ -32,6 +32,19 @@ import {
   costEstimateUsd as alternativesCost,
   runSuiteForGui as runAlternativesSuite,
 } from "./alternatives/runner";
+// PHI-121 — heavy multi-run trio wired in.
+import {
+  costEstimateUsd as anchorsCost,
+  runSuiteForGui as runAnchorsSuite,
+} from "./anchors/runner";
+import {
+  costEstimateUsd as countryDestinationCost,
+  runSuiteForGui as runCountryDestinationSuite,
+} from "./country-destination/runner";
+import {
+  costEstimateUsd as popularPicksCost,
+  runSuiteForGui as runPopularPicksSuite,
+} from "./popular-picks/runner";
 import type {
   GuiCaseOutcome,
   GuiRunOpts,
@@ -148,12 +161,14 @@ export const SUITES: SuiteDescriptor[] = [
   {
     slug: "anchors",
     title: "eval:anchors",
-    description: "11 user-seeded anchors cases × 3 runs each against /api/itinerary/generate. Pass gate: all cases pass.",
+    // PHI-121: 13 cases × 3 runs in cases.ts (PHI-114 added cases 12-13).
+    // Description reflects the live count rather than the PHI-95 vintage.
+    description: "User-seeded anchors × 3 runs per case against /api/itinerary/generate. Pass gate: every case passes (avg judge ≥7 AND all-run programmatic).",
     kind: "needs-dev-server",
-    costEstimateUsd: 2.2,
-    caseCount: 11,
+    costEstimateUsd: anchorsCost(),
+    caseCount: 13,
     runsPerCase: 3,
-    wired: false,
+    wired: true,
     cliScript: "eval:anchors",
   },
   {
@@ -161,10 +176,10 @@ export const SUITES: SuiteDescriptor[] = [
     title: "eval:country-destination",
     description: "10-country × 3-run city ranking eval. Pass gate: ≥4/5 overall AND no single case <3/5.",
     kind: "needs-api",
-    costEstimateUsd: 0.6,
+    costEstimateUsd: countryDestinationCost(),
     caseCount: 10,
     runsPerCase: 3,
-    wired: false,
+    wired: true,
     cliScript: "eval:country-destination",
   },
   {
@@ -172,10 +187,10 @@ export const SUITES: SuiteDescriptor[] = [
     title: "eval:popular-picks",
     description: "18 popular-picks cases (6 cities × 3 profiles). Pass gate: avg ≥4/5 AND no single fixture <3/5.",
     kind: "needs-dev-server",
-    costEstimateUsd: 1.2,
+    costEstimateUsd: popularPicksCost(),
     caseCount: 18,
     runsPerCase: 1,
-    wired: false,
+    wired: true,
     cliScript: "eval:popular-picks",
   },
 ];
@@ -217,6 +232,7 @@ export function runFamilySuiteForGui(): GuiSuiteOutcome {
     const programmaticPass = failed === 0;
     caseOutcomes.push({
       caseName: scenario.name,
+      runIndex: 0,
       programmaticPass,
       judgeScore: null,
       judgeReasoning: null,
@@ -259,6 +275,13 @@ export function getGuiSuiteExecutor(
       return runRecommendationsSuite;
     case "alternatives":
       return runAlternativesSuite;
+    // PHI-121 — heavy multi-run trio.
+    case "anchors":
+      return runAnchorsSuite;
+    case "country-destination":
+      return runCountryDestinationSuite;
+    case "popular-picks":
+      return runPopularPicksSuite;
     default:
       return undefined;
   }

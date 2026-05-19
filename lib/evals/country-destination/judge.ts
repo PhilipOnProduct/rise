@@ -95,6 +95,7 @@ export type JudgeResult = {
 export async function judgeOnce(
   fixture: Fixture,
   recs: CityRecommendation[],
+  opts: { suiteRunId?: string } = {},
 ): Promise<JudgeResult> {
   if (recs.length === 0) {
     return {
@@ -139,6 +140,7 @@ Be strict. A beautifully-written "why" does NOT rescue a wrong-city or wrong-pro
     tool: JUDGE_TOOL,
     toolName: "score_recommendations",
     userMessage,
+    suiteRunId: opts.suiteRunId,
   });
 
   // Sonnet occasionally drops fields under tool_choice — validate so a

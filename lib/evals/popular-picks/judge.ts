@@ -53,7 +53,11 @@ export type JudgeResult = {
   overall: number;
 };
 
-export async function judge(fixture: Fixture, picks: PopularPick[]): Promise<JudgeResult> {
+export async function judge(
+  fixture: Fixture,
+  picks: PopularPick[],
+  opts: { suiteRunId?: string } = {},
+): Promise<JudgeResult> {
   if (picks.length === 0) {
     return {
       factualAccuracy: { score: 1, reasoning: "Route returned no picks." },
@@ -106,6 +110,7 @@ Score three criteria (1-5 each with a one-sentence reason) and one holistic over
     tool: JUDGE_TOOL,
     toolName: "score_popular_picks",
     userMessage,
+    suiteRunId: opts.suiteRunId,
   });
 
   for (const k of ["factualAccuracy", "profileFit", "usefulFriction"] as const) {

@@ -119,10 +119,17 @@ const RANKING_TOOL = {
 /**
  * Pull candidate cities for a country from Places searchText restricted to
  * the country, then merge in the curated whitelist (deduped on name).
+ *
+ * PHI-121 — optional `suiteRunId` is forwarded to `logApiUsage` so the
+ * eval suite runs can roll up realised Google cost by suite_run_id. The
+ * welcome-flow caller passes nothing (defaults to undefined) and the
+ * log row is written with `suite_run_id = null` — production behaviour
+ * is unchanged.
  */
 export async function getCandidates(
   country: string,
   countryCode?: string,
+  opts: { suiteRunId?: string } = {},
 ): Promise<CityCandidate[]> {
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_PLACES_KEY;
   const seen = new Set<string>();
@@ -170,6 +177,7 @@ export async function getCandidates(
           provider: "google",
           apiType: "places-text-search",
           feature: "country-recommender",
+          suiteRunId: opts.suiteRunId,
         });
       }
     } catch (err) {
@@ -232,6 +240,7 @@ export async function rankWithHaiku(
   candidates: CityCandidate[],
   preferences: Preferences,
   countryCode?: string,
+  opts: { suiteRunId?: string } = {},
 ): Promise<RankResult> {
   if (candidates.length === 0) {
     return { recommendations: [], inputTokens: 0, outputTokens: 0, rawUserMessage: "" };
@@ -319,6 +328,7 @@ export async function rankWithHaiku(
     model: HAIKU_MODEL,
     inputTokens: response.usage.input_tokens,
     outputTokens: response.usage.output_tokens,
+    suiteRunId: opts.suiteRunId,
   });
 
   const block = response.content.find((b) => b.type === "tool_use");

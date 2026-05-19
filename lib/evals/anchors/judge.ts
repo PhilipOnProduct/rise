@@ -20,6 +20,7 @@ export type JudgeResult = {
 export async function judgeWithLlm(
   testCase: TestCase,
   response: ApiResponse,
+  opts: { suiteRunId?: string } = {},
 ): Promise<JudgeResult> {
   const criteriaList = testCase.judgeCriteria
     .map((c, i) => `${i + 1}. ${c}`)
@@ -122,7 +123,7 @@ Respond with valid JSON only, no markdown, in this exact shape — NO EXTRA TOP-
   "summary": "<two sentences overall assessment>"
 }`;
 
-  const raw = await runRawJudge({ userMessage });
+  const raw = await runRawJudge({ userMessage, suiteRunId: opts.suiteRunId });
 
   try {
     // PHI-103: trailing-comma stripping is load-bearing — Sonnet 4.6

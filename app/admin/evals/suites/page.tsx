@@ -84,6 +84,8 @@ type RunSummary = {
 /** PHI-120 — Unified case outcome shape returned by every suite. */
 type GuiCaseOutcome = {
   caseName: string;
+  /** PHI-121 — 0..runsPerCase-1. Single-run suites set 0. */
+  runIndex: number;
   programmaticPass: boolean;
   judgeScore: number | null;
   judgeReasoning: string | null;
@@ -95,6 +97,11 @@ type GuiCaseOutcome = {
   assertionsFailed?: number;
   failedAssertionLabels?: string[];
 };
+
+/** PHI-121 — anchors uses 0-10, country-destination + popular-picks use 0-5. */
+function judgeScoreMaxForSuite(slug: string): 5 | 10 {
+  return slug === "country-destination" || slug === "popular-picks" ? 5 : 10;
+}
 
 type UsageStatus = {
   anthropic: {
@@ -488,12 +495,26 @@ function RunTab({ suite }: { suite: SuiteCard }) {
                 Result
               </p>
               <p className="text-sm text-[var(--text-primary)]">
-                {/* Family carries assertions; paid suites carry judge scores — show whichever's present. */}
+                {/* Family carries assertions; paid suites carry judge scores. */}
+                {/* PHI-121 — multi-run suites count case-runs (rows), not unique cases. */}
                 {state.run.totalAssertions !== undefined ? (
                   <>
                     {state.run.passedAssertions} of {state.run.totalAssertions} assertions passed
                     {" · "}
                     {state.run.passRate.toFixed(0)}% case pass rate
+                  </>
+                ) : suite.runsPerCase > 1 ? (
+                  <>
+                    {state.cases.filter((c) => c.programmaticPass).length} of {state.cases.length}{" "}
+                    case-runs passed ({suite.caseCount} cases × {suite.runsPerCase} runs)
+                    {" · "}
+                    {state.run.passRate.toFixed(0)}% pass rate
+                    {state.run.totalCostUsd > 0 && (
+                      <>
+                        {" · "}
+                        realised cost {formatCost(state.run.totalCostUsd)}
+                      </>
+                    )}
                   </>
                 ) : (
                   <>
@@ -513,7 +534,7 @@ function RunTab({ suite }: { suite: SuiteCard }) {
             </div>
             <PassFailPill passed={state.kind === "succeeded-pass"} />
           </div>
-          <CaseList cases={state.cases} />
+          <CaseList cases={state.cases} suite={suite} />
         </div>
       )}
 
@@ -566,14 +587,25 @@ function RunStateBadge({ state }: { state: RunState }) {
   }
 }
 
-function CaseList({ cases }: { cases: GuiCaseOutcome[] }) {
+function CaseList({ cases, suite }: { cases: GuiCaseOutcome[]; suite: SuiteCard }) {
+  // PHI-121 — multi-run suites group their case-runs and render a per-case
+  // card showing "Run 1 · Run 2 · Run 3 → avg" per the CLI's format.
+  // Single-run suites keep the pre-PHI-121 flat card-per-row layout.
+  if (suite.runsPerCase > 1) {
+    return <MultiRunCaseList cases={cases} suite={suite} />;
+  }
+  return <SingleRunCaseList cases={cases} suite={suite} />;
+}
+
+function SingleRunCaseList({ cases, suite }: { cases: GuiCaseOutcome[]; suite: SuiteCard }) {
+  const judgeMax = judgeScoreMaxForSuite(suite.slug);
   return (
     <div className="flex flex-col gap-2">
       {cases.map((c) => {
         const isJudgeSuite = c.judgeScore !== null;
         return (
           <div
-            key={c.caseName}
+            key={`${c.caseName}-${c.runIndex}`}
             className={`border rounded-xl p-3 ${
               c.programmaticPass ? "border-[#e8e4de] bg-white" : "border-[#c0392b]/30 bg-[#fff5f5]"
             }`}
@@ -584,7 +616,7 @@ function CaseList({ cases }: { cases: GuiCaseOutcome[] }) {
                 <p className="text-xs text-[var(--text-muted)]">
                   {isJudgeSuite ? (
                     <>
-                      Judge score: {c.judgeScore}/10 · {formatDurationMs(c.durationMs)}
+                      Judge score: {c.judgeScore}/{judgeMax} · {formatDurationMs(c.durationMs)}
                     </>
                   ) : (
                     <>
@@ -619,6 +651,164 @@ function CaseList({ cases }: { cases: GuiCaseOutcome[] }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/**
+ * PHI-121 — Multi-run case list.
+ *
+ * Groups `cases` by `caseName` and renders one card per group with:
+ *   - Aggregate pass/fail pill (case-level gate, suite-specific)
+ *   - "Run 1: X · Run 2: Y · Run 3: Z → avg N" summary line
+ *   - Per-run details, expandable on click — programmatic-failure first,
+ *     judge reasoning + scoring second
+ *
+ * The case-level pass rule differs by suite:
+ *   - anchors: every run programmatic OK AND mean judge score ≥ 7/10
+ *   - country-destination / popular-picks: mean judge score ≥ 3/5 (per-case floor)
+ *
+ * Computed locally from row data so the page renders consistent verdicts
+ * without re-deriving the suite-level pass via API.
+ */
+function MultiRunCaseList({ cases, suite }: { cases: GuiCaseOutcome[]; suite: SuiteCard }) {
+  const judgeMax = judgeScoreMaxForSuite(suite.slug);
+  // Stable group order: first appearance of each caseName preserves the
+  // CLI's natural ordering (anchors PHI-90 #1, #2, …).
+  const groupMap = new Map<string, GuiCaseOutcome[]>();
+  for (const c of cases) {
+    const list = groupMap.get(c.caseName);
+    if (list) list.push(c);
+    else groupMap.set(c.caseName, [c]);
+  }
+  const groups = Array.from(groupMap.entries()).map(([caseName, rows]) => ({
+    caseName,
+    rows: rows.slice().sort((a, b) => a.runIndex - b.runIndex),
+  }));
+
+  return (
+    <div className="flex flex-col gap-2">
+      {groups.map((g) => (
+        <MultiRunCaseGroup
+          key={g.caseName}
+          caseName={g.caseName}
+          rows={g.rows}
+          suite={suite}
+          judgeMax={judgeMax}
+        />
+      ))}
+    </div>
+  );
+}
+
+function MultiRunCaseGroup({
+  caseName,
+  rows,
+  suite,
+  judgeMax,
+}: {
+  caseName: string;
+  rows: GuiCaseOutcome[];
+  suite: SuiteCard;
+  judgeMax: 5 | 10;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  // Case-level gate derived locally so the pill matches what the
+  // executor told the runs route. judgeScore is null when the judge
+  // step didn't run (programmatic failure) — those rows count as
+  // programmatic-fail in any per-suite gate.
+  const everyRunReachedJudge = rows.every((r) => r.judgeScore !== null);
+  const judgeScores = rows
+    .map((r) => r.judgeScore)
+    .filter((s): s is number => s !== null);
+  const avg =
+    judgeScores.length > 0 ? judgeScores.reduce((s, n) => s + n, 0) / judgeScores.length : 0;
+
+  let casePassed: boolean;
+  if (suite.slug === "anchors") {
+    // 0-10 scale, ≥7 case-level mean AND every run programmatic OK.
+    casePassed = everyRunReachedJudge && avg >= 7;
+  } else if (suite.slug === "country-destination" || suite.slug === "popular-picks") {
+    // 0-5 scale, ≥3/5 case-level mean (PASS_FLOOR).
+    casePassed = avg >= 3;
+  } else {
+    // Defensive: any future multi-run suite falls back to "every row passed".
+    casePassed = rows.every((r) => r.programmaticPass);
+  }
+
+  const runScoreLine = rows
+    .map((r, i) =>
+      r.judgeScore !== null
+        ? `Run ${i + 1}: ${r.judgeScore}/${judgeMax}`
+        : `Run ${i + 1}: ✗ programmatic`,
+    )
+    .join(" · ");
+
+  const totalMs = rows.reduce((s, r) => s + r.durationMs, 0);
+
+  return (
+    <div
+      className={`border rounded-xl ${
+        casePassed ? "border-[#e8e4de] bg-white" : "border-[#c0392b]/30 bg-[#fff5f5]"
+      }`}
+    >
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full text-left p-3"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-[var(--text-primary)]">{caseName}</p>
+            <p className="text-xs text-[var(--text-muted)] mt-0.5">
+              {runScoreLine} → avg {avg.toFixed(1)}/{judgeMax}
+              {" · "}
+              {formatDurationMs(totalMs)} total
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <PassFailPill passed={casePassed} />
+            <span className="text-[var(--text-muted)] text-xs">{expanded ? "▾" : "▸"}</span>
+          </div>
+        </div>
+      </button>
+      {expanded && (
+        <div className="border-t border-[#e8e4de] p-3 flex flex-col gap-2">
+          {rows.map((r) => (
+            <div
+              key={r.runIndex}
+              className={`text-xs px-3 py-2 rounded-lg border ${
+                r.programmaticPass
+                  ? "bg-white border-[#e8e4de]"
+                  : "bg-[#fff8f5] border-[#c0392b]/20"
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-semibold text-[var(--text-primary)]">
+                  Run {r.runIndex + 1}
+                </span>
+                <div className="flex items-center gap-2">
+                  {r.judgeScore !== null && (
+                    <span className="text-[var(--text-muted)] tabular-nums">
+                      {r.judgeScore}/{judgeMax}
+                    </span>
+                  )}
+                  <span className="text-[var(--text-muted)]">
+                    {formatDurationMs(r.durationMs)}
+                  </span>
+                  <PassFailPill passed={r.programmaticPass} />
+                </div>
+              </div>
+              {r.errorMessage && (
+                <p className="mt-1.5 text-[#7a2418] break-words">{r.errorMessage}</p>
+              )}
+              {r.judgeReasoning && r.programmaticPass && (
+                <p className="mt-1.5 text-[var(--text-muted)] italic">{r.judgeReasoning}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -731,6 +921,7 @@ function HistoryTab({ suite }: { suite: SuiteCard }) {
                   expandedCases={isOpen ? expandedCases : null}
                   expandedLoading={isOpen && expandedLoading}
                   onToggle={() => void toggleExpand(r.id)}
+                  suite={suite}
                 />
               );
             })}
@@ -747,13 +938,17 @@ function FragmentRow({
   expandedCases,
   expandedLoading,
   onToggle,
+  suite,
 }: {
   row: SuiteRunRow;
   isOpen: boolean;
   expandedCases: CaseRunRow[] | null;
   expandedLoading: boolean;
   onToggle: () => void;
+  suite: SuiteCard;
 }) {
+  // PHI-121 — anchors uses 0-10 judge; country-destination + popular-picks 0-5.
+  const judgeMax = judgeScoreMaxForSuite(suite.slug);
   return (
     <>
       <tr className="border-b border-[#e8e4de] last:border-b-0 cursor-pointer hover:bg-[#f8f6f1]" onClick={onToggle}>
@@ -790,10 +985,18 @@ function FragmentRow({
                     }`}
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="font-semibold text-[var(--text-primary)]">{c.case_name}</p>
+                      <p className="font-semibold text-[var(--text-primary)]">
+                        {c.case_name}
+                        {suite.runsPerCase > 1 && (
+                          <span className="text-[var(--text-muted)] font-normal">
+                            {" "}
+                            · run {c.run_index + 1}
+                          </span>
+                        )}
+                      </p>
                       {c.judge_score != null && (
                         <p className="text-[var(--text-muted)] mt-0.5">
-                          Judge: {Number(c.judge_score).toFixed(1)}/10
+                          Judge: {Number(c.judge_score).toFixed(1)}/{judgeMax}
                         </p>
                       )}
                       {c.error && (

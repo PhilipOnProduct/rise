@@ -82,6 +82,7 @@ export async function runSuiteForGui(opts: GuiRunOpts): Promise<GuiSuiteOutcome>
       const snippet = JSON.stringify(alternative);
       caseOutcomes.push({
         caseName: testCase.label,
+        runIndex: 0,
         programmaticPass: result.passed,
         judgeScore: result.score,
         judgeReasoning: result.summary,
@@ -93,6 +94,7 @@ export async function runSuiteForGui(opts: GuiRunOpts): Promise<GuiSuiteOutcome>
     } catch (err) {
       caseOutcomes.push({
         caseName: testCase.label,
+        runIndex: 0,
         programmaticPass: false,
         judgeScore: null,
         judgeReasoning: null,

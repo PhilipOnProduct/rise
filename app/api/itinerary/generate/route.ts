@@ -412,6 +412,11 @@ export async function POST(req: NextRequest) {
     await logApiUsage({
       provider: "anthropic", apiType: "itinerary-generate", feature: "itinerary",
       model: MODEL, inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens,
+      // PHI-121: when called by the evals GUI runner (eval:anchors suite),
+      // link this row back to its eval_suite_runs id so realised cost can
+      // be rolled up at run finish. Production callers never set the
+      // header — defaults to null.
+      suiteRunId: req.headers.get("x-suite-run-id"),
     });
 
     // PHI-53: forecast fetch is fire-and-forget for client display. Fail

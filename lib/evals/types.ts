@@ -52,26 +52,38 @@ export interface SuiteRunner<
  * The runs route persists each outcome to one `eval_case_runs` row and
  * returns the array unchanged to the page so the CaseList component can
  * branch on whichever fields are present.
+ *
+ * PHI-121 — multi-run suites (anchors / country-destination) produce
+ * `runsPerCase` outcomes per case_name. `runIndex` carries the per-case
+ * run index (0..N-1), which the runs route persists to
+ * `eval_case_runs.run_index`. Single-run suites set `runIndex: 0`.
  */
 export type GuiCaseOutcome = {
   caseName: string;
   /**
-   * Aggregate pass for this case. For offline suites: all assertions
-   * passed. For LLM-as-judge suites: judge score ≥ 7 (the existing CLI
-   * threshold). On error, false.
+   * PHI-121 — index of this run within the case, 0..runsPerCase-1.
+   * Single-run suites (family, location, recommendations, alternatives,
+   * popular-picks) always set 0.
+   */
+  runIndex: number;
+  /**
+   * Aggregate pass for this case-run. For offline suites: all assertions
+   * passed. For LLM-as-judge suites: case-run met its per-case threshold
+   * (anchors ≥7/10, country-destination ≥3/5, popular-picks ≥3/5).
+   * On error, false.
    */
   programmaticPass: boolean;
-  /** Judge score 0–10 for LLM-as-judge suites; null for offline. */
+  /** Judge score for LLM-as-judge suites (0-10 or 0-5 per suite); null for offline. */
   judgeScore: number | null;
   /** Judge summary text for LLM-as-judge suites; null for offline. */
   judgeReasoning: string | null;
   /** Up to 1KB of representative output for the History case detail row. */
   outputSnippet: string;
-  /** Per-case best-effort cost estimate (USD). Realised cost is rolled up to `eval_suite_runs.total_cost_usd`. */
+  /** Per-case-run best-effort cost estimate (USD). Realised cost is rolled up to `eval_suite_runs.total_cost_usd`. */
   costUsdEstimate: number;
-  /** Wall-clock duration for this case in milliseconds. */
+  /** Wall-clock duration for this case-run in milliseconds. */
   durationMs: number;
-  /** Failure message string when the case errored or failed. Null on success. */
+  /** Failure message string when the case-run errored or failed. Null on success. */
   errorMessage: string | null;
   // Offline-suite extras (family). Absent for LLM-judge suites.
   assertionsPassed?: number;
@@ -83,11 +95,20 @@ export type GuiCaseOutcome = {
  * PHI-120 — Aggregate suite outcome returned to the runs route. The
  * route persists `caseOutcomes` to `eval_case_runs` and writes the
  * aggregate to `eval_suite_runs` (`pass_rate`, `summary_score`).
+ *
+ * PHI-121 — multi-run suites surface their own composite gate via
+ * `overallSuitePass` (covers the "avg ≥ X AND no case < Y" pattern that
+ * country-destination + popular-picks use). When absent the runs route
+ * falls back to "every case_outcome.programmaticPass = true".
  */
 export type GuiSuiteOutcome = {
   caseOutcomes: GuiCaseOutcome[];
-  /** Percentage of cases that passed, 0–100. */
+  /** Percentage of case-runs that passed, 0–100. */
   passRate: number;
+  /** PHI-121 — explicit suite-level pass when the gate is more than "every case passed" (country-destination, popular-picks). */
+  overallSuitePass?: boolean;
+  /** PHI-121 — mean judge score across all case-runs (0-10 for anchors, 0-5 for country-destination / popular-picks). Drives the summary_score column. */
+  suiteAverageScore?: number;
   // Offline-suite extras (family). Absent for LLM-judge suites.
   totalAssertions?: number;
   passedAssertions?: number;

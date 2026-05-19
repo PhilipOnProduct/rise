@@ -133,10 +133,15 @@ export async function POST(
     // suites flow through the same row shape; `judge_score` is null for
     // offline cases, `programmatic_pass` is the aggregate boolean for
     // both flavours.
+    //
+    // PHI-121 — multi-run suites supply an explicit `runIndex` per row
+    // (anchors: 0/1/2 per case_name; country-destination: same). The
+    // single-run suites set runIndex=0. The fallback to array-index
+    // shouldn't trip anymore but is left for defence-in-depth.
     const caseRunRows = outcome.caseOutcomes.map((c, i) => ({
       suite_run_id: suiteRunId,
       case_name: c.caseName,
-      run_index: i,
+      run_index: c.runIndex ?? i,
       programmatic_pass: c.programmaticPass,
       judge_score: c.judgeScore,
       judge_reasoning: c.judgeReasoning,
@@ -152,7 +157,15 @@ export async function POST(
 
     if (caseErr) throw new Error(`case_runs insert failed: ${caseErr.message}`);
 
-    const allPassed = outcome.caseOutcomes.every((c) => c.programmaticPass);
+    // PHI-121 — multi-run suites with composite gates (anchors,
+    // country-destination, popular-picks) supply `overallSuitePass`
+    // because their case-level rule is more than "every row passed"
+    // (anchors needs mean judge ≥7; country-destination + popular-picks
+    // need the suite avg ≥ PASS_AVG). Single-run suites omit it and we
+    // fall back to the row-level "every passed" derivation.
+    const allPassed =
+      outcome.overallSuitePass ??
+      outcome.caseOutcomes.every((c) => c.programmaticPass);
     const status = allPassed ? "succeeded" : "failed";
 
     // 3. Roll up realised cost from api_usage rows tagged with this
@@ -174,16 +187,26 @@ export async function POST(
       );
     }
 
-    // Summary score: paid suites use the mean judge score (0-10 scale,
-    // rescaled to 0-100 for the table column); offline suites mirror the
-    // pass rate (no judge).
+    // Summary score: paid suites use the mean judge score, rescaled to
+    // 0-100 for the table column. Anchors uses a 0-10 rubric; country-
+    // destination + popular-picks use 0-5. The suite executor signals
+    // the scale by populating `suiteAverageScore` and we infer 5-vs-10
+    // from the suite slug — only three multi-run suites use 0-5 and
+    // they're an exhaustive set here. Offline suites mirror pass rate.
     let summaryScore = outcome.passRate;
-    const judgeScores = outcome.caseOutcomes
-      .map((c) => c.judgeScore)
-      .filter((s): s is number => typeof s === "number");
-    if (judgeScores.length > 0) {
-      const meanJudge = judgeScores.reduce((s, n) => s + n, 0) / judgeScores.length;
-      summaryScore = (meanJudge / 10) * 100; // 0-10 → 0-100
+    if (outcome.suiteAverageScore !== undefined) {
+      const isFiveScale =
+        suite === "country-destination" || suite === "popular-picks";
+      const scaleMax = isFiveScale ? 5 : 10;
+      summaryScore = (outcome.suiteAverageScore / scaleMax) * 100;
+    } else {
+      const judgeScores = outcome.caseOutcomes
+        .map((c) => c.judgeScore)
+        .filter((s): s is number => typeof s === "number");
+      if (judgeScores.length > 0) {
+        const meanJudge = judgeScores.reduce((s, n) => s + n, 0) / judgeScores.length;
+        summaryScore = (meanJudge / 10) * 100; // 0-10 → 0-100
+      }
     }
 
     const finishedAt = new Date().toISOString();

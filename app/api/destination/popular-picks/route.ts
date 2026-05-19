@@ -157,6 +157,11 @@ export async function POST(req: NextRequest) {
       model: MODEL,
       inputTokens: response.usage.input_tokens,
       outputTokens: response.usage.output_tokens,
+      // PHI-121: when called by the evals GUI runner (eval:popular-picks
+      // suite), link this row back to its eval_suite_runs id so realised
+      // cost can be rolled up at run finish. Production callers never set
+      // the header — defaults to null.
+      suiteRunId: req.headers.get("x-suite-run-id"),
     });
 
     // Sub-minimum: if Haiku returned <3 well-formed picks (post-clean),
