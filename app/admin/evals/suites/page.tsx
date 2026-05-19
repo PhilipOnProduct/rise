@@ -13,7 +13,7 @@
  * new workbench surface.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import type { SuiteKind } from "@/lib/evals/registry";
 
@@ -1023,12 +1023,780 @@ function FragmentRow({
   );
 }
 
+// ── Compare tab (PHI-122) ──────────────────────────────────────────────────────
+//
+// Diff two runs of the same suite, with explicit variance bands for multi-run
+// suites so a single-run delta inside both runs' min..max ranges renders as
+// `noise`, not `regression`. The PHI-42 incident is the canonical example —
+// same prompt, different runs, different failures — and the entire point of
+// this surface is to keep that kind of noise from generating false alarms.
+//
+// Data model: one CaseAggregate per (run × case_name), collapsing the N rows
+// from runsPerCase>1 suites into a single { mean, min, max, runs } record.
+// Single-run suites produce a degenerate aggregate where min === max === mean.
+
+type CaseAggregate = {
+  scores: number[];               // judge scores (filtered to non-null) in run_index order
+  mean: number | null;            // null if no judge scores at all (offline / family suite)
+  min: number | null;
+  max: number | null;
+  programmaticPasses: boolean[];  // programmatic_pass per run row
+  reasonings: (string | null)[];  // judge_reasoning per run row, in run_index order
+  errors: (string | null)[];      // error string per run row (carries "Failed assertions: …" for family)
+};
+
+type CaseClassification =
+  | "programmatic-flip-regression"  // pass → fail (highest-priority red row)
+  | "programmatic-flip-improvement" // fail → pass
+  | "regression"                    // candidate mean < baseline mean, no overlap on multi-run
+  | "improvement"                   // candidate mean > baseline mean, no overlap on multi-run
+  | "noise"                         // multi-run bands overlap; treat as within-noise
+  | "unchanged"                     // single-run, identical score (or no judge data)
+  | "new"                           // case only in candidate
+  | "removed";                      // case only in baseline
+
+type CaseDelta = {
+  caseName: string;
+  baseline: CaseAggregate | null;
+  candidate: CaseAggregate | null;
+  classification: CaseClassification;
+  deltaMean: number | null;
+};
+
+function aggregateRunsForCase(rows: CaseRunRow[], caseName: string): CaseAggregate {
+  const sorted = rows
+    .filter((r) => r.case_name === caseName)
+    .slice()
+    .sort((a, b) => a.run_index - b.run_index);
+  const scores = sorted
+    .map((r) => (r.judge_score === null ? null : Number(r.judge_score)))
+    .filter((s): s is number => s !== null && !Number.isNaN(s));
+  const programmaticPasses = sorted.map((r) => r.programmatic_pass === true);
+  const reasonings = sorted.map((r) => r.judge_reasoning);
+  const errors = sorted.map((r) => r.error);
+  return {
+    scores,
+    mean: scores.length > 0 ? scores.reduce((s, n) => s + n, 0) / scores.length : null,
+    min: scores.length > 0 ? Math.min(...scores) : null,
+    max: scores.length > 0 ? Math.max(...scores) : null,
+    programmaticPasses,
+    reasonings,
+    errors,
+  };
+}
+
+function classifyDelta(
+  baseline: CaseAggregate,
+  candidate: CaseAggregate,
+  isMultiRun: boolean,
+): { classification: CaseClassification; deltaMean: number | null } {
+  // Programmatic-pass transitions are the loudest signal — a case that flipped
+  // pass → fail (or vice versa) is more important than any numeric drift.
+  // Surface first regardless of judge scores.
+  const baseAllPass =
+    baseline.programmaticPasses.length > 0 && baseline.programmaticPasses.every((p) => p);
+  const candAllPass =
+    candidate.programmaticPasses.length > 0 && candidate.programmaticPasses.every((p) => p);
+  if (baseAllPass && !candAllPass) {
+    return { classification: "programmatic-flip-regression", deltaMean: null };
+  }
+  if (!baseAllPass && candAllPass) {
+    return { classification: "programmatic-flip-improvement", deltaMean: null };
+  }
+
+  // Offline / family suites carry no judge scores — nothing more to compare
+  // beyond the programmatic flip we already handled.
+  if (baseline.mean === null || candidate.mean === null) {
+    return { classification: "unchanged", deltaMean: null };
+  }
+
+  const deltaMean = candidate.mean - baseline.mean;
+
+  // The load-bearing UX rule from PHI-117 hard constraints: for multi-run
+  // suites, single-run deltas that sit within both runs' overlap range
+  // render as `noise`, not `regression`. Overlap exists iff the closed
+  // interval [base.min, base.max] intersects [cand.min, cand.max].
+  if (isMultiRun) {
+    const overlap = baseline.max! >= candidate.min! && candidate.max! >= baseline.min!;
+    if (overlap) return { classification: "noise", deltaMean };
+  }
+
+  if (deltaMean > 0) return { classification: "improvement", deltaMean };
+  if (deltaMean < 0) return { classification: "regression", deltaMean };
+  return { classification: "unchanged", deltaMean };
+}
+
+// Sort order: red rows (regressions / programmatic-flips) first, sorted by
+// magnitude, then categorical changes (new/removed), then noise, then quiet
+// rows (unchanged + improvements). PRD: "sorted by regression magnitude
+// (red rows first)".
+function classificationOrder(c: CaseClassification): number {
+  switch (c) {
+    case "programmatic-flip-regression":
+      return 0;
+    case "regression":
+      return 1;
+    case "removed":
+      return 2;
+    case "new":
+      return 3;
+    case "noise":
+      return 4;
+    case "unchanged":
+      return 5;
+    case "programmatic-flip-improvement":
+      return 6;
+    case "improvement":
+      return 7;
+  }
+}
+
+function buildDeltas(
+  baselineCases: CaseRunRow[],
+  candidateCases: CaseRunRow[],
+  isMultiRun: boolean,
+): CaseDelta[] {
+  const baselineNames = new Set(baselineCases.map((c) => c.case_name));
+  const candidateNames = new Set(candidateCases.map((c) => c.case_name));
+  const allNames = new Set<string>();
+  baselineNames.forEach((n) => allNames.add(n));
+  candidateNames.forEach((n) => allNames.add(n));
+
+  const deltas: CaseDelta[] = [];
+  for (const caseName of allNames) {
+    const inBase = baselineNames.has(caseName);
+    const inCand = candidateNames.has(caseName);
+    if (!inBase && inCand) {
+      deltas.push({
+        caseName,
+        baseline: null,
+        candidate: aggregateRunsForCase(candidateCases, caseName),
+        classification: "new",
+        deltaMean: null,
+      });
+      continue;
+    }
+    if (inBase && !inCand) {
+      deltas.push({
+        caseName,
+        baseline: aggregateRunsForCase(baselineCases, caseName),
+        candidate: null,
+        classification: "removed",
+        deltaMean: null,
+      });
+      continue;
+    }
+    const baseline = aggregateRunsForCase(baselineCases, caseName);
+    const candidate = aggregateRunsForCase(candidateCases, caseName);
+    const { classification, deltaMean } = classifyDelta(baseline, candidate, isMultiRun);
+    deltas.push({ caseName, baseline, candidate, classification, deltaMean });
+  }
+
+  deltas.sort((a, b) => {
+    const orderDiff = classificationOrder(a.classification) - classificationOrder(b.classification);
+    if (orderDiff !== 0) return orderDiff;
+    // Within the same classification, sort by |delta| desc so the biggest
+    // movers float to the top of their group. Categorical rows (new /
+    // removed / programmatic-flip) carry null deltas — keep alphabetical.
+    const ad = Math.abs(a.deltaMean ?? 0);
+    const bd = Math.abs(b.deltaMean ?? 0);
+    if (ad !== bd) return bd - ad;
+    return a.caseName.localeCompare(b.caseName);
+  });
+
+  return deltas;
+}
+
+function formatBand(agg: CaseAggregate | null, judgeMax: 5 | 10, runs: number): string {
+  if (!agg || agg.mean === null) return "—";
+  if (runs <= 1 || agg.min === agg.max) {
+    return `${agg.mean.toFixed(1)}/${judgeMax}`;
+  }
+  // Multi-run: explicit min → max band so the noise classification is
+  // legible. "(N runs)" follows the actual row count, not runsPerCase,
+  // so a partially-completed run is reflected honestly.
+  return `${agg.min!.toFixed(1)} → ${agg.max!.toFixed(1)}/${judgeMax} (mean ${agg.mean.toFixed(1)}, ${agg.scores.length} run${agg.scores.length === 1 ? "" : "s"})`;
+}
+
+function ClassificationPill({ c }: { c: CaseClassification }) {
+  const map: Record<CaseClassification, { label: string; bg: string; fg: string }> = {
+    "programmatic-flip-regression": {
+      label: "✗ pass → fail",
+      bg: "bg-[#fde8e8]",
+      fg: "text-[#c0392b]",
+    },
+    regression: { label: "↓ regression", bg: "bg-[#fde8e8]", fg: "text-[#c0392b]" },
+    removed: { label: "− removed", bg: "bg-[#f0ede8]", fg: "text-[var(--text-muted)]" },
+    new: { label: "+ new", bg: "bg-[#e8f0f4]", fg: "text-[#1a6b7f]" },
+    noise: { label: "≈ noise", bg: "bg-[#fef3e2]", fg: "text-[#ba7517]" },
+    unchanged: { label: "= unchanged", bg: "bg-[#f0ede8]", fg: "text-[var(--text-muted)]" },
+    "programmatic-flip-improvement": {
+      label: "✓ fail → pass",
+      bg: "bg-[#eaf4ee]",
+      fg: "text-[#2d7a4f]",
+    },
+    improvement: { label: "↑ improvement", bg: "bg-[#eaf4ee]", fg: "text-[#2d7a4f]" },
+  };
+  const { label, bg, fg } = map[c];
+  return (
+    <span className={`inline-flex items-center text-xs font-semibold px-2.5 py-0.5 rounded-full ${bg} ${fg}`}>
+      {label}
+    </span>
+  );
+}
+
+function CompareTab({ suite }: { suite: SuiteCard }) {
+  const [runs, setRuns] = useState<SuiteRunRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [baselineId, setBaselineId] = useState<string | null>(null);
+  const [candidateId, setCandidateId] = useState<string | null>(null);
+  const [baselineCases, setBaselineCases] = useState<CaseRunRow[] | null>(null);
+  const [candidateCases, setCandidateCases] = useState<CaseRunRow[] | null>(null);
+  const [pairLoading, setPairLoading] = useState(false);
+  const [pairError, setPairError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  // Load the runs list for the picker — same endpoint History tab uses.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setError(null);
+      try {
+        const res = await fetch(`/api/admin/evals/suites/${suite.slug}/runs`);
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+          if (!cancelled) setError(body.error ?? `HTTP ${res.status}`);
+          return;
+        }
+        const data = (await res.json()) as { runs: SuiteRunRow[] };
+        if (cancelled) return;
+        setRuns(data.runs);
+        // Default pairing: candidate = most recent, baseline = next most recent.
+        // PRD success metric #1 is "diff against the last run" — make that the
+        // zero-click default.
+        if (data.runs.length >= 2 && baselineId === null && candidateId === null) {
+          setCandidateId(data.runs[0].id);
+          setBaselineId(data.runs[1].id);
+        } else if (data.runs.length === 1 && candidateId === null) {
+          setCandidateId(data.runs[0].id);
+        }
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // suite.slug-scoped: reset the picker when the user switches suites.
+    // baselineId / candidateId intentionally NOT in deps — we set them
+    // inside the effect and don't want to re-fetch on every set.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suite.slug]);
+
+  // Reset the case picks when the suite changes so we don't carry stale ids
+  // across suites (a country-destination run id is meaningless for family).
+  useEffect(() => {
+    setBaselineId(null);
+    setCandidateId(null);
+    setBaselineCases(null);
+    setCandidateCases(null);
+    setExpanded(null);
+    setPairError(null);
+  }, [suite.slug]);
+
+  // Whenever both run ids are set, fetch them in parallel.
+  useEffect(() => {
+    if (!baselineId || !candidateId) {
+      setBaselineCases(null);
+      setCandidateCases(null);
+      return;
+    }
+    let cancelled = false;
+    setPairLoading(true);
+    setPairError(null);
+    (async () => {
+      try {
+        const [baseRes, candRes] = await Promise.all([
+          fetch(`/api/admin/evals/suites/${suite.slug}/runs/${baselineId}`),
+          fetch(`/api/admin/evals/suites/${suite.slug}/runs/${candidateId}`),
+        ]);
+        if (cancelled) return;
+        if (!baseRes.ok || !candRes.ok) {
+          const failedRes = !baseRes.ok ? baseRes : candRes;
+          const body = await failedRes.json().catch(() => ({ error: `HTTP ${failedRes.status}` }));
+          setPairError(body.error ?? `HTTP ${failedRes.status}`);
+          return;
+        }
+        const [baseData, candData] = await Promise.all([
+          baseRes.json() as Promise<{ caseRuns: CaseRunRow[] }>,
+          candRes.json() as Promise<{ caseRuns: CaseRunRow[] }>,
+        ]);
+        if (cancelled) return;
+        setBaselineCases(baseData.caseRuns);
+        setCandidateCases(candData.caseRuns);
+      } catch (err) {
+        if (!cancelled) setPairError(err instanceof Error ? err.message : String(err));
+      } finally {
+        if (!cancelled) setPairLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [baselineId, candidateId, suite.slug]);
+
+  const deltas = useMemo<CaseDelta[] | null>(() => {
+    if (!baselineCases || !candidateCases) return null;
+    return buildDeltas(baselineCases, candidateCases, suite.runsPerCase > 1);
+  }, [baselineCases, candidateCases, suite.runsPerCase]);
+
+  const summary = useMemo(() => {
+    if (!deltas) return null;
+    const counts: Record<CaseClassification, number> = {
+      "programmatic-flip-regression": 0,
+      regression: 0,
+      noise: 0,
+      unchanged: 0,
+      "programmatic-flip-improvement": 0,
+      improvement: 0,
+      new: 0,
+      removed: 0,
+    };
+    for (const d of deltas) counts[d.classification]++;
+    return counts;
+  }, [deltas]);
+
+  if (!suite.wired) {
+    return (
+      <div className="bg-white border border-[#e8e4de] rounded-2xl p-6">
+        <p className="text-sm font-semibold text-[var(--text-primary)] mb-2">Not yet wired in the GUI</p>
+        <p className="text-sm text-[var(--text-secondary)]">
+          Compare needs runs produced by this surface. Wire the suite&apos;s Run tab first.
+        </p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return <p className="text-sm text-[#c0392b]">Error loading runs: {error}</p>;
+  }
+  if (runs === null) {
+    return <p className="text-sm text-[var(--text-muted)]">Loading runs…</p>;
+  }
+  if (runs.length === 0) {
+    return (
+      <div className="bg-white border border-[#e8e4de] rounded-2xl p-6">
+        <p className="text-sm text-[var(--text-secondary)]">
+          No runs to compare yet. Switch to the Run tab to fire this suite at least twice — then come
+          back here.
+        </p>
+      </div>
+    );
+  }
+  if (runs.length === 1) {
+    return (
+      <div className="bg-white border border-[#e8e4de] rounded-2xl p-6">
+        <p className="text-sm text-[var(--text-secondary)]">
+          Only one run exists for{" "}
+          <code className="text-[var(--text-primary)] font-semibold">{suite.title}</code>. Run it
+          once more to start comparing.
+        </p>
+      </div>
+    );
+  }
+
+  const judgeMax = judgeScoreMaxForSuite(suite.slug);
+
+  return (
+    <div className="flex flex-col gap-5">
+      {/* Picker */}
+      <div className="bg-white border border-[#e8e4de] rounded-2xl p-5">
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-3 items-end">
+          <RunPicker
+            label="Baseline"
+            runs={runs}
+            value={baselineId}
+            otherValue={candidateId}
+            onChange={setBaselineId}
+          />
+          <div className="flex md:items-end md:pb-1">
+            <button
+              onClick={() => {
+                const b = baselineId;
+                setBaselineId(candidateId);
+                setCandidateId(b);
+              }}
+              disabled={!baselineId || !candidateId}
+              className="text-sm font-semibold text-[#1a6b7f] hover:underline disabled:opacity-30 disabled:no-underline px-2"
+              title="Swap baseline and candidate"
+            >
+              ⇄ Swap
+            </button>
+          </div>
+          <RunPicker
+            label="Candidate"
+            runs={runs}
+            value={candidateId}
+            otherValue={baselineId}
+            onChange={setCandidateId}
+          />
+        </div>
+      </div>
+
+      {pairLoading && (
+        <p className="text-sm text-[var(--text-muted)] italic">Loading case data for both runs…</p>
+      )}
+      {pairError && (
+        <div className="bg-[#fde8e8] border border-[#c0392b]/30 rounded-2xl p-4 text-sm text-[#c0392b]">
+          {pairError}
+        </div>
+      )}
+
+      {deltas && summary && (
+        <>
+          <CompareSummary
+            summary={summary}
+            isMultiRun={suite.runsPerCase > 1}
+          />
+          <CompareTable
+            deltas={deltas}
+            judgeMax={judgeMax}
+            runsPerCase={suite.runsPerCase}
+            expanded={expanded}
+            onToggle={(name) => setExpanded((cur) => (cur === name ? null : name))}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+function RunPicker({
+  label,
+  runs,
+  value,
+  otherValue,
+  onChange,
+}: {
+  label: string;
+  runs: SuiteRunRow[];
+  value: string | null;
+  otherValue: string | null;
+  onChange: (id: string) => void;
+}) {
+  return (
+    <label className="flex flex-col gap-1.5">
+      <span className="text-xs font-bold uppercase tracking-widest text-[var(--text-muted)]">
+        {label}
+      </span>
+      <select
+        value={value ?? ""}
+        onChange={(e) => onChange(e.target.value)}
+        className="bg-white border border-[#e8e4de] rounded-xl px-3 py-2 text-sm text-[var(--text-primary)]"
+      >
+        <option value="" disabled>
+          Pick a run…
+        </option>
+        {runs.map((r) => {
+          const isSame = r.id === otherValue;
+          const passLabel =
+            r.pass_rate != null ? `${Number(r.pass_rate).toFixed(0)}%` : "—";
+          const scoreLabel =
+            r.summary_score != null ? `${Number(r.summary_score).toFixed(0)}` : "—";
+          return (
+            <option key={r.id} value={r.id} disabled={isSame}>
+              {formatDate(r.started_at)} · {r.status} · pass {passLabel} · score {scoreLabel}
+              {isSame ? " (already picked)" : ""}
+            </option>
+          );
+        })}
+      </select>
+    </label>
+  );
+}
+
+function CompareSummary({
+  summary,
+  isMultiRun,
+}: {
+  summary: Record<CaseClassification, number>;
+  isMultiRun: boolean;
+}) {
+  const regressions =
+    summary["programmatic-flip-regression"] + summary.regression;
+  const improvements =
+    summary["programmatic-flip-improvement"] + summary.improvement;
+  const total = Object.values(summary).reduce((s, n) => s + n, 0);
+
+  return (
+    <div className="bg-white border border-[#e8e4de] rounded-2xl p-5">
+      <p className="text-xs font-bold uppercase tracking-widest text-[var(--text-muted)] mb-2">
+        Diff summary
+      </p>
+      <div className="flex flex-wrap gap-2 text-sm">
+        <span className="text-[#c0392b] font-semibold">
+          {regressions} regression{regressions === 1 ? "" : "s"}
+        </span>
+        <span className="text-[var(--text-muted)]">·</span>
+        <span className="text-[#2d7a4f] font-semibold">
+          {improvements} improvement{improvements === 1 ? "" : "s"}
+        </span>
+        {isMultiRun && (
+          <>
+            <span className="text-[var(--text-muted)]">·</span>
+            <span className="text-[#ba7517] font-semibold">
+              {summary.noise} within noise band
+            </span>
+          </>
+        )}
+        {(summary.new > 0 || summary.removed > 0) && (
+          <>
+            <span className="text-[var(--text-muted)]">·</span>
+            <span className="text-[#1a6b7f] font-semibold">
+              {summary.new} new · {summary.removed} removed
+            </span>
+          </>
+        )}
+        <span className="text-[var(--text-muted)]">·</span>
+        <span className="text-[var(--text-muted)]">
+          {summary.unchanged} unchanged · {total} cases total
+        </span>
+      </div>
+      {isMultiRun && (
+        <p className="text-[11px] text-[var(--text-muted)] mt-3">
+          For multi-run suites, deltas that sit inside both runs&apos; min..max overlap are
+          labelled <span className="font-semibold text-[#ba7517]">noise</span> rather than
+          regression — same prompt, different runs, different scores (PHI-42).
+        </p>
+      )}
+    </div>
+  );
+}
+
+function CompareTable({
+  deltas,
+  judgeMax,
+  runsPerCase,
+  expanded,
+  onToggle,
+}: {
+  deltas: CaseDelta[];
+  judgeMax: 5 | 10;
+  runsPerCase: number;
+  expanded: string | null;
+  onToggle: (caseName: string) => void;
+}) {
+  if (deltas.length === 0) {
+    return (
+      <div className="bg-white border border-[#e8e4de] rounded-2xl p-6">
+        <p className="text-sm text-[var(--text-secondary)]">
+          No case rows in either run.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="bg-white border border-[#e8e4de] rounded-2xl overflow-hidden">
+      <table className="w-full text-sm">
+        <thead className="bg-[#f8f6f1] border-b border-[#e8e4de]">
+          <tr>
+            <th className="text-left px-4 py-2 text-xs font-bold uppercase tracking-widest text-[var(--text-muted)]">
+              Case
+            </th>
+            <th className="text-left px-4 py-2 text-xs font-bold uppercase tracking-widest text-[var(--text-muted)]">
+              Baseline
+            </th>
+            <th className="text-left px-4 py-2 text-xs font-bold uppercase tracking-widest text-[var(--text-muted)]">
+              Candidate
+            </th>
+            <th className="text-right px-4 py-2 text-xs font-bold uppercase tracking-widest text-[var(--text-muted)]">
+              Δ
+            </th>
+            <th className="text-left px-4 py-2 text-xs font-bold uppercase tracking-widest text-[var(--text-muted)]">
+              Verdict
+            </th>
+            <th className="w-8" />
+          </tr>
+        </thead>
+        <tbody>
+          {deltas.map((d) => (
+            <CompareRow
+              key={d.caseName}
+              delta={d}
+              judgeMax={judgeMax}
+              runsPerCase={runsPerCase}
+              isExpanded={expanded === d.caseName}
+              onToggle={() => onToggle(d.caseName)}
+            />
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function CompareRow({
+  delta,
+  judgeMax,
+  runsPerCase,
+  isExpanded,
+  onToggle,
+}: {
+  delta: CaseDelta;
+  judgeMax: 5 | 10;
+  runsPerCase: number;
+  isExpanded: boolean;
+  onToggle: () => void;
+}) {
+  const isRedRow =
+    delta.classification === "programmatic-flip-regression" ||
+    delta.classification === "regression";
+  const isGreenRow =
+    delta.classification === "programmatic-flip-improvement" ||
+    delta.classification === "improvement";
+  const rowTone = isRedRow ? "bg-[#fff5f5]" : isGreenRow ? "bg-[#f6fbf7]" : "";
+
+  const deltaCell =
+    delta.deltaMean === null ? (
+      <span className="text-[var(--text-muted)]">—</span>
+    ) : (
+      <span
+        className={`tabular-nums font-semibold ${
+          delta.deltaMean > 0
+            ? "text-[#2d7a4f]"
+            : delta.deltaMean < 0
+              ? "text-[#c0392b]"
+              : "text-[var(--text-muted)]"
+        }`}
+      >
+        {delta.deltaMean > 0 ? "↑" : delta.deltaMean < 0 ? "↓" : "="}{" "}
+        {delta.deltaMean > 0 ? "+" : ""}
+        {delta.deltaMean.toFixed(1)}
+      </span>
+    );
+
+  const baseCount = delta.baseline?.scores.length ?? 0;
+  const candCount = delta.candidate?.scores.length ?? 0;
+
+  return (
+    <>
+      <tr
+        className={`border-b border-[#e8e4de] last:border-b-0 cursor-pointer hover:bg-[#f8f6f1] ${rowTone}`}
+        onClick={onToggle}
+      >
+        <td className="px-4 py-3 text-[var(--text-primary)] font-medium">{delta.caseName}</td>
+        <td className="px-4 py-3 text-[var(--text-secondary)] tabular-nums whitespace-nowrap">
+          {delta.baseline
+            ? formatBand(delta.baseline, judgeMax, Math.max(runsPerCase, baseCount))
+            : "—"}
+        </td>
+        <td className="px-4 py-3 text-[var(--text-secondary)] tabular-nums whitespace-nowrap">
+          {delta.candidate
+            ? formatBand(delta.candidate, judgeMax, Math.max(runsPerCase, candCount))
+            : "—"}
+        </td>
+        <td className="px-4 py-3 text-right">{deltaCell}</td>
+        <td className="px-4 py-3">
+          <ClassificationPill c={delta.classification} />
+        </td>
+        <td className="px-4 py-3 text-[var(--text-muted)]">{isExpanded ? "▾" : "▸"}</td>
+      </tr>
+      {isExpanded && (
+        <tr className="bg-[#f8f6f1]">
+          <td colSpan={6} className="px-4 py-4">
+            <CompareRowDetail delta={delta} judgeMax={judgeMax} />
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+function CompareRowDetail({ delta, judgeMax }: { delta: CaseDelta; judgeMax: 5 | 10 }) {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <RunSideDetail label="Baseline" agg={delta.baseline} judgeMax={judgeMax} />
+      <RunSideDetail label="Candidate" agg={delta.candidate} judgeMax={judgeMax} />
+    </div>
+  );
+}
+
+function RunSideDetail({
+  label,
+  agg,
+  judgeMax,
+}: {
+  label: string;
+  agg: CaseAggregate | null;
+  judgeMax: 5 | 10;
+}) {
+  if (!agg) {
+    return (
+      <div className="bg-white border border-[#e8e4de] rounded-xl p-3">
+        <p className="text-xs font-bold uppercase tracking-widest text-[var(--text-muted)] mb-1">
+          {label}
+        </p>
+        <p className="text-xs italic text-[var(--text-muted)]">
+          Case did not exist in this run.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="bg-white border border-[#e8e4de] rounded-xl p-3 flex flex-col gap-2">
+      <p className="text-xs font-bold uppercase tracking-widest text-[var(--text-muted)]">
+        {label}
+      </p>
+      <div className="flex flex-col gap-2">
+        {agg.programmaticPasses.map((pp, i) => {
+          const score = agg.scores.length > i ? agg.scores[i] : null;
+          const reasoning = agg.reasonings[i];
+          const errorText = agg.errors[i];
+          return (
+            <div
+              key={i}
+              className={`text-xs px-3 py-2 rounded-lg border ${
+                pp ? "bg-white border-[#e8e4de]" : "bg-[#fff8f5] border-[#c0392b]/20"
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <span className="font-semibold text-[var(--text-primary)]">
+                  Run {i + 1}
+                </span>
+                <div className="flex items-center gap-2">
+                  {score !== null && (
+                    <span className="text-[var(--text-muted)] tabular-nums">
+                      {score.toFixed(1)}/{judgeMax}
+                    </span>
+                  )}
+                  <PassFailPill passed={pp} />
+                </div>
+              </div>
+              {reasoning && (
+                <p className="text-[var(--text-secondary)] italic">{reasoning}</p>
+              )}
+              {errorText && !reasoning && (
+                <p className="text-[#7a2418] break-words">{errorText}</p>
+              )}
+            </div>
+          );
+        })}
+        {agg.programmaticPasses.length === 0 && (
+          <p className="text-xs italic text-[var(--text-muted)]">
+            No case rows recorded for this run.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Page ───────────────────────────────────────────────────────────────────────
 
 export default function EvalsSuitesPage() {
   const [suites, setSuites] = useState<SuiteCard[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
-  const [tab, setTab] = useState<"run" | "history">("run");
+  const [tab, setTab] = useState<"run" | "history" | "compare">("run");
   const [error, setError] = useState<string | null>(null);
   const [pickerVersion, setPickerVersion] = useState(0);
 
@@ -1066,8 +1834,8 @@ export default function EvalsSuitesPage() {
           <div>
             <h1 className="text-4xl font-extrabold tracking-tight mb-2">Eval suites</h1>
             <p className="text-[var(--text-secondary)]">
-              Run any wired eval suite from the browser. Card 3 adds the three single-shot
-              Anthropic-paid suites alongside the offline family suite.
+              Run any wired eval suite from the browser, browse past runs, and diff any two of
+              them for regressions — variance bands surfaced for multi-run suites.
             </p>
           </div>
           <Link
@@ -1105,7 +1873,7 @@ export default function EvalsSuitesPage() {
               <div>
                 <div className="mb-6 flex items-center justify-between gap-2 flex-wrap">
                   <div className="flex gap-1 bg-white border border-[#e8e4de] rounded-2xl p-1 w-fit">
-                    {(["run", "history"] as const).map((t) => (
+                    {(["run", "history", "compare"] as const).map((t) => (
                       <button
                         key={t}
                         onClick={() => setTab(t)}
@@ -1129,6 +1897,7 @@ export default function EvalsSuitesPage() {
 
                 {tab === "run" && <RunTab suite={selectedSuite} />}
                 {tab === "history" && <HistoryTab suite={selectedSuite} />}
+                {tab === "compare" && <CompareTab suite={selectedSuite} />}
               </div>
             )}
           </>
