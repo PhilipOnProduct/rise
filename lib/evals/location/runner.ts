@@ -5,20 +5,43 @@
  * byte-identical to the pre-refactor script.
  */
 
+import { calculateAnthropicCost } from "../../api-costs";
+import type { GuiCaseOutcome, GuiRunOpts, GuiSuiteOutcome } from "../types";
 import { bootstrapSiteAuth } from "../site-auth";
 import { TEST_CASES, type EditRequest, type TestCase } from "./cases";
 import { judge, type ApiResponse, type ScoreResult } from "./judge";
 
 const BASE_URL = process.env.EVAL_BASE_URL ?? "http://localhost:3000";
 
+// PHI-120 — per-case token estimates for the cost-confirm dialog.
+// Sonnet edit call + Sonnet judge call per case. Calibrated against the
+// rubric / response sizes observed in this suite and CLAUDE.md's empirical
+// ~$0.20/run for this CLI suite.
+const ROUTE_MODEL = "claude-sonnet-4-6";
+const ROUTE_INPUT_TOKENS = 2500;
+const ROUTE_OUTPUT_TOKENS = 300;
+const JUDGE_MODEL = "claude-sonnet-4-6";
+const JUDGE_INPUT_TOKENS = 2000;
+const JUDGE_OUTPUT_TOKENS = 500;
+
+export function costEstimateUsd(): number {
+  const perCase =
+    calculateAnthropicCost(ROUTE_MODEL, ROUTE_INPUT_TOKENS, ROUTE_OUTPUT_TOKENS) +
+    calculateAnthropicCost(JUDGE_MODEL, JUDGE_INPUT_TOKENS, JUDGE_OUTPUT_TOKENS);
+  return perCase * TEST_CASES.length;
+}
+
 async function callEditApi(
   request: EditRequest,
   authCookie: string | null,
+  opts: { baseUrl?: string; suiteRunId?: string | null } = {},
 ): Promise<ApiResponse> {
+  const baseUrl = opts.baseUrl ?? BASE_URL;
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (authCookie) headers["Cookie"] = authCookie;
+  if (opts.suiteRunId) headers["X-Suite-Run-Id"] = opts.suiteRunId;
 
-  const res = await fetch(`${BASE_URL}/api/itinerary/edit`, {
+  const res = await fetch(`${baseUrl}/api/itinerary/edit`, {
     method: "POST",
     headers,
     body: JSON.stringify(request),
@@ -35,6 +58,54 @@ export async function runOne(
   const response = await callEditApi(testCase.request, authCookie);
   const result = await judge(testCase, response);
   return { response, result };
+}
+
+/**
+ * PHI-120 — GUI executor for the location suite. Mirrors the CLI loop
+ * in `main()` but returns structured per-case outcomes; the inbound
+ * admin's `site_auth` cookie is forwarded so middleware lets the
+ * loopback through.
+ */
+export async function runSuiteForGui(opts: GuiRunOpts): Promise<GuiSuiteOutcome> {
+  const perCaseEstimate = costEstimateUsd() / TEST_CASES.length;
+  const caseOutcomes: GuiCaseOutcome[] = [];
+
+  for (const testCase of TEST_CASES) {
+    const t0 = Date.now();
+    try {
+      const response = await callEditApi(testCase.request, opts.authCookie, {
+        baseUrl: opts.baseUrl,
+        suiteRunId: opts.suiteRunId,
+      });
+      const result = await judge(testCase, response, { suiteRunId: opts.suiteRunId });
+      const snippet = JSON.stringify(response);
+      caseOutcomes.push({
+        caseName: testCase.label,
+        programmaticPass: result.passed,
+        judgeScore: result.score,
+        judgeReasoning: result.summary,
+        outputSnippet: snippet.length > 1024 ? snippet.slice(0, 1024) + "…" : snippet,
+        costUsdEstimate: perCaseEstimate,
+        durationMs: Date.now() - t0,
+        errorMessage: result.passed ? null : `Judge score ${result.score}/10 — ${result.summary}`,
+      });
+    } catch (err) {
+      caseOutcomes.push({
+        caseName: testCase.label,
+        programmaticPass: false,
+        judgeScore: null,
+        judgeReasoning: null,
+        outputSnippet: "",
+        costUsdEstimate: perCaseEstimate,
+        durationMs: Date.now() - t0,
+        errorMessage: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  const passed = caseOutcomes.filter((c) => c.programmaticPass).length;
+  const passRate = caseOutcomes.length === 0 ? 0 : (passed / caseOutcomes.length) * 100;
+  return { caseOutcomes, passRate };
 }
 
 function printResult(testCase: TestCase, response: ApiResponse, result: ScoreResult) {

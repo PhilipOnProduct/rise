@@ -1,15 +1,16 @@
 "use client";
 
 /**
- * PHI-119 — Evals GUI card 2: Suites surface.
+ * PHI-119/120 — Evals GUI suites surface.
  *
- * Card-per-suite picker + Run/History tabs. Only `family` is wired
- * end-to-end in this card; the others render the "Not yet wired"
- * placeholder so the picker shape is correct for cards 3+ to layer on.
+ * Card-per-suite picker + Run/History tabs. PHI-119 wired `family` only
+ * (offline, ~100ms runs); PHI-120 (card 3) adds three paid suites
+ * (location / recommendations / alternatives) and the cost-confirm
+ * modal that fires before any paid run.
  *
- * The page intentionally lives at /admin/evals/suites (not as a tab
- * inside /admin/evals) per the PRD — the old per-test-case evals page
- * stays put; this is the new workbench surface.
+ * The page lives at /admin/evals/suites (not as a tab inside /admin/evals)
+ * per the PRD — the old per-test-case evals page stays put; this is the
+ * new workbench surface.
  */
 
 import { useState, useEffect, useCallback } from "react";
@@ -73,26 +74,50 @@ type RunSummary = {
   startedAt: string;
   finishedAt: string | null;
   passRate: number;
-  totalAssertions: number;
-  passedAssertions: number;
+  summaryScore: number;
+  totalCostUsd: number;
+  // Family-specific (undefined for paid suites).
+  totalAssertions?: number;
+  passedAssertions?: number;
 };
 
-type FamilyCaseOutcome = {
+/** PHI-120 — Unified case outcome shape returned by every suite. */
+type GuiCaseOutcome = {
   caseName: string;
   programmaticPass: boolean;
-  assertionsPassed: number;
-  assertionsFailed: number;
+  judgeScore: number | null;
+  judgeReasoning: string | null;
   outputSnippet: string;
+  costUsdEstimate: number;
   durationMs: number;
-  failedAssertionLabels: string[];
+  errorMessage: string | null;
+  assertionsPassed?: number;
+  assertionsFailed?: number;
+  failedAssertionLabels?: string[];
 };
 
-// PRD-named states; only the subset reachable in card 2 is populated below.
+type UsageStatus = {
+  anthropic: {
+    warningLevel: "ok" | "warning" | "exceeded";
+    percentUsed: number;
+    spentUsd: number;
+    limitUsd: number;
+  };
+  google: {
+    warningLevel: "ok" | "warning" | "exceeded";
+    percentUsed: number;
+    spentUsd: number;
+    limitUsd: number;
+  };
+};
+
+// PRD-named states; only the subset reachable in cards 2-3 is populated below.
 type RunState =
   | { kind: "idle" }
+  | { kind: "confirming"; usage: UsageStatus | null; usageError: string | null }
   | { kind: "running"; startedAt: number }
-  | { kind: "succeeded-pass"; run: RunSummary; cases: FamilyCaseOutcome[] }
-  | { kind: "succeeded-fail"; run: RunSummary; cases: FamilyCaseOutcome[] }
+  | { kind: "succeeded-pass"; run: RunSummary; cases: GuiCaseOutcome[] }
+  | { kind: "succeeded-fail"; run: RunSummary; cases: GuiCaseOutcome[] }
   | { kind: "failed"; message: string };
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -216,6 +241,116 @@ function SuitePicker({
   );
 }
 
+// ── Cost-confirm dialog (PHI-120) ──────────────────────────────────────────────
+
+function CostConfirmDialog({
+  suite,
+  usage,
+  usageError,
+  onCancel,
+  onConfirm,
+}: {
+  suite: SuiteCard;
+  usage: UsageStatus | null;
+  usageError: string | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const estimate = suite.costEstimateUsd;
+  const exceeded = usage?.anthropic.warningLevel === "exceeded";
+  const warning = usage?.anthropic.warningLevel === "warning";
+  // Mirrors `ApiLimitBanner` + `checkApiLimit()`: when exceeded with hard
+  // limit on, the per-route 429 would block the call anyway. Refuse here.
+  const canRun = !exceeded;
+
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-4">
+      <div className="bg-white border border-[#e8e4de] rounded-2xl p-6 max-w-md w-full">
+        <h2 className="text-lg font-extrabold text-[var(--text-primary)] mb-1">
+          Confirm paid run
+        </h2>
+        <p className="text-sm text-[var(--text-secondary)] mb-5">
+          <code className="text-[var(--text-primary)] font-semibold">{suite.title}</code> will
+          call the Anthropic API. Realised cost gets logged back to this run when it finishes.
+        </p>
+
+        <div className="bg-[#f8f6f1] border border-[#e8e4de] rounded-xl p-4 mb-4 flex flex-col gap-2.5 text-sm">
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="text-[var(--text-secondary)]">This run will use ~</span>
+            <span className="font-bold text-[var(--text-primary)] tabular-nums">
+              {formatCost(estimate)}
+            </span>
+          </div>
+          {usage && (
+            <>
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="text-[var(--text-secondary)]">You&apos;ve used</span>
+                <span className="font-semibold text-[var(--text-primary)] tabular-nums">
+                  ${usage.anthropic.spentUsd.toFixed(2)} of ${usage.anthropic.limitUsd.toFixed(2)}
+                </span>
+              </div>
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="text-[var(--text-secondary)]">After this run</span>
+                <span
+                  className={`font-semibold tabular-nums ${
+                    exceeded || warning ? "text-[#ba7517]" : "text-[var(--text-primary)]"
+                  }`}
+                >
+                  ~${(usage.anthropic.spentUsd + estimate).toFixed(2)} ·{" "}
+                  {Math.round(
+                    usage.anthropic.limitUsd > 0
+                      ? ((usage.anthropic.spentUsd + estimate) / usage.anthropic.limitUsd) * 100
+                      : 0,
+                  )}
+                  %
+                </span>
+              </div>
+            </>
+          )}
+          {!usage && !usageError && (
+            <p className="text-xs text-[var(--text-muted)] italic">Loading spend…</p>
+          )}
+          {usageError && (
+            <p className="text-xs text-[#c0392b]">Couldn&apos;t load spend: {usageError}</p>
+          )}
+        </div>
+
+        {exceeded && (
+          <div className="bg-[#fde8e8] border border-[#c0392b]/30 rounded-xl p-3 mb-4 text-xs text-[#c0392b]">
+            Anthropic limit reached. Bump the limit at{" "}
+            <Link href="/admin/usage" className="underline font-semibold">
+              /admin/usage
+            </Link>{" "}
+            before running.
+          </div>
+        )}
+        {warning && !exceeded && (
+          <div className="bg-[#fef3e2] border border-[#ba7517]/30 rounded-xl p-3 mb-4 text-xs text-[#ba7517]">
+            You&apos;re at {Math.round(usage?.anthropic.percentUsed ?? 0)}% of your Anthropic
+            budget this month.
+          </div>
+        )}
+
+        <div className="flex items-center justify-end gap-2">
+          <button
+            onClick={onCancel}
+            className="text-sm font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] px-4 py-2 rounded-xl"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={!canRun}
+            className="rounded-2xl bg-[#1a6b7f] text-white font-bold px-5 py-2.5 hover:bg-[#155a6b] transition-colors disabled:opacity-30 text-sm"
+          >
+            Run →
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Run tab ────────────────────────────────────────────────────────────────────
 
 function RunTab({ suite }: { suite: SuiteCard }) {
@@ -230,7 +365,7 @@ function RunTab({ suite }: { suite: SuiteCard }) {
     return () => clearInterval(interval);
   }, [state]);
 
-  const handleRun = useCallback(async () => {
+  const triggerRun = useCallback(async () => {
     setState({ kind: "running", startedAt: Date.now() });
     setElapsedMs(0);
     try {
@@ -242,7 +377,7 @@ function RunTab({ suite }: { suite: SuiteCard }) {
         setState({ kind: "failed", message: body.error ?? `HTTP ${res.status}` });
         return;
       }
-      const data = (await res.json()) as { run: RunSummary; caseRuns: FamilyCaseOutcome[] };
+      const data = (await res.json()) as { run: RunSummary; caseRuns: GuiCaseOutcome[] };
       const allPassed = data.run.status === "succeeded";
       setState({
         kind: allPassed ? "succeeded-pass" : "succeeded-fail",
@@ -257,13 +392,40 @@ function RunTab({ suite }: { suite: SuiteCard }) {
     }
   }, [suite.slug]);
 
+  const openConfirm = useCallback(async () => {
+    // PHI-120 — offline suites skip the dialog and run immediately.
+    if (suite.kind === "offline") {
+      void triggerRun();
+      return;
+    }
+    // Paid suites: open dialog in "confirming" state, then fetch fresh
+    // spend numbers. Hard constraint: reload spend on every open — no
+    // stickiness across multiple Run clicks.
+    setState({ kind: "confirming", usage: null, usageError: null });
+    try {
+      const res = await fetch("/api/usage/status");
+      if (!res.ok) {
+        setState({ kind: "confirming", usage: null, usageError: `HTTP ${res.status}` });
+        return;
+      }
+      const usage = (await res.json()) as UsageStatus;
+      setState({ kind: "confirming", usage, usageError: null });
+    } catch (err) {
+      setState({
+        kind: "confirming",
+        usage: null,
+        usageError: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }, [suite.kind, triggerRun]);
+
   if (!suite.wired) {
     return (
       <div className="bg-white border border-[#e8e4de] rounded-2xl p-6">
         <p className="text-sm font-semibold text-[var(--text-primary)] mb-2">Not yet wired in the GUI</p>
         <p className="text-sm text-[var(--text-secondary)] mb-4">
           This suite is in the picker so card 3+ can layer it on, but the in-browser
-          runner isn't live yet. Run it from the terminal:
+          runner isn&apos;t live yet. Run it from the terminal:
         </p>
         <code className="block bg-[#f0ede8] text-[var(--text-primary)] text-sm font-mono px-3 py-2 rounded-xl">
           npm run {suite.cliScript}
@@ -296,27 +458,57 @@ function RunTab({ suite }: { suite: SuiteCard }) {
             </div>
           </div>
           <button
-            onClick={handleRun}
-            disabled={state.kind === "running"}
+            onClick={openConfirm}
+            disabled={state.kind === "running" || state.kind === "confirming"}
             className="rounded-2xl bg-[#1a6b7f] text-white font-bold px-6 py-3 hover:bg-[#155a6b] transition-colors disabled:opacity-30 text-sm"
           >
-            {state.kind === "running" ? "Running…" : state.kind === "idle" ? "Run →" : "Run again →"}
+            {state.kind === "running"
+              ? "Running…"
+              : state.kind === "idle"
+                ? "Run →"
+                : state.kind === "confirming"
+                  ? "Confirming…"
+                  : "Run again →"}
           </button>
         </div>
+        {suite.kind === "needs-dev-server" && (
+          <p className="text-[11px] text-[var(--text-muted)] mt-3">
+            Suite calls a local Rise API route. On Vercel the loopback runs against the same
+            deployment; locally it goes through your dev server on port 3000.
+          </p>
+        )}
       </div>
 
       {/* Results (post-run) */}
       {(state.kind === "succeeded-pass" || state.kind === "succeeded-fail") && (
         <div className="bg-white border border-[#e8e4de] rounded-2xl p-5">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
             <div>
               <p className="text-xs font-bold uppercase tracking-widest text-[var(--text-muted)] mb-1">
                 Result
               </p>
               <p className="text-sm text-[var(--text-primary)]">
-                {state.run.passedAssertions} of {state.run.totalAssertions} assertions passed
-                {" · "}
-                {state.run.passRate.toFixed(0)}% case pass rate
+                {/* Family carries assertions; paid suites carry judge scores — show whichever's present. */}
+                {state.run.totalAssertions !== undefined ? (
+                  <>
+                    {state.run.passedAssertions} of {state.run.totalAssertions} assertions passed
+                    {" · "}
+                    {state.run.passRate.toFixed(0)}% case pass rate
+                  </>
+                ) : (
+                  <>
+                    {state.cases.filter((c) => c.programmaticPass).length} of {state.cases.length}{" "}
+                    cases passed
+                    {" · "}
+                    {state.run.passRate.toFixed(0)}% pass rate
+                    {state.run.totalCostUsd > 0 && (
+                      <>
+                        {" · "}
+                        realised cost {formatCost(state.run.totalCostUsd)}
+                      </>
+                    )}
+                  </>
+                )}
               </p>
             </div>
             <PassFailPill passed={state.kind === "succeeded-pass"} />
@@ -331,6 +523,16 @@ function RunTab({ suite }: { suite: SuiteCard }) {
           <p className="text-sm text-[#7a2418] font-mono break-words">{state.message}</p>
         </div>
       )}
+
+      {state.kind === "confirming" && (
+        <CostConfirmDialog
+          suite={suite}
+          usage={state.usage}
+          usageError={state.usageError}
+          onCancel={() => setState({ kind: "idle" })}
+          onConfirm={() => void triggerRun()}
+        />
+      )}
     </div>
   );
 }
@@ -339,6 +541,10 @@ function RunStateBadge({ state }: { state: RunState }) {
   switch (state.kind) {
     case "idle":
       return <span className="text-sm text-[var(--text-muted)] italic">idle — click Run to start</span>;
+    case "confirming":
+      return (
+        <span className="text-sm text-[var(--text-muted)] italic">awaiting cost confirmation…</span>
+      );
     case "running":
       return (
         <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#ba7517]">
@@ -360,36 +566,59 @@ function RunStateBadge({ state }: { state: RunState }) {
   }
 }
 
-function CaseList({ cases }: { cases: FamilyCaseOutcome[] }) {
+function CaseList({ cases }: { cases: GuiCaseOutcome[] }) {
   return (
     <div className="flex flex-col gap-2">
-      {cases.map((c) => (
-        <div
-          key={c.caseName}
-          className={`border rounded-xl p-3 ${
-            c.programmaticPass ? "border-[#e8e4de] bg-white" : "border-[#c0392b]/30 bg-[#fff5f5]"
-          }`}
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-[var(--text-primary)]">{c.caseName}</p>
-              <p className="text-xs text-[var(--text-muted)]">
-                {c.assertionsPassed} / {c.assertionsPassed + c.assertionsFailed} assertions
-                {" · "}
-                {formatDurationMs(c.durationMs)}
-              </p>
+      {cases.map((c) => {
+        const isJudgeSuite = c.judgeScore !== null;
+        return (
+          <div
+            key={c.caseName}
+            className={`border rounded-xl p-3 ${
+              c.programmaticPass ? "border-[#e8e4de] bg-white" : "border-[#c0392b]/30 bg-[#fff5f5]"
+            }`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-[var(--text-primary)]">{c.caseName}</p>
+                <p className="text-xs text-[var(--text-muted)]">
+                  {isJudgeSuite ? (
+                    <>
+                      Judge score: {c.judgeScore}/10 · {formatDurationMs(c.durationMs)}
+                    </>
+                  ) : (
+                    <>
+                      {c.assertionsPassed} /{" "}
+                      {(c.assertionsPassed ?? 0) + (c.assertionsFailed ?? 0)} assertions
+                      {" · "}
+                      {formatDurationMs(c.durationMs)}
+                    </>
+                  )}
+                </p>
+              </div>
+              <PassFailPill passed={c.programmaticPass} />
             </div>
-            <PassFailPill passed={c.programmaticPass} />
+            {/* Family-style failed-assertion list */}
+            {!c.programmaticPass &&
+              c.failedAssertionLabels &&
+              c.failedAssertionLabels.length > 0 && (
+                <ul className="mt-2 text-xs text-[#c0392b] list-disc list-inside">
+                  {c.failedAssertionLabels.map((l, i) => (
+                    <li key={i}>{l}</li>
+                  ))}
+                </ul>
+              )}
+            {/* Judge reasoning surfaced on failures for the paid suites */}
+            {isJudgeSuite && !c.programmaticPass && c.judgeReasoning && (
+              <p className="mt-2 text-xs text-[#7a2418] italic">{c.judgeReasoning}</p>
+            )}
+            {/* Hard error (API down, network, etc.) */}
+            {c.errorMessage && !c.failedAssertionLabels?.length && (
+              <p className="mt-2 text-xs text-[#c0392b] break-words">{c.errorMessage}</p>
+            )}
           </div>
-          {!c.programmaticPass && c.failedAssertionLabels.length > 0 && (
-            <ul className="mt-2 text-xs text-[#c0392b] list-disc list-inside">
-              {c.failedAssertionLabels.map((l, i) => (
-                <li key={i}>{l}</li>
-              ))}
-            </ul>
-          )}
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -562,6 +791,11 @@ function FragmentRow({
                   >
                     <div className="min-w-0 flex-1">
                       <p className="font-semibold text-[var(--text-primary)]">{c.case_name}</p>
+                      {c.judge_score != null && (
+                        <p className="text-[var(--text-muted)] mt-0.5">
+                          Judge: {Number(c.judge_score).toFixed(1)}/10
+                        </p>
+                      )}
                       {c.error && (
                         <p className="text-[#c0392b] mt-0.5 break-words">{c.error}</p>
                       )}
@@ -629,8 +863,8 @@ export default function EvalsSuitesPage() {
           <div>
             <h1 className="text-4xl font-extrabold tracking-tight mb-2">Eval suites</h1>
             <p className="text-[var(--text-secondary)]">
-              Run any eval suite from the browser. Card 2 wires <code>eval:family</code> end-to-end;
-              the rest are placeholders until cards 3–5.
+              Run any wired eval suite from the browser. Card 3 adds the three single-shot
+              Anthropic-paid suites alongside the offline family suite.
             </p>
           </div>
           <Link

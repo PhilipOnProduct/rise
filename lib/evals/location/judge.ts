@@ -22,7 +22,11 @@ export type ScoreResult = {
   summary: string;
 };
 
-export async function judge(testCase: TestCase, response: ApiResponse): Promise<ScoreResult> {
+export async function judge(
+  testCase: TestCase,
+  response: ApiResponse,
+  opts: { suiteRunId?: string } = {},
+): Promise<ScoreResult> {
   const criteriaList = testCase.criteria
     .map((c, i) => `${i + 1}. ${c}`)
     .join("\n");
@@ -55,7 +59,7 @@ Respond with valid JSON only, no markdown, in this exact shape:
   "summary": "<two sentences overall assessment>"
 }`;
 
-  const raw = await runRawJudge({ userMessage });
+  const raw = await runRawJudge({ userMessage, suiteRunId: opts.suiteRunId });
 
   try {
     const parsed = parseJsonJudgeResponse<ScoreResult>(raw);

@@ -153,6 +153,9 @@ For booking_meta.search_query: use the restaurant's commonly known name plus ${d
     await logApiUsage({
       provider: "anthropic", apiType: "itinerary-alternative", feature: "itinerary",
       model: MODEL, inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens,
+      // PHI-120: link the spend to the triggering eval_suite_runs row
+      // when called by the evals GUI; absent for production traffic.
+      suiteRunId: req.headers.get("x-suite-run-id"),
     });
 
     return NextResponse.json({ alternative });

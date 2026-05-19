@@ -15,11 +15,35 @@
  */
 
 import Anthropic from "@anthropic-ai/sdk";
+import { logApiUsage } from "../log-api-usage";
 
 /** Default judge model used across LLM-as-judge suites. */
 export const DEFAULT_JUDGE_MODEL = "claude-sonnet-4-6";
 
 const client = new Anthropic();
+
+// PHI-120 — when the GUI dispatches a suite run, judge spend has to land
+// in `api_usage` linked to the triggering `eval_suite_runs.id` so the
+// rollup query at run finish sees it. The CLI path passes no suiteRunId
+// (defaults to undefined) and the log call is skipped — CLI output stays
+// byte-identical to pre-refactor.
+async function logJudgeUsage(
+  suiteRunId: string | undefined,
+  model: string,
+  inputTokens: number,
+  outputTokens: number,
+): Promise<void> {
+  if (!suiteRunId) return;
+  await logApiUsage({
+    provider: "anthropic",
+    apiType: "evals-judge",
+    feature: "evals",
+    model,
+    inputTokens,
+    outputTokens,
+    suiteRunId,
+  });
+}
 
 export type ToolUseJudgeOpts<TTool> = {
   /** Tool definition matching Anthropic's tool schema. */
@@ -32,6 +56,8 @@ export type ToolUseJudgeOpts<TTool> = {
   model?: string;
   /** Defaults to 1024 — every existing tool_use judge uses this cap. */
   maxTokens?: number;
+  /** PHI-120 — when set, judge spend is logged with this suite_run_id. */
+  suiteRunId?: string;
 };
 
 /**
@@ -42,13 +68,21 @@ export type ToolUseJudgeOpts<TTool> = {
 export async function runToolUseJudge<TResult, TTool = unknown>(
   opts: ToolUseJudgeOpts<TTool>,
 ): Promise<TResult> {
+  const model = opts.model ?? DEFAULT_JUDGE_MODEL;
   const response = await client.messages.create({
-    model: opts.model ?? DEFAULT_JUDGE_MODEL,
+    model,
     max_tokens: opts.maxTokens ?? 1024,
     tools: [opts.tool as unknown as Anthropic.Tool],
     tool_choice: { type: "tool", name: opts.toolName },
     messages: [{ role: "user", content: opts.userMessage }],
   });
+
+  await logJudgeUsage(
+    opts.suiteRunId,
+    model,
+    response.usage.input_tokens,
+    response.usage.output_tokens,
+  );
 
   const block = response.content.find((b) => b.type === "tool_use");
   if (!block || block.type !== "tool_use") {
@@ -64,6 +98,8 @@ export type RawJudgeOpts = {
   model?: string;
   /** Defaults to 1024. */
   maxTokens?: number;
+  /** PHI-120 — when set, judge spend is logged with this suite_run_id. */
+  suiteRunId?: string;
 };
 
 /**
@@ -72,11 +108,18 @@ export type RawJudgeOpts = {
  * error message shape to preserve byte-identical CLI output on failure.
  */
 export async function runRawJudge(opts: RawJudgeOpts): Promise<string> {
+  const model = opts.model ?? DEFAULT_JUDGE_MODEL;
   const response = await client.messages.create({
-    model: opts.model ?? DEFAULT_JUDGE_MODEL,
+    model,
     max_tokens: opts.maxTokens ?? 1024,
     messages: [{ role: "user", content: opts.userMessage }],
   });
+  await logJudgeUsage(
+    opts.suiteRunId,
+    model,
+    response.usage.input_tokens,
+    response.usage.output_tokens,
+  );
   return response.content.find((b) => b.type === "text")?.text ?? "";
 }
 

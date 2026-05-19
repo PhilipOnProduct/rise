@@ -11,17 +11,32 @@
  *   - which run multi-pass (card 4 wires the runs/case knob),
  *   - which support compare (card 5 wires variance bands).
  *
- * For card 2 only `family` is wired end-to-end (`wired: true`). Every
- * other suite renders as a placeholder in the GUI; the metadata still
- * needs to be accurate because the placeholder cards display it.
- *
- * Cost estimates are rough — keep `lib/api-costs.ts` rates fresh and
- * re-check after any prompt change that materially shifts token counts.
- * Numbers below are sourced from CLAUDE.md "Eval harnesses" and from
- * each suite's PRD comment.
+ * PHI-120 (card 3) wires the three single-shot Anthropic-paid suites:
+ *   - location, recommendations, alternatives.
+ * Cost estimates are read live from each suite's exported
+ * `costEstimateUsd()` (which derives from `lib/api-costs.ts` rates), so
+ * model-rate changes in one place flow through to the picker + dialog.
  */
 import { runOne as runFamilyCase } from "./family/runner";
 import { SCENARIOS as FAMILY_SCENARIOS } from "./family/cases";
+import { costEstimateUsd as familyCost } from "./family/runner";
+import {
+  costEstimateUsd as locationCost,
+  runSuiteForGui as runLocationSuite,
+} from "./location/runner";
+import {
+  costEstimateUsd as recommendationsCost,
+  runSuiteForGui as runRecommendationsSuite,
+} from "./recommendations/runner";
+import {
+  costEstimateUsd as alternativesCost,
+  runSuiteForGui as runAlternativesSuite,
+} from "./alternatives/runner";
+import type {
+  GuiCaseOutcome,
+  GuiRunOpts,
+  GuiSuiteOutcome,
+} from "./types";
 
 /** Where the suite runs from, and what it needs to be up. */
 export type SuiteKind =
@@ -40,13 +55,13 @@ export type SuiteDescriptor = {
   /** One-sentence description displayed on the picker card. */
   description: string;
   kind: SuiteKind;
-  /** Rough USD cost per full run. 0 for offline suites. */
+  /** Rough USD cost per full run. 0 for offline suites. Derived from `lib/api-costs.ts` via each suite's own `costEstimateUsd()`. */
   costEstimateUsd: number;
   /** Number of cases the suite executes (used for "Case N of M" progress). */
   caseCount: number;
   /** Runs per case (anchors uses 3×; everything else is 1×). */
   runsPerCase: number;
-  /** Whether the GUI wiring is live (card 2 ships only `family`). */
+  /** Whether the GUI wiring is live (card 2 ships only `family`; card 3 adds location/recommendations/alternatives). */
   wired: boolean;
   /** The `npm run` script that invokes the same suite from the CLI. */
   cliScript: string;
@@ -58,7 +73,7 @@ export const SUITES: SuiteDescriptor[] = [
     title: "eval:family",
     description: "Composition segment — 7 family scenarios × 20 assertions against buildCompositionSegment.",
     kind: "offline",
-    costEstimateUsd: 0,
+    costEstimateUsd: familyCost(),
     caseCount: 7,
     runsPerCase: 1,
     wired: true,
@@ -102,10 +117,10 @@ export const SUITES: SuiteDescriptor[] = [
     title: "eval:recommendations",
     description: "Restaurant recommendations against /api/recommendations. LLM-as-judge.",
     kind: "needs-dev-server",
-    costEstimateUsd: 0.2,
+    costEstimateUsd: recommendationsCost(),
     caseCount: 3,
     runsPerCase: 1,
-    wired: false,
+    wired: true,
     cliScript: "eval:recommendations",
   },
   {
@@ -113,21 +128,21 @@ export const SUITES: SuiteDescriptor[] = [
     title: "eval:alternatives",
     description: "5-case restaurant alternative eval against /api/itinerary/alternative. Opus 4.6 judge.",
     kind: "needs-dev-server",
-    costEstimateUsd: 0.15,
+    costEstimateUsd: alternativesCost(),
     caseCount: 5,
     runsPerCase: 1,
-    wired: false,
+    wired: true,
     cliScript: "eval:alternatives",
   },
   {
     slug: "location",
     title: "eval:location",
-    description: "5 wrong-city trap cases against /api/itinerary/edit. Sonnet judge.",
+    description: "6 wrong-city trap cases against /api/itinerary/edit. Sonnet judge.",
     kind: "needs-dev-server",
-    costEstimateUsd: 0.2,
-    caseCount: 5,
+    costEstimateUsd: locationCost(),
+    caseCount: 6,
     runsPerCase: 1,
-    wired: false,
+    wired: true,
     cliScript: "eval:location",
   },
   {
@@ -169,36 +184,24 @@ export function getSuite(slug: string): SuiteDescriptor | undefined {
   return SUITES.find((s) => s.slug === slug);
 }
 
+// ── Suite executors ──────────────────────────────────────────────────────────
+//
+// Family's executor lives here (offline, no opts needed) — PHI-119
+// rationale. Paid suites' executors live in their own runner.ts files
+// and are dispatched via `getSuiteExecutor` below.
+
 /**
- * PHI-119 — Family suite executor for the GUI.
+ * PHI-119/120 — Family suite executor for the GUI.
  *
- * Mirrors the CLI's `runOne` loop but returns structured per-case data
- * the API route can persist to `eval_case_runs` directly. No console
- * output and no `process.exit` — both belong to the CLI `main()`.
- *
- * Keeping this in the registry instead of `family/runner.ts` means the
- * CLI runner stays byte-identical (CLAUDE.md hard constraint from
- * PHI-118).
+ * Mirrors the CLI's `runOne` loop but returns the unified
+ * {@link GuiSuiteOutcome} so the runs route and the page can treat
+ * offline + paid suites uniformly. Family is the only offline suite
+ * wired in this card, so the `judgeScore` / `judgeReasoning` fields
+ * stay null and the family-specific assertion fields carry the detail
+ * the CaseList component renders.
  */
-export type FamilyCaseOutcome = {
-  caseName: string;
-  programmaticPass: boolean;
-  assertionsPassed: number;
-  assertionsFailed: number;
-  outputSnippet: string;
-  durationMs: number;
-  failedAssertionLabels: string[];
-};
-
-export type FamilySuiteOutcome = {
-  caseOutcomes: FamilyCaseOutcome[];
-  passRate: number; // 0–100, percentage of cases where all assertions pass
-  totalAssertions: number;
-  passedAssertions: number;
-};
-
-export function runFamilySuiteForGui(): FamilySuiteOutcome {
-  const caseOutcomes: FamilyCaseOutcome[] = [];
+export function runFamilySuiteForGui(): GuiSuiteOutcome {
+  const caseOutcomes: GuiCaseOutcome[] = [];
   let totalAssertions = 0;
   let passedAssertions = 0;
 
@@ -210,15 +213,23 @@ export function runFamilySuiteForGui(): FamilySuiteOutcome {
     totalAssertions += passed + failed;
     passedAssertions += passed;
 
+    const failedAssertionLabels = results.filter((r) => !r.ok).map((r) => r.label);
+    const programmaticPass = failed === 0;
     caseOutcomes.push({
       caseName: scenario.name,
-      programmaticPass: failed === 0,
-      assertionsPassed: passed,
-      assertionsFailed: failed,
+      programmaticPass,
+      judgeScore: null,
+      judgeReasoning: null,
       // Cap snippet at 1KB — the full segment is regenerable from the scenario inputs.
       outputSnippet: output.length > 1024 ? output.slice(0, 1024) + "…" : output,
+      costUsdEstimate: 0,
       durationMs,
-      failedAssertionLabels: results.filter((r) => !r.ok).map((r) => r.label),
+      errorMessage: programmaticPass
+        ? null
+        : `Failed assertions: ${failedAssertionLabels.join(" | ")}`,
+      assertionsPassed: passed,
+      assertionsFailed: failed,
+      failedAssertionLabels,
     });
   }
 
@@ -226,4 +237,29 @@ export function runFamilySuiteForGui(): FamilySuiteOutcome {
   const passRate = caseOutcomes.length === 0 ? 0 : (passedCases / caseOutcomes.length) * 100;
 
   return { caseOutcomes, passRate, totalAssertions, passedAssertions };
+}
+
+/**
+ * PHI-120 — Dispatch table for paid suites. The runs route POSTs to
+ * `/api/admin/evals/suites/<slug>/runs`, the slug is looked up here,
+ * and the executor is invoked with the inbound request's origin +
+ * cookie + the new suite_run row's id (for the `X-Suite-Run-Id` header).
+ *
+ * Returns `undefined` for slugs not yet wired (the runs route falls back
+ * to the "not_wired" 409 response). Family is handled directly by the
+ * runs route via `runFamilySuiteForGui()` because it doesn't need opts.
+ */
+export function getGuiSuiteExecutor(
+  slug: string,
+): ((opts: GuiRunOpts) => Promise<GuiSuiteOutcome>) | undefined {
+  switch (slug) {
+    case "location":
+      return runLocationSuite;
+    case "recommendations":
+      return runRecommendationsSuite;
+    case "alternatives":
+      return runAlternativesSuite;
+    default:
+      return undefined;
+  }
 }

@@ -265,6 +265,9 @@ export async function POST(req: NextRequest) {
     await logApiUsage({
       provider: "anthropic", apiType: "itinerary-edit", feature: "itinerary",
       model: MODEL, inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens,
+      // PHI-120: when called by the evals GUI runner, link this row back to
+      // its eval_suite_runs id so realised cost can be rolled up at finish.
+      suiteRunId: req.headers.get("x-suite-run-id"),
     });
 
     return NextResponse.json({

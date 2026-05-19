@@ -14,6 +14,12 @@ type LogParams = {
   outputTokens?: number;
   requestCount?: number;
   model?: string;
+  // PHI-120: when a route is called by the evals GUI runner, the inbound
+  // request carries `X-Suite-Run-Id`. Routes pass it through to link the
+  // api_usage row back to the triggering eval_suite_runs row so the
+  // realised cost can be rolled up at run finish. Optional — production
+  // callers never set it.
+  suiteRunId?: string | null;
 };
 
 type LimitCheck = {
@@ -41,6 +47,7 @@ export async function logApiUsage(params: LogParams): Promise<{ allowed: boolean
     output_tokens: params.outputTokens ?? null,
     request_count: params.requestCount ?? 1,
     estimated_cost_usd: cost,
+    suite_run_id: params.suiteRunId ?? null,
   });
   if (error) console.error("[api-usage] log error:", error.message);
 

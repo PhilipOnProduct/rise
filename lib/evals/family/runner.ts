@@ -8,6 +8,15 @@
 import { buildCompositionSegment } from "../../composition";
 import { SCENARIOS, type Scenario } from "./cases";
 
+/**
+ * PHI-120 — Family is offline (no API calls), so the cost estimate is
+ * always zero. Exported via the same per-suite contract as the paid
+ * suites so the registry can read every suite uniformly.
+ */
+export function costEstimateUsd(): number {
+  return 0;
+}
+
 /** Per-case run — pure, no console output. Used by GUI in card 2+. */
 export function runOne(scenario: Scenario): {
   output: string;

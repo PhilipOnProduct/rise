@@ -92,6 +92,9 @@ export async function POST(req: NextRequest) {
         await logApiUsage({
           provider: "anthropic", apiType: "recommendations", feature: "profile",
           model: MODEL, inputTokens: final.usage.input_tokens, outputTokens: final.usage.output_tokens,
+          // PHI-120: link the spend to the triggering eval_suite_runs row
+          // when called by the evals GUI; absent for production traffic.
+          suiteRunId: req.headers.get("x-suite-run-id"),
         });
       } catch (err) {
         console.error("[recommendations] Logging failed:", err);

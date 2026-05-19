@@ -21,6 +21,7 @@ export type ScoreResult = {
 export async function judge(
   testCase: TestCase,
   recommendations: string,
+  opts: { suiteRunId?: string } = {},
 ): Promise<ScoreResult> {
   const criteriaList = testCase.criteria
     .map((c, i) => `${i + 1}. ${c}`)
@@ -53,7 +54,7 @@ Respond with valid JSON only, no markdown, in this exact shape:
   "summary": "<two sentences overall assessment>"
 }`;
 
-  const raw = await runRawJudge({ userMessage, model: JUDGE_MODEL });
+  const raw = await runRawJudge({ userMessage, model: JUDGE_MODEL, suiteRunId: opts.suiteRunId });
 
   try {
     const parsed = parseJsonJudgeResponse<ScoreResult>(raw);

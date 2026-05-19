@@ -7,14 +7,30 @@
  * POST /api/admin/evals/suites/<slug>/runs
  *  → { run, caseRuns }            (executes the suite synchronously)
  *
- * The POST handler is the run trigger. Card 2 wires only `family`
- * (offline, runs in ~100ms — synchronous response is fine). Any other
- * slug returns 409 with a "not yet wired" hint; card 3 takes over.
+ * PHI-120 (card 3) extended the POST dispatcher to handle three paid
+ * suites that hit local API routes — location / recommendations /
+ * alternatives. The inbound admin's `site_auth` cookie is forwarded so
+ * the loopback fetches pass middleware, and the new suite_run row's id
+ * is sent as `X-Suite-Run-Id` so the routes' `logApiUsage` calls tag
+ * their `api_usage` rows with it. At finish, the route SUMs
+ * `api_usage.estimated_cost_usd` keyed by `suite_run_id` and writes the
+ * realised total back to `eval_suite_runs.total_cost_usd`.
+ *
+ * Default Vercel function timeout (10s/60s by tier) is too short for the
+ * paid suites (alternatives ≈ 5 × ~5s, recommendations ≈ 3 × ~20s).
+ * `maxDuration = 300` puts the ceiling at Vercel's Pro-tier max.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabase-admin";
 import { isAdminRequest, adminForbiddenResponse } from "@/lib/auth";
-import { getSuite, runFamilySuiteForGui } from "@/lib/evals/registry";
+import { getSuite, runFamilySuiteForGui, getGuiSuiteExecutor } from "@/lib/evals/registry";
+import type { GuiSuiteOutcome } from "@/lib/evals/types";
+
+// PHI-120 — paid suites take much longer than family (offline ~100ms).
+// Recommendations streams 3 × Sonnet completions + 3 × Opus judges;
+// alternatives runs 5 × of each. Bump the ceiling so Vercel doesn't
+// terminate the route mid-suite.
+export const maxDuration = 300;
 
 export async function GET(
   req: NextRequest,
@@ -66,16 +82,6 @@ export async function POST(
     );
   }
 
-  if (suite !== "family") {
-    // Defensive: only `family` is wired in card 2. If we widen `wired:true`
-    // in the registry without adding the executor branch here, surface
-    // it as a 500 rather than silently 200-with-empty.
-    return NextResponse.json(
-      { error: `Suite '${suite}' marked wired but no GUI executor implemented.` },
-      { status: 500 },
-    );
-  }
-
   const admin = getSupabaseAdminClient();
 
   // 1. Insert the suite_run row in `running` state. We update it to
@@ -102,23 +108,42 @@ export async function POST(
 
   const suiteRunId = runRow.id as string;
 
-  // 2. Execute the suite. If this throws, mark the run failed and surface.
+  // 2. Execute the suite. Offline suites (family) need no opts; paid
+  // suites need the inbound origin + cookie + suite_run_id so they can
+  // loop back through middleware and tag their api_usage rows.
   try {
-    const outcome = runFamilySuiteForGui();
+    let outcome: GuiSuiteOutcome;
+    if (suite === "family") {
+      outcome = runFamilySuiteForGui();
+    } else {
+      const executor = getGuiSuiteExecutor(suite);
+      if (!executor) {
+        // Defensive: a registry entry can be wired:true without a paired
+        // executor only via developer error. Surface explicitly.
+        throw new Error(`Suite '${suite}' marked wired but no GUI executor registered.`);
+      }
+      outcome = await executor({
+        baseUrl: req.nextUrl.origin,
+        authCookie: req.headers.get("cookie"),
+        suiteRunId,
+      });
+    }
 
+    // PHI-120 — persist the unified case outcomes. Both offline + paid
+    // suites flow through the same row shape; `judge_score` is null for
+    // offline cases, `programmatic_pass` is the aggregate boolean for
+    // both flavours.
     const caseRunRows = outcome.caseOutcomes.map((c, i) => ({
       suite_run_id: suiteRunId,
       case_name: c.caseName,
       run_index: i,
       programmatic_pass: c.programmaticPass,
-      judge_score: null,
-      judge_reasoning: null,
+      judge_score: c.judgeScore,
+      judge_reasoning: c.judgeReasoning,
       output_snippet: c.outputSnippet,
-      cost_usd: 0,
+      cost_usd: c.costUsdEstimate,
       duration_ms: c.durationMs,
-      error: c.programmaticPass
-        ? null
-        : `Failed assertions: ${c.failedAssertionLabels.join(" | ")}`,
+      error: c.errorMessage,
     }));
 
     const { error: caseErr } = await admin
@@ -130,6 +155,37 @@ export async function POST(
     const allPassed = outcome.caseOutcomes.every((c) => c.programmaticPass);
     const status = allPassed ? "succeeded" : "failed";
 
+    // 3. Roll up realised cost from api_usage rows tagged with this
+    // suite_run_id. Offline suites won't have any rows (no Anthropic
+    // calls) so the SUM is null → 0.
+    let realisedCostUsd = 0;
+    const { data: costRows, error: costErr } = await admin
+      .from("api_usage")
+      .select("estimated_cost_usd")
+      .eq("suite_run_id", suiteRunId);
+    if (costErr) {
+      // Cost rollup is non-fatal — the suite already ran. Log but don't
+      // throw away the result.
+      console.error("[suites/runs] cost rollup failed:", costErr.message);
+    } else {
+      realisedCostUsd = (costRows ?? []).reduce(
+        (sum, row) => sum + (parseFloat(String(row.estimated_cost_usd)) || 0),
+        0,
+      );
+    }
+
+    // Summary score: paid suites use the mean judge score (0-10 scale,
+    // rescaled to 0-100 for the table column); offline suites mirror the
+    // pass rate (no judge).
+    let summaryScore = outcome.passRate;
+    const judgeScores = outcome.caseOutcomes
+      .map((c) => c.judgeScore)
+      .filter((s): s is number => typeof s === "number");
+    if (judgeScores.length > 0) {
+      const meanJudge = judgeScores.reduce((s, n) => s + n, 0) / judgeScores.length;
+      summaryScore = (meanJudge / 10) * 100; // 0-10 → 0-100
+    }
+
     const finishedAt = new Date().toISOString();
     const { error: updateErr } = await admin
       .from("eval_suite_runs")
@@ -137,11 +193,8 @@ export async function POST(
         finished_at: finishedAt,
         status,
         pass_rate: outcome.passRate,
-        // Family has no LLM-judge — summary_score mirrors the assertion
-        // pass rate (0–100) so the History table has a sortable column
-        // even for offline suites.
-        summary_score: outcome.passRate,
-        total_cost_usd: 0,
+        summary_score: summaryScore,
+        total_cost_usd: realisedCostUsd,
       })
       .eq("id", suiteRunId);
 
@@ -155,6 +208,9 @@ export async function POST(
         finishedAt,
         status,
         passRate: outcome.passRate,
+        summaryScore,
+        totalCostUsd: realisedCostUsd,
+        // Family-specific (omitted for paid suites — undefined deserialises cleanly).
         totalAssertions: outcome.totalAssertions,
         passedAssertions: outcome.passedAssertions,
       },
