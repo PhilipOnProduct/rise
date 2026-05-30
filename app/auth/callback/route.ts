@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { track } from "@vercel/analytics/server";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
-import { supabase as legacyClient } from "@/lib/supabase";
+import { getSupabaseAdminClient } from "@/lib/supabase-admin";
+import { safeRelativePath } from "@/lib/auth";
 
 /**
  * PHI-59: magic-link landing route.
@@ -27,7 +28,9 @@ export async function GET(req: NextRequest) {
   // PHI-60: route through /auth/claim instead of jumping straight to
   // the dashboard. The claim page short-circuits to `next` when there's
   // nothing to resolve, so single-trip users don't see an extra screen.
-  const next = searchParams.get("next") || "/dashboard";
+  // Validate to a same-origin relative path so a crafted `next` can't turn
+  // the magic link into an open redirect.
+  const next = safeRelativePath(searchParams.get("next"), "/dashboard");
 
   if (!code) {
     return NextResponse.redirect(
@@ -55,8 +58,13 @@ export async function GET(req: NextRequest) {
   // Link the onboarding traveler row to the new auth user, if we know
   // which row it was. Best-effort — the auth session is set either way,
   // so a failure here doesn't lock the user out of their account.
+  //
+  // Uses the service-role admin client: `travelers` has RLS on and
+  // pre-signup rows (auth_user_id IS NULL) are invisible to RLS, so the
+  // anon/SSR clients can't touch them. The `.is("auth_user_id", null)`
+  // filter is the ownership guard — we only ever claim an unlinked row.
   if (travelerId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(travelerId)) {
-    const { error: linkErr } = await legacyClient
+    const { error: linkErr } = await getSupabaseAdminClient()
       .from("travelers")
       .update({ auth_user_id: data.session.user.id })
       .eq("id", travelerId)
