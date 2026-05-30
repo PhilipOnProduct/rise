@@ -1,7 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { signSiteAuth } from "@/lib/auth";
+import { signSiteAuth, safeRelativePath } from "@/lib/auth";
 
 const COOKIE = "site_auth";
+
+/** Escape a string for safe interpolation into an HTML attribute / body. */
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
 function passwordPage(redirectTo: string, error: boolean): NextResponse {
   const html = `<!DOCTYPE html>
@@ -74,7 +84,7 @@ function passwordPage(redirectTo: string, error: boolean): NextResponse {
     <p>Enter the password to continue.</p>
     ${error ? '<div class="error">Incorrect password — please try again.</div>' : ""}
     <form method="POST" action="/api/auth">
-      <input type="hidden" name="redirect_to" value="${redirectTo}" />
+      <input type="hidden" name="redirect_to" value="${escapeHtml(redirectTo)}" />
       <input type="password" name="password" placeholder="Password" autofocus autocomplete="current-password" />
       <button type="submit">Enter →</button>
     </form>
@@ -89,7 +99,9 @@ function passwordPage(redirectTo: string, error: boolean): NextResponse {
 }
 
 export async function GET(req: NextRequest) {
-  const redirectTo = req.nextUrl.searchParams.get("redirect_to") || "/";
+  // Validate to a same-origin relative path — this value is reflected into the
+  // HTML form, so an unsanitised query param would be a reflected-XSS vector.
+  const redirectTo = safeRelativePath(req.nextUrl.searchParams.get("redirect_to"));
   const error = req.nextUrl.searchParams.get("auth_error") === "1";
   return passwordPage(redirectTo, error);
 }
@@ -97,7 +109,9 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const body = await req.formData();
   const password = body.get("password") as string | null;
-  const redirectTo = (body.get("redirect_to") as string | null) || "/";
+  // Validate before it's used as a redirect target or reflected back into the
+  // error page — blocks open redirects to attacker origins.
+  const redirectTo = safeRelativePath(body.get("redirect_to") as string | null);
 
   if (password && password === process.env.SITE_PASSWORD) {
     const res = NextResponse.redirect(new URL(redirectTo, req.url), { status: 303 });

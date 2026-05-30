@@ -12,6 +12,34 @@
 
 const enc = new TextEncoder();
 
+/**
+ * Normalise a user-supplied post-auth redirect target to a safe, same-origin
+ * relative path. Defends against open redirects (`//evil.com`,
+ * `https://evil.com`, backslash tricks) by parsing against a throwaway origin
+ * and rejecting anything that escapes it. Returns a path that always begins
+ * with a single "/". Used by the site-password gate (`/api/auth`) and the
+ * magic-link callback (`/auth/callback`) before they redirect or reflect the
+ * value into HTML.
+ */
+export function safeRelativePath(
+  value: string | null | undefined,
+  fallback = "/"
+): string {
+  if (!value || typeof value !== "string") return fallback;
+  // Must be a path, not protocol-relative, and free of backslash variants
+  // some browsers fold into "//".
+  if (!value.startsWith("/") || value.startsWith("//") || value.includes("\\")) {
+    return fallback;
+  }
+  try {
+    const u = new URL(value, "http://localhost");
+    if (u.origin !== "http://localhost") return fallback;
+    return u.pathname + u.search + u.hash;
+  } catch {
+    return fallback;
+  }
+}
+
 async function importHmacKey(secret: string): Promise<CryptoKey> {
   return crypto.subtle.importKey(
     "raw",
@@ -70,8 +98,12 @@ export async function verifySiteAuth(cookieValue: string | undefined): Promise<b
 export function isAdminRequest(req: Request): boolean {
   const adminPw = process.env.ADMIN_PASSWORD;
   if (!adminPw) {
+    // Fail CLOSED in production: a missing env var must not silently expose
+    // admin data (AI logs, usage, evals, team conversations). Dev stays open
+    // so local workflows don't need the var set.
     if (process.env.NODE_ENV === "production") {
-      console.warn("[auth] ADMIN_PASSWORD is unset in production — admin endpoints are unguarded.");
+      console.error("[auth] ADMIN_PASSWORD is unset in production — denying admin access. Set ADMIN_PASSWORD.");
+      return false;
     }
     return true;
   }
@@ -106,8 +138,10 @@ export async function isAdminFromCookies(): Promise<boolean> {
   try {
     const adminPw = process.env.ADMIN_PASSWORD;
     if (!adminPw) {
+      // Fail CLOSED in production (see isAdminRequest); dev stays open.
       if (process.env.NODE_ENV === "production") {
-        console.warn("[auth] ADMIN_PASSWORD is unset in production — admin endpoints are unguarded.");
+        console.error("[auth] ADMIN_PASSWORD is unset in production — denying admin access. Set ADMIN_PASSWORD.");
+        return false;
       }
       return true;
     }
