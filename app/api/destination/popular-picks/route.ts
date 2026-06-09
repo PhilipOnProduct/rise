@@ -17,6 +17,7 @@
  *   - Style tags sorted before being part of the cache key.
  */
 
+import { dbErr } from "@/lib/db-utils";
 import { SONNET } from "@/lib/models";
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
@@ -44,12 +45,6 @@ const client = new Anthropic();
 // PHI-102 closing comment as a deliberate spec deviation from the PRD's
 // Haiku starting point.
 const MODEL = SONNET;
-
-function dbErr(err: unknown): string {
-  if (!err || typeof err !== "object") return String(err);
-  const e = err as Record<string, unknown>;
-  return [e.message, e.code, e.details, e.hint].filter(Boolean).join(" | ") || JSON.stringify(err);
-}
 
 export async function POST(req: NextRequest) {
   const { destination, travelCompany, childrenAges, styleTags } =

@@ -1,14 +1,9 @@
+import { dbErr } from "@/lib/db-utils";
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabase-admin";
 
 // PHI-61: activity_feedback is anonymous telemetry — no auth context.
 const supabase = () => getSupabaseAdminClient();
-
-function dbErr(err: unknown): string {
-  if (!err || typeof err !== "object") return String(err);
-  const e = err as Record<string, unknown>;
-  return [e.message, e.code, e.details, e.hint].filter(Boolean).join(" | ") || JSON.stringify(err);
-}
 
 // PHI-45: anything not in this set goes into the metadata jsonb column,
 // rather than being silently dropped. The welcome flow fires onboarding

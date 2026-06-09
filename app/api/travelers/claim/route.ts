@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isUuid } from "@/lib/db-utils";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
 import { getSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
@@ -61,8 +62,10 @@ function deriveLegs(local: LocalLegInput): TripLeg[] | null {
 export async function POST(req: NextRequest) {
   const body = await req.json();
   const action = body.action as ClaimAction | undefined;
-  const localTravelerId = body.localTravelerId as string | undefined;
-  const accountTravelerId = body.accountTravelerId as string | undefined;
+  // Malformed (non-UUID) ids are treated as absent — same handling as a
+  // missing field rather than letting garbage reach the .eq() queries.
+  const localTravelerId = isUuid(body.localTravelerId) ? body.localTravelerId : undefined;
+  const accountTravelerId = isUuid(body.accountTravelerId) ? body.accountTravelerId : undefined;
   const localTrip = (body.localTrip ?? null) as
     | (LocalLegInput & {
         name?: string | null;

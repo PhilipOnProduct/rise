@@ -1,3 +1,4 @@
+import { stripJsonFences } from "@/lib/json-utils";
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
 import { logAiInteraction } from "@/lib/ai-logger";
@@ -60,7 +61,7 @@ Return ONLY valid JSON — no markdown, no code fences:
     });
 
     const raw = response.content[0].type === "text" ? response.content[0].text : "";
-    const jsonStr = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+    const jsonStr = stripJsonFences(raw);
 
     let result;
     try {

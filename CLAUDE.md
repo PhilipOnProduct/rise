@@ -540,14 +540,12 @@ create index idx_connectors_traveler on travel_connectors(traveler_id);
 - JSON parse fallback: if primary parse fails, try extracting between `indexOf("{")` and `lastIndexOf("}")` before giving up.
 
 ### Supabase error logging
-Supabase `PostgrestError` properties are non-enumerable — `console.error(error)` prints `{}`. Use the `dbErr()` helper in `app/team/page.tsx` to extract `.message`, `.code`, `.details`, `.hint`:
+Supabase `PostgrestError` properties are non-enumerable — `console.error(error)` prints `{}`. Import the shared `dbErr()` helper from `lib/db-utils.ts` to extract `.message`, `.code`, `.details`, `.hint`:
 ```ts
-function dbErr(err: unknown): string {
-  if (!err || typeof err !== "object") return String(err);
-  const e = err as Record<string, unknown>;
-  return [e.message, e.code, e.details, e.hint].filter(Boolean).join(" | ") || JSON.stringify(err);
-}
+import { dbErr } from "@/lib/db-utils";
+console.error("[feature] save error", dbErr(error));
 ```
+`lib/db-utils.ts` also exports `UUID_RE` / `isUuid()` for validating client-supplied IDs — don't redefine these locally in routes.
 
 ### PlacesAutocomplete
 - `hasTypedRef` — prevents the dropdown from opening on mount when a pre-filled value is passed in. Only flips `true` on the input's own `onChange`.

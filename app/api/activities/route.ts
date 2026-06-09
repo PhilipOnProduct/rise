@@ -1,3 +1,4 @@
+import { stripJsonFences } from "@/lib/json-utils";
 import { SONNET } from "@/lib/models";
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
@@ -44,7 +45,7 @@ Cover a wide variety of categories. Make suggestions specific to ${safeDestinati
     });
 
     const text = response.content[0].type === "text" ? response.content[0].text : "";
-    const cleaned = text.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
+    const cleaned = stripJsonFences(text);
 
     let activities: unknown;
     try {

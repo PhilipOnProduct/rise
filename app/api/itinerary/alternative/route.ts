@@ -1,3 +1,4 @@
+import { stripJsonFences } from "@/lib/json-utils";
 import { SONNET } from "@/lib/models";
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
@@ -94,7 +95,7 @@ For booking_meta.search_query: use the restaurant's commonly known name plus ${d
     });
 
     const raw = response.content[0].type === "text" ? response.content[0].text : "";
-    const jsonStr = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+    const jsonStr = stripJsonFences(raw);
 
     let alternative;
     try {

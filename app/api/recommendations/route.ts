@@ -69,6 +69,13 @@ export async function POST(req: NextRequest) {
         }
       } catch (err) {
         console.error("[recommendations] stream error:", err);
+        // Surface the failure in the stream — otherwise the user sees
+        // silently truncated output. Skip when the client itself aborted.
+        if (!req.signal.aborted) {
+          try {
+            controller.enqueue(encoder.encode("\n\n⚠️ The response was interrupted — please try again."));
+          } catch { /* controller already closed */ }
+        }
       } finally {
         req.signal.removeEventListener("abort", onAbort);
       }

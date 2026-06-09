@@ -1,3 +1,4 @@
+import { stripJsonFences } from "@/lib/json-utils";
 import { SONNET } from "@/lib/models";
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
@@ -247,7 +248,7 @@ export async function POST(req: NextRequest) {
 
     const raw = response.content[0].type === "text" ? response.content[0].text : "";
     // Strip markdown code fences with any amount of surrounding whitespace
-    const jsonStr = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+    const jsonStr = stripJsonFences(raw);
 
     let days_data: ItineraryDay[];
     let placementNotes: string | null = null;

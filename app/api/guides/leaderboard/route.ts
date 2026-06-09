@@ -1,4 +1,8 @@
 import { NextResponse } from "next/server";
+// TODO(PHI-C): grandfathered on the legacy anon client — guides/tips have
+// no RLS today. If these tables ever get policies (or tip writes become
+// user-scoped), migrate to getSupabaseServerClient() / the admin client
+// per the CLAUDE.md client conventions.
 import { supabase } from "@/lib/supabase";
 
 export async function GET() {

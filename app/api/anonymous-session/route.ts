@@ -1,3 +1,4 @@
+import { dbErr, UUID_RE } from "@/lib/db-utils";
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabase-admin";
 
@@ -28,14 +29,6 @@ import { buildSingleLegTrip, type PlaceType, type TripLeg } from "@/lib/trip-sch
  */
 
 const COOKIE = "rise_session_id";
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function dbErr(err: unknown): string {
-  if (!err || typeof err !== "object") return String(err);
-  const e = err as Record<string, unknown>;
-  return [e.message, e.code, e.details, e.hint].filter(Boolean).join(" | ") || JSON.stringify(err);
-}
-
 function getSessionId(req: NextRequest): string | null {
   const id = req.cookies.get(COOKIE)?.value;
   return id && UUID_RE.test(id) ? id : null;

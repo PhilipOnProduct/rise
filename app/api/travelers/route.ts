@@ -1,3 +1,4 @@
+import { dbErr } from "@/lib/db-utils";
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabase-admin";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
@@ -17,12 +18,6 @@ import { cleanUserSeededActivities } from "@/lib/itinerary-gen-prompt";
 // set to a different user than the caller (or to anyone, if the caller is
 // anonymous).
 const supabaseAdmin = () => getSupabaseAdminClient();
-
-function dbErr(err: unknown): string {
-  if (!err || typeof err !== "object") return String(err);
-  const e = err as Record<string, unknown>;
-  return [e.message, e.code, e.details, e.hint].filter(Boolean).join(" | ") || JSON.stringify(err);
-}
 
 // PHI-47: same regex as the client-side check in app/welcome/page.tsx.
 // Belt-and-braces — if a non-wizard client ever POSTs/PATCHes here, the

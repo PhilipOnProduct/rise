@@ -1,3 +1,4 @@
+import { dbErr } from "@/lib/db-utils";
 import { HAIKU } from "@/lib/models";
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
@@ -17,12 +18,6 @@ const client = new Anthropic();
 // known facts about a city; Haiku is enough and the per-call cost matters
 // because step 2 is a top-of-funnel screen.
 const MODEL = HAIKU;
-
-function dbErr(err: unknown): string {
-  if (!err || typeof err !== "object") return String(err);
-  const e = err as Record<string, unknown>;
-  return [e.message, e.code, e.details, e.hint].filter(Boolean).join(" | ") || JSON.stringify(err);
-}
 
 export async function POST(req: NextRequest) {
   const { destination, childrenAges } = (await req.json()) as {

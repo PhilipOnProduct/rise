@@ -1,5 +1,6 @@
 "use client";
 
+import { dbErr } from "@/lib/db-utils";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 
@@ -204,15 +205,6 @@ function MarkdownText({ text, className }: { text: string; className?: string })
   }
 
   return <div className={className ?? "text-sm text-[var(--text-primary)] leading-relaxed"}>{elements}</div>;
-}
-
-// ── Supabase error serializer ──────────────────────────────────────────────────
-// Supabase PostgrestError has non-enumerable properties, so `console.error(err)`
-// prints `{}`. Extract them explicitly.
-function dbErr(err: unknown): string {
-  if (!err || typeof err !== "object") return String(err);
-  const e = err as Record<string, unknown>;
-  return [e.message, e.code, e.details, e.hint].filter(Boolean).join(" | ") || JSON.stringify(err);
 }
 
 // ── API error ──────────────────────────────────────────────────────────────────
