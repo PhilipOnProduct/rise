@@ -3,9 +3,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { logAiInteraction } from "@/lib/ai-logger";
 import { logApiUsage, checkApiLimit } from "@/lib/log-api-usage";
 import { buildCompositionSegment } from "@/lib/composition";
+import { SONNET } from "@/lib/models";
 
 const client = new Anthropic();
-const MODEL = "claude-sonnet-4-20250514";
+const MODEL = SONNET;
 
 const SYSTEM = `You are a practical travel advisor specialising in airport-to-hotel transport. Compare public transport vs taxi/rideshare for the journey provided. Cover: estimated cost (local currency), travel time, comfort, step-by-step instructions, and practical tips.
 

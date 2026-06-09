@@ -1,3 +1,4 @@
+import { SONNET } from "@/lib/models";
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
 import { logAiInteraction } from "@/lib/ai-logger";
@@ -28,7 +29,7 @@ import { matchFranchise, suggestLegs } from "@/lib/themed-atlas";
  */
 
 const client = new Anthropic();
-const MODEL = "claude-sonnet-4-6";
+const MODEL = SONNET;
 
 const SYSTEM = `You are a travel-planning input parser. Your job is to convert a user's free-form trip description into a structured TripIntent JSON object via the parse_trip_intent tool.
 

@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    env:
+      # Dummy values so module-scope clients (lib/supabase.ts, `new
+      # Anthropic()`) construct during `next build`. No network calls are
+      # made at build time; real values live in Vercel / .env.local.
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-dummy-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: ci-dummy-service-role-key
+      ANTHROPIC_API_KEY: ci-dummy-anthropic-key
+      NEXT_PUBLIC_GOOGLE_PLACES_KEY: ci-dummy-places-key
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Type-check
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        run: npm run test
+
+      # Lint has pre-existing errors in tests/e2e and a few pages
+      # (react-hooks rules, no-explicit-any). Non-blocking until those are
+      # cleaned up — remove continue-on-error to make it a gate.
+      - name: Lint (non-blocking)
+        run: npm run lint
+        continue-on-error: true
+
+      - name: Build
+        run: npm run build

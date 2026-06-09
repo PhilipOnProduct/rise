@@ -17,6 +17,7 @@
  *   - Style tags sorted before being part of the cache key.
  */
 
+import { SONNET } from "@/lib/models";
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
 import { logAiInteraction } from "@/lib/ai-logger";
@@ -42,7 +43,7 @@ const client = new Anthropic();
 // so net production-cost impact is small. Documented in CLAUDE.md and the
 // PHI-102 closing comment as a deliberate spec deviation from the PRD's
 // Haiku starting point.
-const MODEL = "claude-sonnet-4-6";
+const MODEL = SONNET;
 
 function dbErr(err: unknown): string {
   if (!err || typeof err !== "object") return String(err);
@@ -173,7 +174,11 @@ export async function POST(req: NextRequest) {
     }
 
     // Cache the cleaned picks. Best-effort — a write failure doesn't
-    // fail the request. Next visitor regenerates.
+    // fail the request. Next visitor regenerates. The unique index uses
+    // coalesce() expressions, so PostgREST upsert can't target it — a
+    // concurrent first-visitor race surfaces as a duplicate-key error
+    // (23505), which just means the other request already cached this
+    // shard. Only log genuinely unexpected failures.
     const { error: upsertErr } = await supabase
       .from("popular_picks_cache")
       .insert({
@@ -185,7 +190,7 @@ export async function POST(req: NextRequest) {
         picks,
         model: MODEL,
       });
-    if (upsertErr) {
+    if (upsertErr && upsertErr.code !== "23505") {
       console.warn("[popular-picks] cache write failed:", dbErr(upsertErr));
     }
 

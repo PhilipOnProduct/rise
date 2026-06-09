@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { logApiUsage, checkApiLimit } from "@/lib/log-api-usage";
+import { ALLOWED_CHAT_MODELS, SONNET } from "@/lib/models";
 
 export async function POST(req: NextRequest) {
   const { model, system, messages, max_tokens } = await req.json();
+
+  if (typeof model !== "string" || !ALLOWED_CHAT_MODELS.has(model)) {
+    return NextResponse.json({ error: "Unsupported model" }, { status: 400 });
+  }
 
   // Hard limit check
   const limit = await checkApiLimit("anthropic");
@@ -39,7 +44,7 @@ export async function POST(req: NextRequest) {
   if (data.usage) {
     await logApiUsage({
       provider: "anthropic", apiType: "team-chat", feature: "team",
-      model: model ?? "claude-sonnet-4-6",
+      model: model ?? SONNET,
       inputTokens: data.usage.input_tokens, outputTokens: data.usage.output_tokens,
     });
   }

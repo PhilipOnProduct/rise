@@ -1,3 +1,4 @@
+import { SONNET } from "@/lib/models";
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
 import { track } from "@vercel/analytics/server";
@@ -14,7 +15,7 @@ import type { TripLeg } from "@/lib/trip-schema";
 import { resolveTripDuration } from "@/lib/trip-duration";
 
 const client = new Anthropic();
-const MODEL = "claude-sonnet-4-6";
+const MODEL = SONNET;
 
 type TimeBlock = "morning" | "afternoon" | "evening";
 

@@ -1,3 +1,4 @@
+import { SONNET } from "@/lib/models";
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
 import { logAiInteraction } from "@/lib/ai-logger";
@@ -5,7 +6,7 @@ import { logApiUsage, checkApiLimit } from "@/lib/log-api-usage";
 import { getSupabaseAdminClient } from "@/lib/supabase-admin";
 
 const client = new Anthropic();
-const MODEL = "claude-sonnet-4-6";
+const MODEL = SONNET;
 
 export async function POST(req: NextRequest) {
   const {

@@ -1,10 +1,11 @@
+import { HAIKU } from "@/lib/models";
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
 import { logAiInteraction } from "@/lib/ai-logger";
 import { logApiUsage, checkApiLimit } from "@/lib/log-api-usage";
 
 const client = new Anthropic();
-const MODEL = "claude-haiku-4-5-20251001";
+const MODEL = HAIKU;
 
 export type Chip = {
   label: string;

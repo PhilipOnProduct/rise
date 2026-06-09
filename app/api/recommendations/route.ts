@@ -3,9 +3,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { logAiInteraction } from "@/lib/ai-logger";
 import { logApiUsage, checkApiLimit } from "@/lib/log-api-usage";
 import { buildCompositionSegment } from "@/lib/composition";
+import { SONNET } from "@/lib/models";
 
 const client = new Anthropic();
-const MODEL = "claude-sonnet-4-20250514";
+const MODEL = SONNET;
 
 const SYSTEM = `You are a knowledgeable restaurant advisor. Based on the travel profile provided, recommend 5 restaurants. For each provide: name, cuisine type, price range, a short description, and why it suits this specific traveler.
 

@@ -2,14 +2,20 @@ import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
 import { logAiInteraction } from "@/lib/ai-logger";
 import { logApiUsage, checkApiLimit } from "@/lib/log-api-usage";
+import { isAdminRequest, adminForbiddenResponse } from "@/lib/auth";
+import { SONNET } from "@/lib/models";
 
 const client = new Anthropic();
-const MODEL = "claude-sonnet-4-6";
+const MODEL = SONNET;
 
 export async function POST(req: NextRequest) {
+  // Admin-only: this route spends Anthropic budget on caller-supplied
+  // prompts and is only used by the /admin/evals UI.
+  if (!isAdminRequest(req)) return adminForbiddenResponse();
+
   const { output, criteria, testCase } = await req.json();
 
-  if (!output || !criteria?.length) {
+  if (typeof output !== "string" || !Array.isArray(criteria) || criteria.length === 0 || !criteria.every((c) => typeof c === "string")) {
     return NextResponse.json({ error: "Missing output or criteria" }, { status: 400 });
   }
 

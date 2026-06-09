@@ -1,3 +1,4 @@
+import { HAIKU } from "@/lib/models";
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
 import { logAiInteraction } from "@/lib/ai-logger";
@@ -15,7 +16,7 @@ const client = new Anthropic();
 // PHI-100 — Haiku, not Sonnet. The output is a small structured list of
 // known facts about a city; Haiku is enough and the per-call cost matters
 // because step 2 is a top-of-funnel screen.
-const MODEL = "claude-haiku-4-5-20251001";
+const MODEL = HAIKU;
 
 function dbErr(err: unknown): string {
   if (!err || typeof err !== "object") return String(err);

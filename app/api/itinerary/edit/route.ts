@@ -1,3 +1,4 @@
+import { SONNET } from "@/lib/models";
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
 import { logAiInteraction } from "@/lib/ai-logger";
@@ -6,7 +7,7 @@ import { buildCompositionSegment } from "@/lib/composition";
 import { matchFranchise, buildAtlasAnchorSegment } from "@/lib/themed-atlas";
 
 const client = new Anthropic();
-const MODEL = "claude-sonnet-4-6";
+const MODEL = SONNET;
 
 type TimeBlock = "morning" | "afternoon" | "evening";
 
