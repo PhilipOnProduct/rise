@@ -3,20 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 // no RLS today. If these tables ever get policies (or tip writes become
 // user-scoped), migrate to getSupabaseServerClient() / the admin client
 // per the CLAUDE.md client conventions.
-import { supabase, CATEGORIES, type Category } from "@/lib/guides";
-
-async function awardPoints(guideId: string, amount: number) {
-  const { data: guide } = await supabase
-    .from("guides")
-    .select("points")
-    .eq("id", guideId)
-    .single();
-  if (!guide) return;
-  await supabase
-    .from("guides")
-    .update({ points: guide.points + amount })
-    .eq("id", guideId);
-}
+import { supabase, CATEGORIES, type Category, awardGuidePoints } from "@/lib/guides";
 
 export async function POST(req: NextRequest) {
   const { name, email, city, category, title, description } = await req.json();
@@ -71,7 +58,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Award 10 points for submitting a tip
-  if (guideId) await awardPoints(guideId, 10);
+  if (guideId) await awardGuidePoints(guideId, 10);
 
   return NextResponse.json(data, { status: 201 });
 }

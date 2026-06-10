@@ -568,7 +568,7 @@ console.error("[feature] save error", dbErr(error));
 ### Supabase
 - Always import the client from `lib/supabase.ts`. Never create a new client inline.
 - Use `.single()` when expecting one row; check the `error` field before using `data`.
-- Points are incremented with a read-then-write pattern (read current `points`, add, write back). Good enough for MVP; migrate to Supabase RPC for production.
+- Points and tip views are incremented atomically via the `increment_guide_points` / `increment_tip_views` RPCs (`db/migrations/0019_points_rpc.sql`), wrapped by `awardGuidePoints()` / `incrementTipViews()` in `lib/guides.ts`. Until that migration is applied, the helpers silently fall back to the legacy read-then-write pattern (racy but no worse than before) — apply 0019 in the Supabase dashboard to close the race.
 
 ### Next.js / React
 - Prefer Server Components by default. Add `"use client"` only when the component needs `useState`, `useEffect`, browser APIs, or event handlers.

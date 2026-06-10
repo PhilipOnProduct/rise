@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 // user-scoped), migrate to getSupabaseServerClient() / the admin client
 // per the CLAUDE.md client conventions.
 import { supabase } from "@/lib/supabase";
+import { awardGuidePoints } from "@/lib/guides";
 
 export async function POST(
   req: NextRequest,
@@ -53,18 +54,7 @@ export async function POST(
 
   // Award 25 points to the guide
   if (tip.guide_id) {
-    const { data: guide } = await supabase
-      .from("guides")
-      .select("points")
-      .eq("id", tip.guide_id)
-      .single();
-
-    if (guide) {
-      await supabase
-        .from("guides")
-        .update({ points: guide.points + 25 })
-        .eq("id", tip.guide_id);
-    }
+    await awardGuidePoints(tip.guide_id, 25);
   }
 
   return NextResponse.json({ success: true });
