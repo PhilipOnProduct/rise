@@ -22,7 +22,7 @@ import { SONNET } from "@/lib/models";
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
 import { logAiInteraction } from "@/lib/ai-logger";
-import { logApiUsage, checkApiLimit } from "@/lib/log-api-usage";
+import { logApiUsage, enforceApiLimit } from "@/lib/log-api-usage";
 import { getSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
   POPULAR_PICKS_SYSTEM,
@@ -94,18 +94,8 @@ export async function POST(req: NextRequest) {
   // Hard limit check before billing. On limit-exceeded with no cache hit,
   // 429 — the panel renders an empty/error state and the user can type
   // their own picks instead (textarea remains the source of truth).
-  const limit = await checkApiLimit("anthropic");
-  if (!limit.allowed) {
-    return NextResponse.json(
-      {
-        error: "API limit exceeded",
-        provider: "anthropic",
-        spentUsd: limit.spentUsd,
-        limitUsd: limit.limitUsd,
-      },
-      { status: 429 },
-    );
-  }
+  const limitResponse = await enforceApiLimit("anthropic");
+  if (limitResponse) return limitResponse;
 
   const userMessage = buildPopularPicksUserMessage({
     destination: trimmed,

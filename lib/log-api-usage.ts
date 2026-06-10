@@ -1,3 +1,4 @@
+import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabase-admin";
 import { calculateAnthropicCost, calculateGoogleCost, calculateOpenMeteoCost } from "@/lib/api-costs";
 
@@ -54,6 +55,22 @@ export async function logApiUsage(params: LogParams): Promise<{ allowed: boolean
   // Check limit
   const check = await checkApiLimit(params.provider);
   return { allowed: check.allowed, warningLevel: check.warningLevel };
+}
+
+// Shared hard-limit preamble for billable routes: checks the provider's
+// monthly limit and returns the canonical 429 response when exceeded, or
+// null when the call may proceed. Every caller returns the same body shape
+// ({ error, provider, spentUsd, limitUsd }) — routes with a bespoke 429
+// body (e.g. /api/itinerary/travel) keep calling checkApiLimit directly.
+export async function enforceApiLimit(provider: "anthropic" | "google"): Promise<NextResponse | null> {
+  const limit = await checkApiLimit(provider);
+  if (!limit.allowed) {
+    return NextResponse.json(
+      { error: "API limit exceeded", provider, spentUsd: limit.spentUsd, limitUsd: limit.limitUsd },
+      { status: 429 },
+    );
+  }
+  return null;
 }
 
 export async function checkApiLimit(provider: string): Promise<LimitCheck> {

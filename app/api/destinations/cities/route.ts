@@ -11,7 +11,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { logAiInteraction } from "@/lib/ai-logger";
-import { checkApiLimit } from "@/lib/log-api-usage";
+import { enforceApiLimit } from "@/lib/log-api-usage";
 import {
   countryNameToCode,
   getCandidates,
@@ -32,18 +32,8 @@ export async function POST(req: NextRequest) {
   }
 
   // Anthropic limit gate — Haiku call still counts toward the monthly budget.
-  const limit = await checkApiLimit("anthropic");
-  if (!limit.allowed) {
-    return NextResponse.json(
-      {
-        error: "API limit exceeded",
-        provider: "anthropic",
-        spentUsd: limit.spentUsd,
-        limitUsd: limit.limitUsd,
-      },
-      { status: 429 },
-    );
-  }
+  const limitResponse = await enforceApiLimit("anthropic");
+  if (limitResponse) return limitResponse;
 
   const startTime = Date.now();
   const sessionId = req.cookies.get("rise_session_id")?.value ?? null;

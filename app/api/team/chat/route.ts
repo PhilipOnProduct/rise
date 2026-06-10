@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { logApiUsage, checkApiLimit } from "@/lib/log-api-usage";
+import { logApiUsage, enforceApiLimit } from "@/lib/log-api-usage";
 import { ALLOWED_CHAT_MODELS, SONNET } from "@/lib/models";
 
 export async function POST(req: NextRequest) {
@@ -10,10 +10,8 @@ export async function POST(req: NextRequest) {
   }
 
   // Hard limit check
-  const limit = await checkApiLimit("anthropic");
-  if (!limit.allowed) {
-    return NextResponse.json({ error: "API limit exceeded", provider: "anthropic", spentUsd: limit.spentUsd, limitUsd: limit.limitUsd }, { status: 429 });
-  }
+  const limitResponse = await enforceApiLimit("anthropic");
+  if (limitResponse) return limitResponse;
 
   const upstream = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",

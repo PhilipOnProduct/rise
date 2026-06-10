@@ -23,7 +23,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { logApiUsage, checkApiLimit } from "@/lib/log-api-usage";
+import { logApiUsage, enforceApiLimit } from "@/lib/log-api-usage";
 
 const FIELD_MASK = "id,location,addressComponents";
 
@@ -69,18 +69,8 @@ export async function POST(req: NextRequest) {
   // Hard limit check before the billable call. On limit-exceeded the
   // welcome page's onSelect already fired, so the hotel name is captured —
   // we just skip the rich payload and stay null on the row.
-  const limit = await checkApiLimit("google");
-  if (!limit.allowed) {
-    return NextResponse.json(
-      {
-        error: "API limit exceeded",
-        provider: "google",
-        spentUsd: limit.spentUsd,
-        limitUsd: limit.limitUsd,
-      },
-      { status: 429 },
-    );
-  }
+  const limitResponse = await enforceApiLimit("google");
+  if (limitResponse) return limitResponse;
 
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_PLACES_KEY;
   if (!apiKey) {

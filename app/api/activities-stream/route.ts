@@ -1,8 +1,8 @@
 import { SONNET } from "@/lib/models";
 import Anthropic from "@anthropic-ai/sdk";
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { logAiInteraction } from "@/lib/ai-logger";
-import { logApiUsage, checkApiLimit } from "@/lib/log-api-usage";
+import { logApiUsage, enforceApiLimit } from "@/lib/log-api-usage";
 import type { TripLeg } from "@/lib/trip-schema";
 // PHI-43: prompt + user-message builder live in lib/ as the single
 // source of truth. Edit there, not here. The eval harness imports the
@@ -73,10 +73,8 @@ export async function POST(req: NextRequest) {
   };
 
   // Hard limit check
-  const limit = await checkApiLimit("anthropic");
-  if (!limit.allowed) {
-    return NextResponse.json({ error: "API limit exceeded", provider: "anthropic", spentUsd: limit.spentUsd, limitUsd: limit.limitUsd }, { status: 429 });
-  }
+  const limitResponse = await enforceApiLimit("anthropic");
+  if (limitResponse) return limitResponse;
 
   // PHI-99: resolve duration up-front so the activity stream can format a
   // canonical "N-night trip" label even when the caller is in flex mode

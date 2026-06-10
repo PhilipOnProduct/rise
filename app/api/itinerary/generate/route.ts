@@ -4,7 +4,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
 import { track } from "@vercel/analytics/server";
 import { logAiInteraction } from "@/lib/ai-logger";
-import { logApiUsage, checkApiLimit } from "@/lib/log-api-usage";
+import { logApiUsage, enforceApiLimit } from "@/lib/log-api-usage";
 import { fetchForecast, badDayDates } from "@/lib/weather";
 import { geocodeCity } from "@/lib/travel-connectors";
 import {
@@ -174,10 +174,8 @@ export async function POST(req: NextRequest) {
   }
 
   // Hard limit check
-  const limit = await checkApiLimit("anthropic");
-  if (!limit.allowed) {
-    return NextResponse.json({ error: "API limit exceeded", provider: "anthropic", spentUsd: limit.spentUsd, limitUsd: limit.limitUsd }, { status: 429 });
-  }
+  const limitResponse = await enforceApiLimit("anthropic");
+  if (limitResponse) return limitResponse;
 
   // PHI-90: only switch the response into "anchors mode" (object shape with
   // placement_notes) when the caller actually supplied non-empty entries.

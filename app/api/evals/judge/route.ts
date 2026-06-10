@@ -2,7 +2,7 @@ import { stripJsonFences } from "@/lib/json-utils";
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
 import { logAiInteraction } from "@/lib/ai-logger";
-import { logApiUsage, checkApiLimit } from "@/lib/log-api-usage";
+import { logApiUsage, enforceApiLimit } from "@/lib/log-api-usage";
 import { isAdminRequest, adminForbiddenResponse } from "@/lib/auth";
 import { SONNET } from "@/lib/models";
 
@@ -21,10 +21,8 @@ export async function POST(req: NextRequest) {
   }
 
   // Hard limit check
-  const limit = await checkApiLimit("anthropic");
-  if (!limit.allowed) {
-    return NextResponse.json({ error: "API limit exceeded", provider: "anthropic", spentUsd: limit.spentUsd, limitUsd: limit.limitUsd }, { status: 429 });
-  }
+  const limitResponse = await enforceApiLimit("anthropic");
+  if (limitResponse) return limitResponse;
 
   const prompt = `You are evaluating an AI-generated travel itinerary for quality and appropriateness.
 
