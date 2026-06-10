@@ -123,7 +123,14 @@ rise/
 │   ├── page.tsx                  # Homepage — 100vh, hero in upper 70%, landmark skyline in bottom 30%
 │   ├── layout.tsx                # Root layout — DM Sans font, ApiLimitBanner, Nav, FeedbackButton
 │   ├── globals.css               # Light theme CSS variables, fadeSlideUp animation, date picker fix
-│   ├── welcome/page.tsx          # 7-step onboarding wizard (step 0 = landing, steps 1–6 = wizard, plus 3.5 sentinel for country recs); PHI-90 inserted step 4 (must-dos), Step 6 sends Supabase magic link
+│   ├── welcome/                  # 7-step onboarding wizard (step 0 = landing, steps 1–6 = wizard, plus 3.5 sentinel for country recs); PHI-90 inserted step 4 (must-dos), Step 6 sends Supabase magic link
+│   │   ├── page.tsx              # WelcomePageInner — all wizard state/effects/handlers + step routing; renders the colocated step components
+│   │   ├── LandingFreeForm.tsx   # step 0 free-form landing (parser phase)
+│   │   ├── LandingStructured.tsx # step 0 structured landing
+│   │   ├── steps/                # Step1Destination / Step2Hotel (3 variants) / Step3Preferences / Step35CityPicker / Step4MustDos / Step5Preview / Step6Account — presentational, all state lives in page.tsx
+│   │   ├── ActivityCard.tsx      # step-5 activity preview card (thumbs + chips)
+│   │   ├── PreviewDayCard.tsx    # step-5 itinerary preview day card
+│   │   └── welcome-{constants,helpers,types}.ts  # wizard constants, pure helpers (parseActivities, splitSeededActivities, …), shared types
 │   ├── signin/page.tsx           # PHI-59: returning-user magic-link sign-in
 │   ├── auth/
 │   │   ├── callback/route.ts     # PHI-59: GET handler — exchanges OTP code for session, links travelers.auth_user_id; PHI-60: redirects to /auth/claim
