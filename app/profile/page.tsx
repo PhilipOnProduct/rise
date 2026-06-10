@@ -53,6 +53,7 @@ export default function ProfilePage() {
       const raw = localStorage.getItem("rise_traveler");
       if (raw) {
         const t = JSON.parse(raw);
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage hydration on mount; SSR renders the defaults
         if (t.travelerCount) setTravelerCount(t.travelerCount);
         if (t.childrenAges?.length) setChildrenAges(t.childrenAges);
       }
@@ -96,7 +97,7 @@ export default function ProfilePage() {
 
         <div className="mb-10">
           <h1 className="text-4xl font-extrabold tracking-tight mb-2">Your travel profile</h1>
-          <p className="text-[var(--text-secondary)]">Tell us about yourself and we'll find the best restaurants.</p>
+          <p className="text-[var(--text-secondary)]">Tell us about yourself and we&apos;ll find the best restaurants.</p>
         </div>
 
         <form className="flex flex-col gap-6" onSubmit={handleSubmit}>

@@ -1,4 +1,5 @@
 import { headers } from "next/headers";
+import Link from "next/link";
 import LandingHero from "@/app/components/LandingHero";
 import SpecimenCards from "@/app/components/SpecimenCards";
 import LandmarkSkyline from "@/app/components/LandmarkSkyline";
@@ -15,13 +16,13 @@ export default async function Home() {
       style={{ backgroundColor: "#f8f6f1" }}
     >
       <nav className="flex items-center justify-between px-6 sm:px-8 py-4 flex-shrink-0">
-        <a
+        <Link
           href="/"
           className="text-xl font-extrabold tracking-tight"
           style={{ color: "#0e2a47" }}
         >
           Rise
-        </a>
+        </Link>
         <HomeNavAuth />
       </nav>
 

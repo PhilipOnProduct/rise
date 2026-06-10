@@ -137,6 +137,7 @@ export default function PlacesAutocomplete({
       return;
     }
     if (!ready || !hasTypedRef.current || value.trim().length < 2) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- clearing stale suggestions when the input no longer qualifies; pre-existing pattern
       setSuggestions([]);
       setOpen(false);
       setSearched(false);
@@ -175,7 +176,12 @@ export default function PlacesAutocomplete({
           .map((s) => {
             const p = s.placePrediction;
             if (!p) return null;
-            const mainText = ((p as any).text?.text as string | undefined) ?? String((p as any).text ?? "");
+            // Runtime shape varies across Maps JS versions: `text` may be a
+            // FormattableText ({ text: string }) or a plain string.
+            const predictionText: { text?: string } | string | null | undefined = p.text;
+            const mainText =
+              (typeof predictionText === "object" ? predictionText?.text : undefined) ??
+              String(predictionText ?? "");
             const secondaryText = "";
             return {
               placeId: p.placeId,

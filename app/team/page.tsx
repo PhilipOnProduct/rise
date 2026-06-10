@@ -25,6 +25,7 @@ export default function TeamPage() {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get("tab");
     if (tab === "kanban" || tab === "team" || tab === "pm" || tab === "coach") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- URL param + localStorage hydration on mount; SSR renders the default tab
       setActiveTab(tab);
     }
     const saved = localStorage.getItem("rise_team_mode");

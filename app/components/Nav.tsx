@@ -69,6 +69,7 @@ export default function Nav({ isAdmin = false }: { isAdmin?: boolean }) {
 
   // Close dropdown when the route changes (link was clicked successfully)
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- closing menus in response to route changes (external navigation state)
     setOpenSection(null);
     setAccountOpen(false);
     setMobileOpen(false);

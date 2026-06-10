@@ -181,6 +181,7 @@ export default function DashboardPage() {
     typeof traveler.flexNights === "number" &&
     traveler.flexNights >= 1;
   const showNudge = isFlexMode && !nudgeDismissed;
+  // eslint-disable-next-line react-hooks/refs -- known ref-guard for once-per-mount telemetry log; intentional pre-existing pattern
   if (showNudge && !nudgeShownLoggedRef.current) {
     nudgeShownLoggedRef.current = true;
     logDashboardEvent("dashboard_date_nudge_shown", {

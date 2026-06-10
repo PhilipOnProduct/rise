@@ -33,12 +33,8 @@ jobs:
       - name: Unit tests
         run: npm run test
 
-      # Lint has pre-existing errors in tests/e2e and a few pages
-      # (react-hooks rules, no-explicit-any). Non-blocking until those are
-      # cleaned up — remove continue-on-error to make it a gate.
-      - name: Lint (non-blocking)
+      - name: Lint
         run: npm run lint
-        continue-on-error: true
 
       - name: Build
         run: npm run build

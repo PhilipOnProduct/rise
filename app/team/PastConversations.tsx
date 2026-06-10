@@ -42,6 +42,7 @@ export function PastConversations({
   }, [type]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- lazy fetch when the panel opens; loading state renders until data arrives
     if (open) load();
   }, [open, load]);
 

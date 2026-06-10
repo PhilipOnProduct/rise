@@ -65,6 +65,7 @@ export function ProductTeamTab({
 
   useEffect(() => {
     if (!pendingObjective) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- resets discussion state when a pending objective is injected; pre-existing pattern
     setProblem(pendingObjective.problem);
     setActiveObjectiveId(pendingObjective.id);
     setSarahFrame(""); setAlexContent(""); setMayaContent("");
@@ -404,7 +405,7 @@ export function ProductTeamTab({
           <p className="text-xs text-[var(--text-muted)] italic">Sarah is remembering…</p>
         )}
         {updatingMemory && (
-          <p className="text-xs text-[var(--text-muted)] italic">Updating Sarah's memory…</p>
+          <p className="text-xs text-[var(--text-muted)] italic">Updating Sarah&apos;s memory…</p>
         )}
       </div>
 

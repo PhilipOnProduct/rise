@@ -17,6 +17,7 @@ export default function ApiLimitBanner() {
   useEffect(() => {
     // Check if dismissed this session
     if (sessionStorage.getItem("rise_limit_banner_dismissed") === "true") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sessionStorage hydration on mount; SSR renders the non-dismissed fallback
       setDismissed(true);
       return;
     }

@@ -158,7 +158,9 @@ function ClaimInner() {
         // Pick the most relevant trip (already ordered by primary then
         // claimed_at on the server) and write it to localStorage so the
         // dashboard renders without a fetch.
+        // eslint-disable-next-line react-hooks/immutability -- hoisted function declaration defined below; stable across renders
         await ensurePrimary(trips[0].id);
+        // eslint-disable-next-line react-hooks/immutability -- hoisted function declaration defined below; stable across renders
         await writeLocalFromAccount(trips[0]);
         router.replace(next);
         return;

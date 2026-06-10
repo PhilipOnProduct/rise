@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { CATEGORIES, CATEGORY_LABELS, type Category } from "@/lib/guides";
 
 export default function AddGuidePage() {
@@ -72,7 +73,7 @@ export default function AddGuidePage() {
     <main className="min-h-screen bg-[#f8f6f1] px-6 py-14">
       <div className="max-w-lg mx-auto">
 
-        <a href="/guides" className="text-[var(--text-muted)] text-sm hover:text-[var(--text-secondary)] transition-colors mb-8 inline-block">← Local guides</a>
+        <Link href="/guides" className="text-[var(--text-muted)] text-sm hover:text-[var(--text-secondary)] transition-colors mb-8 inline-block">← Local guides</Link>
 
         <div className="mb-10">
           <h1 className="text-4xl font-extrabold tracking-tight mb-2">Share a local tip</h1>

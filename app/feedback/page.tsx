@@ -10,6 +10,7 @@ export default function FeedbackPage() {
   const [status, setStatus] = useState<"idle" | "sending" | "done">("idle");
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- browser URL hydration on mount; SSR renders the empty fallback
     setPage(window.location.href);
   }, []);
 
@@ -54,7 +55,7 @@ export default function FeedbackPage() {
         <div className="mb-10">
           <p className="text-[#1a6b7f] text-sm font-semibold tracking-widest uppercase mb-3">Rise</p>
           <h1 className="text-4xl font-extrabold tracking-tight mb-2">Send feedback</h1>
-          <p className="text-[var(--text-secondary)]">Let us know what's working, what isn't, or what you'd like to see.</p>
+          <p className="text-[var(--text-secondary)]">Let us know what&apos;s working, what isn&apos;t, or what you&apos;d like to see.</p>
         </div>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-5">

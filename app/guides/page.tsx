@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 export default function GuidesPage() {
@@ -41,12 +42,12 @@ export default function GuidesPage() {
         </form>
 
         <div className="mt-8 flex items-center justify-between">
-          <a href="/guides/add" className="text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
+          <Link href="/guides/add" className="text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
             Become a local guide →
-          </a>
-          <a href="/guides/leaderboard" className="text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
+          </Link>
+          <Link href="/guides/leaderboard" className="text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
             🏆 Leaderboard
-          </a>
+          </Link>
         </div>
 
       </div>

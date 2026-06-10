@@ -369,7 +369,9 @@ test("welcome step 3 captures constraints (chips + free text) and forwards them"
   page,
 }) => {
   // Capture the activities-stream POST body to assert constraints are sent
-  let capturedBody: any = null;
+  // No initializer: TS doesn't track assignments inside the route callback,
+  // so a `= null` initializer would narrow the type to `null` at the asserts.
+  let capturedBody: { constraintTags?: string[]; constraintText?: string } | null | undefined;
   await page.route("**/api/activities-stream", async (route) => {
     try {
       const post = route.request().postData();
@@ -617,7 +619,7 @@ test("welcome parser enriches destination with resolved PlaceRef on save", async
 
   // Mock the resolve-place response — a Lisbon PlaceRef.
   let resolveCallCount = 0;
-  let resolveRequestedNames: string[] = [];
+  const resolveRequestedNames: string[] = [];
   await page.route("**/api/resolve-place", async (route) => {
     resolveCallCount++;
     try {

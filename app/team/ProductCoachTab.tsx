@@ -105,7 +105,7 @@ export function ProductCoachTab({ buildMode }: { buildMode: boolean }) {
             </div>
           </div>
           <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
-            Ask me anything about product management — strategy, prioritisation, discovery, metrics, stakeholders. I'll challenge your thinking and help you grow. Try: <em className="text-[var(--text-primary)]">"How should I think about prioritising our roadmap as an early MVP?"</em>
+            Ask me anything about product management — strategy, prioritisation, discovery, metrics, stakeholders. I&apos;ll challenge your thinking and help you grow. Try: <em className="text-[var(--text-primary)]">&quot;How should I think about prioritising our roadmap as an early MVP?&quot;</em>
           </p>
         </div>
       )}

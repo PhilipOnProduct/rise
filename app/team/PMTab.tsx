@@ -202,7 +202,7 @@ export function PMTab({ onSwitchToKanban, onObjectiveSaved, buildMode }: { onSwi
               </div>
             </div>
             <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
-              Hey Philip — what's on your mind? We can work through a problem, align on priorities, or agree on what to focus on next.
+              Hey Philip — what&apos;s on your mind? We can work through a problem, align on priorities, or agree on what to focus on next.
             </p>
           </div>
         )}

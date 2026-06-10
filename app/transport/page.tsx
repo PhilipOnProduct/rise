@@ -31,6 +31,7 @@ export default function TransportPage() {
       const raw = localStorage.getItem("rise_traveler");
       if (raw) {
         const t = JSON.parse(raw);
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage hydration on mount; SSR renders the defaults
         if (t.travelerCount) setTravelerCount(t.travelerCount);
         if (t.childrenAges?.length) setChildrenAges(t.childrenAges);
         if (t.destination && !city) setCity(t.destination);

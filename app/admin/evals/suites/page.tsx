@@ -1822,6 +1822,7 @@ export default function EvalsSuitesPage() {
   }, [selected]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch on mount/refresh; loading state renders until data arrives
     void refresh();
   }, [refresh, pickerVersion]);
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { getLevel, LEVEL_BADGE } from "@/lib/guides";
 
 type GuideEntry = { id: string; name: string; points: number; tip_count: number };
@@ -57,7 +58,7 @@ export default function LeaderboardPage() {
 
         {!loading && guides.length === 0 && (
           <p className="text-[var(--text-muted)] text-sm">
-            No guides yet. <a href="/guides/add" className="text-[#1a6b7f] hover:underline">Be the first!</a>
+            No guides yet. <Link href="/guides/add" className="text-[#1a6b7f] hover:underline">Be the first!</Link>
           </p>
         )}
 
@@ -97,10 +98,10 @@ export default function LeaderboardPage() {
         )}
 
         <div className="mt-10 text-center">
-          <a href="/guides/add"
+          <Link href="/guides/add"
             className="inline-block rounded-2xl bg-[#1a6b7f] text-white font-bold px-8 py-4 hover:bg-[#155a6b] transition-colors text-sm">
             Become a local guide →
-          </a>
+          </Link>
         </div>
 
       </div>
