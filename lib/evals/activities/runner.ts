@@ -5,6 +5,7 @@
  * byte-identical to the pre-refactor script.
  */
 
+import { exitIfGateFailed, printCaseChecksLine, printChecksSummary } from "../cli";
 import { ALL_CASES, parseCards, type Case, type ParsedCard } from "./cases";
 import { ACTIVITIES_MODEL, runActivityGen } from "./judge";
 
@@ -41,11 +42,7 @@ export async function main(): Promise<void> {
         if (lifeImpacting) lifeImpactingFailures++;
       }
     }
-    const ratio = `${casePassed}/${c.checks.length}`;
-    const mark = casePassed === c.checks.length ? "✓" : "✗";
-    console.log(
-      `${mark} ${c.id.padEnd(34)} ${ratio.padStart(5)}  — ${c.description}`,
-    );
+    printCaseChecksLine(c.id, 34, casePassed, c.checks.length, c.description);
     if (failures.length > 0) {
       for (const f of failures) console.log(`    × ${f}`);
       console.log(`    cards: ${cards.length} parsed`);
@@ -53,17 +50,13 @@ export async function main(): Promise<void> {
   }
 
   const accuracy = (passedChecks / totalChecks) * 100;
-  console.log(`\n──── Summary ────`);
-  console.log(`Field accuracy:           ${accuracy.toFixed(1)}%  (target ≥ 85%)`);
-  console.log(
-    `Life-impacting failures:  ${lifeImpactingFailures === 0 ? "0 (target 0)" : `${lifeImpactingFailures}`}`,
-  );
-  console.log(`Cases run:                ${ALL_CASES.length}`);
-  console.log(`Total checks:             ${totalChecks}`);
-  console.log(`Passed:                   ${passedChecks}\n`);
+  printChecksSummary({
+    accuracy,
+    secondLine: `Life-impacting failures:  ${lifeImpactingFailures === 0 ? "0 (target 0)" : `${lifeImpactingFailures}`}`,
+    casesRun: ALL_CASES.length,
+    totalChecks,
+    passedChecks,
+  });
 
-  if (accuracy < 85 || lifeImpactingFailures > 0) {
-    console.error("EVAL FAILED — pass gate not met. Iterate the prompt.");
-    process.exit(1);
-  }
+  exitIfGateFailed(accuracy < 85 || lifeImpactingFailures > 0);
 }

@@ -6,6 +6,7 @@
  */
 
 import { isFreeFormTripDescription } from "../../free-form-detect";
+import { printBoxFooter, printBoxHeader } from "../cli";
 import { CASES, type Case } from "./cases";
 
 /** Per-case run — pure, no console output. */
@@ -18,9 +19,7 @@ export async function main(): Promise<void> {
   let pass = 0;
   let fail = 0;
 
-  console.log("═══════════════════════════════════════════════════════════════");
-  console.log("  PHI-58 — Free-form detection cases");
-  console.log("═══════════════════════════════════════════════════════════════\n");
+  printBoxHeader("PHI-58 — Free-form detection cases");
 
   for (const c of CASES) {
     const { got, ok } = runOne(c);
@@ -31,9 +30,7 @@ export async function main(): Promise<void> {
     console.log(`        expected ${c.expected} · got ${got} · ${c.note}`);
   }
 
-  console.log("\n═══════════════════════════════════════════════════════════════");
-  console.log(`  ${pass} passed, ${fail} failed out of ${pass + fail}`);
-  console.log("═══════════════════════════════════════════════════════════════");
+  printBoxFooter(`${pass} passed, ${fail} failed out of ${pass + fail}`, { leadingNewline: true });
 
   if (fail > 0) process.exit(1);
 }

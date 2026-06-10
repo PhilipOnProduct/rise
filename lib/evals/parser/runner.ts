@@ -5,6 +5,7 @@
  * byte-identical to the pre-refactor script.
  */
 
+import { exitIfGateFailed, printCaseChecksLine, printChecksSummary } from "../cli";
 import { CASES, type Case } from "./cases";
 import { PARSER_MODEL, parse } from "./judge";
 
@@ -41,9 +42,7 @@ export async function main(): Promise<void> {
         constraintFailures++;
       }
     }
-    const ratio = `${casePassed}/${c.checks.length}`;
-    const mark = casePassed === c.checks.length ? "✓" : "✗";
-    console.log(`${mark} ${c.id.padEnd(28)} ${ratio.padStart(5)}  — ${c.description}`);
+    printCaseChecksLine(c.id, 28, casePassed, c.checks.length, c.description);
     if (failures.length > 0) {
       for (const f of failures) console.log(`    × ${f}`);
       console.log("    intent:", JSON.stringify(intent));
@@ -51,15 +50,13 @@ export async function main(): Promise<void> {
   }
 
   const accuracy = (passedChecks / totalChecks) * 100;
-  console.log(`\n──── Summary ────`);
-  console.log(`Field accuracy:           ${accuracy.toFixed(1)}%  (target ≥ 85%)`);
-  console.log(`Constraint preservation:  ${constraintFailures === 0 ? "100%" : `${constraintFailures} failures`}  (target 100%)`);
-  console.log(`Cases run:                ${CASES.length}`);
-  console.log(`Total checks:             ${totalChecks}`);
-  console.log(`Passed:                   ${passedChecks}\n`);
+  printChecksSummary({
+    accuracy,
+    secondLine: `Constraint preservation:  ${constraintFailures === 0 ? "100%" : `${constraintFailures} failures`}  (target 100%)`,
+    casesRun: CASES.length,
+    totalChecks,
+    passedChecks,
+  });
 
-  if (accuracy < 85 || constraintFailures > 0) {
-    console.error("EVAL FAILED — pass gate not met. Iterate the prompt.");
-    process.exit(1);
-  }
+  exitIfGateFailed(accuracy < 85 || constraintFailures > 0);
 }

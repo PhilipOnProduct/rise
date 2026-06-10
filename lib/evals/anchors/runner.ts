@@ -12,7 +12,8 @@
  */
 
 import { calculateAnthropicCost } from "../../api-costs";
-import { bootstrapSiteAuth } from "../site-auth";
+import { bootstrapSiteAuthOrExit } from "../cli";
+import { errMsg, erroredGuiOutcome, passRateOf, truncateSnippet } from "../gui";
 import type { GuiCaseOutcome, GuiRunOpts, GuiSuiteOutcome } from "../types";
 import {
   RUNS_PER_CASE,
@@ -250,19 +251,7 @@ export async function main(): Promise<void> {
   console.log(`  Targeting: ${BASE_URL}`);
   console.log("═".repeat(60));
 
-  let authCookie: string | null = null;
-  try {
-    authCookie = await bootstrapSiteAuth(BASE_URL);
-    if (authCookie) {
-      console.log("  Auth: bootstrapped via SITE_PASSWORD");
-    } else {
-      console.log("  Auth: SITE_PASSWORD not set — proceeding without site_auth cookie");
-    }
-  } catch (err) {
-    console.error(`\nAuth bootstrap failed: ${err instanceof Error ? err.message : err}`);
-    console.error("Aborting — fix SITE_PASSWORD or unset it before retrying.");
-    process.exit(1);
-  }
+  const authCookie = await bootstrapSiteAuthOrExit(BASE_URL);
 
   console.log(`  Cases: ${TEST_CASES.length}  |  Runs/case: ${RUNS_PER_CASE}`);
 
@@ -391,18 +380,14 @@ export async function runSuiteForGui(opts: GuiRunOpts): Promise<GuiSuiteOutcome>
     if (result.status === "rejected") {
       // `runSingleAttempt` catches its own throws, so we land here only
       // on harness bugs. Record the failure and move on.
-      caseOutcomes.push({
-        caseName: testCase.label,
-        runIndex,
-        programmaticPass: false,
-        judgeScore: null,
-        judgeReasoning: null,
-        outputSnippet: "",
-        costUsdEstimate: perCaseRunCost,
-        durationMs: 0,
-        errorMessage:
-          result.reason instanceof Error ? result.reason.message : String(result.reason),
-      });
+      caseOutcomes.push(
+        erroredGuiOutcome({
+          caseName: testCase.label,
+          runIndex,
+          costUsdEstimate: perCaseRunCost,
+          errorMessage: errMsg(result.reason),
+        }),
+      );
       continue;
     }
 
@@ -435,7 +420,7 @@ export async function runSuiteForGui(opts: GuiRunOpts): Promise<GuiSuiteOutcome>
       programmaticPass: run.passed,
       judgeScore: run.judge ? run.score : null,
       judgeReasoning: run.judge?.summary ?? null,
-      outputSnippet: snippet.length > 1024 ? snippet.slice(0, 1024) + "…" : snippet,
+      outputSnippet: truncateSnippet(snippet),
       costUsdEstimate: perCaseRunCost,
       durationMs,
       errorMessage,
@@ -465,8 +450,7 @@ export async function runSuiteForGui(opts: GuiRunOpts): Promise<GuiSuiteOutcome>
     allJudgeScores.push(...scores);
   }
 
-  const passedRows = caseOutcomes.filter((c) => c.programmaticPass).length;
-  const passRate = caseOutcomes.length === 0 ? 0 : (passedRows / caseOutcomes.length) * 100;
+  const passRate = passRateOf(caseOutcomes);
   const suiteAverageScore =
     allJudgeScores.length > 0
       ? allJudgeScores.reduce((s, n) => s + n, 0) / allJudgeScores.length

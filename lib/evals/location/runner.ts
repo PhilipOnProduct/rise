@@ -6,8 +6,9 @@
  */
 
 import { calculateAnthropicCost } from "../../api-costs";
-import type { GuiCaseOutcome, GuiRunOpts, GuiSuiteOutcome } from "../types";
-import { bootstrapSiteAuth } from "../site-auth";
+import { bootstrapSiteAuthOrExit, printScoreSummaryAndExit, runScoredCliCases } from "../cli";
+import { runSequentialJudgedGuiSuite } from "../gui";
+import type { GuiRunOpts, GuiSuiteOutcome } from "../types";
 import { TEST_CASES, type EditRequest, type TestCase } from "./cases";
 import { judge, type ApiResponse, type ScoreResult } from "./judge";
 
@@ -67,47 +68,23 @@ export async function runOne(
  * loopback through.
  */
 export async function runSuiteForGui(opts: GuiRunOpts): Promise<GuiSuiteOutcome> {
-  const perCaseEstimate = costEstimateUsd() / TEST_CASES.length;
-  const caseOutcomes: GuiCaseOutcome[] = [];
-
-  for (const testCase of TEST_CASES) {
-    const t0 = Date.now();
-    try {
-      const response = await callEditApi(testCase.request, opts.authCookie, {
-        baseUrl: opts.baseUrl,
-        suiteRunId: opts.suiteRunId,
+  return runSequentialJudgedGuiSuite(TEST_CASES, opts, {
+    perCaseEstimate: costEstimateUsd() / TEST_CASES.length,
+    caseName: (testCase) => testCase.label,
+    exec: async (testCase, o) => {
+      const response = await callEditApi(testCase.request, o.authCookie, {
+        baseUrl: o.baseUrl,
+        suiteRunId: o.suiteRunId,
       });
-      const result = await judge(testCase, response, { suiteRunId: opts.suiteRunId });
-      const snippet = JSON.stringify(response);
-      caseOutcomes.push({
-        caseName: testCase.label,
-        runIndex: 0,
-        programmaticPass: result.passed,
-        judgeScore: result.score,
-        judgeReasoning: result.summary,
-        outputSnippet: snippet.length > 1024 ? snippet.slice(0, 1024) + "…" : snippet,
-        costUsdEstimate: perCaseEstimate,
-        durationMs: Date.now() - t0,
-        errorMessage: result.passed ? null : `Judge score ${result.score}/10 — ${result.summary}`,
-      });
-    } catch (err) {
-      caseOutcomes.push({
-        caseName: testCase.label,
-        runIndex: 0,
-        programmaticPass: false,
-        judgeScore: null,
-        judgeReasoning: null,
-        outputSnippet: "",
-        costUsdEstimate: perCaseEstimate,
-        durationMs: Date.now() - t0,
-        errorMessage: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
-
-  const passed = caseOutcomes.filter((c) => c.programmaticPass).length;
-  const passRate = caseOutcomes.length === 0 ? 0 : (passed / caseOutcomes.length) * 100;
-  return { caseOutcomes, passRate };
+      const result = await judge(testCase, response, { suiteRunId: o.suiteRunId });
+      return {
+        snippet: JSON.stringify(response),
+        passed: result.passed,
+        score: result.score,
+        summary: result.summary,
+      };
+    },
+  });
 }
 
 function printResult(testCase: TestCase, response: ApiResponse, result: ScoreResult) {
@@ -138,53 +115,17 @@ export async function main(): Promise<void> {
   console.log(`  Targeting: ${BASE_URL}`);
   console.log("═".repeat(60));
 
-  let authCookie: string | null = null;
-  try {
-    authCookie = await bootstrapSiteAuth(BASE_URL);
-    if (authCookie) {
-      console.log("  Auth: bootstrapped via SITE_PASSWORD");
-    } else {
-      console.log("  Auth: SITE_PASSWORD not set — proceeding without site_auth cookie");
-    }
-  } catch (err) {
-    console.error(`\nAuth bootstrap failed: ${err instanceof Error ? err.message : err}`);
-    console.error("Aborting — fix SITE_PASSWORD or unset it before retrying.");
-    process.exit(1);
-  }
+  const authCookie = await bootstrapSiteAuthOrExit(BASE_URL);
 
-  const results: { label: string; passed: boolean; score: number }[] = [];
-
-  for (const testCase of TEST_CASES) {
-    process.stdout.write(`\nRunning: ${testCase.label}… `);
-
-    try {
-      const response = await callEditApi(testCase.request, authCookie);
-      process.stdout.write("scoring… ");
-      const result = await judge(testCase, response);
-      process.stdout.write("done.\n");
-
-      printResult(testCase, response, result);
-      results.push({ label: testCase.label, passed: result.passed, score: result.score });
-    } catch (err) {
-      process.stdout.write("error.\n");
-      console.error(`  ⚠ ${testCase.label}: ${err instanceof Error ? err.message : err}`);
-      results.push({ label: testCase.label, passed: false, score: 0 });
-    }
-  }
+  const results = await runScoredCliCases(TEST_CASES, {
+    label: (testCase) => testCase.label,
+    runningPrefix: "\n",
+    ellipsis: "…",
+    fetchOutput: (testCase) => callEditApi(testCase.request, authCookie),
+    judgeOutput: (testCase, response) => judge(testCase, response),
+    printResult,
+  });
 
   // Summary
-  const passed = results.filter((r) => r.passed).length;
-  const passRate = Math.round((passed / results.length) * 100);
-  const avgScore = (results.reduce((s, r) => s + r.score, 0) / results.length).toFixed(1);
-
-  console.log(`\n${"═".repeat(60)}`);
-  console.log(`  RESULTS  ${passed}/${results.length} passed  (${passRate}% pass rate)  avg score: ${avgScore}/10`);
-  console.log("═".repeat(60));
-  for (const r of results) {
-    const badge = r.passed ? "✅" : "❌";
-    console.log(`  ${badge} ${r.label.padEnd(55)} ${r.score}/10`);
-  }
-  console.log();
-
-  process.exit(passed === results.length ? 0 : 1);
+  printScoreSummaryAndExit(results, { indent: "  ", labelPad: 55 });
 }

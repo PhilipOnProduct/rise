@@ -45,6 +45,7 @@ import {
   costEstimateUsd as popularPicksCost,
   runSuiteForGui as runPopularPicksSuite,
 } from "./popular-picks/runner";
+import { passRateOf, truncateSnippet } from "./gui";
 import type {
   GuiCaseOutcome,
   GuiRunOpts,
@@ -237,7 +238,7 @@ export function runFamilySuiteForGui(): GuiSuiteOutcome {
       judgeScore: null,
       judgeReasoning: null,
       // Cap snippet at 1KB — the full segment is regenerable from the scenario inputs.
-      outputSnippet: output.length > 1024 ? output.slice(0, 1024) + "…" : output,
+      outputSnippet: truncateSnippet(output),
       costUsdEstimate: 0,
       durationMs,
       errorMessage: programmaticPass
@@ -249,10 +250,7 @@ export function runFamilySuiteForGui(): GuiSuiteOutcome {
     });
   }
 
-  const passedCases = caseOutcomes.filter((c) => c.programmaticPass).length;
-  const passRate = caseOutcomes.length === 0 ? 0 : (passedCases / caseOutcomes.length) * 100;
-
-  return { caseOutcomes, passRate, totalAssertions, passedAssertions };
+  return { caseOutcomes, passRate: passRateOf(caseOutcomes), totalAssertions, passedAssertions };
 }
 
 /**

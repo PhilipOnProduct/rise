@@ -6,6 +6,7 @@
  */
 
 import { buildCompositionSegment } from "../../composition";
+import { printBoxFooter, printBoxHeader } from "../cli";
 import { SCENARIOS, type Scenario } from "./cases";
 
 /**
@@ -41,9 +42,7 @@ export async function main(): Promise<void> {
   let totalPass = 0;
   let totalFail = 0;
 
-  console.log("═══════════════════════════════════════════════════════════════");
-  console.log("  Family Prompt Evaluation — Level 1 (Prompt Inspection)");
-  console.log("═══════════════════════════════════════════════════════════════\n");
+  printBoxHeader("Family Prompt Evaluation — Level 1 (Prompt Inspection)");
 
   for (const scenario of SCENARIOS) {
     const { output, results } = runOne(scenario);
@@ -74,9 +73,7 @@ export async function main(): Promise<void> {
     console.log();
   }
 
-  console.log("═══════════════════════════════════════════════════════════════");
-  console.log(`  Results: ${totalPass} passed, ${totalFail} failed out of ${totalPass + totalFail} assertions`);
-  console.log("═══════════════════════════════════════════════════════════════");
+  printBoxFooter(`Results: ${totalPass} passed, ${totalFail} failed out of ${totalPass + totalFail} assertions`);
 
   if (totalFail > 0) {
     process.exit(1);

@@ -12,6 +12,7 @@
  */
 
 import { calculateAnthropicCost, calculateGoogleCost } from "../../api-costs";
+import { errMsg, erroredGuiOutcome, passRateOf, truncateSnippet } from "../gui";
 import type { GuiCaseOutcome, GuiRunOpts, GuiSuiteOutcome } from "../types";
 import {
   getCandidates,
@@ -302,18 +303,14 @@ export async function runSuiteForGui(opts: GuiRunOpts): Promise<GuiSuiteOutcome>
     const result = settled[i];
 
     if (result.status === "rejected") {
-      caseOutcomes.push({
-        caseName: fixture.id,
-        runIndex,
-        programmaticPass: false,
-        judgeScore: null,
-        judgeReasoning: null,
-        outputSnippet: "",
-        costUsdEstimate: perCaseRunCost,
-        durationMs: 0,
-        errorMessage:
-          result.reason instanceof Error ? result.reason.message : String(result.reason),
-      });
+      caseOutcomes.push(
+        erroredGuiOutcome({
+          caseName: fixture.id,
+          runIndex,
+          costUsdEstimate: perCaseRunCost,
+          errorMessage: errMsg(result.reason),
+        }),
+      );
       continue;
     }
 
@@ -340,7 +337,7 @@ export async function runSuiteForGui(opts: GuiRunOpts): Promise<GuiSuiteOutcome>
       programmaticPass: rowPassed,
       judgeScore: run.judge.overall,
       judgeReasoning: reasoning,
-      outputSnippet: snippet.length > 1024 ? snippet.slice(0, 1024) + "…" : snippet,
+      outputSnippet: truncateSnippet(snippet),
       costUsdEstimate: perCaseRunCost,
       durationMs,
       errorMessage: run.errorMessage ?? (rowPassed ? null : `Run scored ${run.judge.overall}/5 — below ${PASS_FLOOR}/5 floor`),
@@ -367,12 +364,9 @@ export async function runSuiteForGui(opts: GuiRunOpts): Promise<GuiSuiteOutcome>
   const everyCaseAboveFloor = caseAverages.every((a) => a >= PASS_FLOOR);
   const overallSuitePass = overallAvg >= PASS_AVG && everyCaseAboveFloor;
 
-  const passedRows = caseOutcomes.filter((c) => c.programmaticPass).length;
-  const passRate = caseOutcomes.length === 0 ? 0 : (passedRows / caseOutcomes.length) * 100;
-
   return {
     caseOutcomes,
-    passRate,
+    passRate: passRateOf(caseOutcomes),
     overallSuitePass,
     suiteAverageScore: overallAvg,
   };

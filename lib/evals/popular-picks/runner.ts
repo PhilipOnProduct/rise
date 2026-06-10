@@ -12,6 +12,7 @@
  */
 
 import { calculateAnthropicCost } from "../../api-costs";
+import { errMsg, erroredGuiOutcome, passRateOf, truncateSnippet } from "../gui";
 import type { GuiCaseOutcome, GuiRunOpts, GuiSuiteOutcome } from "../types";
 import type { PopularPick } from "../../popular-picks-prompt";
 import { bootstrapSiteAuth } from "../site-auth";
@@ -183,18 +184,14 @@ export async function runSuiteForGui(opts: GuiRunOpts): Promise<GuiSuiteOutcome>
     const result = settled[i];
 
     if (result.status === "rejected") {
-      caseOutcomes.push({
-        caseName: fixture.id,
-        runIndex: 0,
-        programmaticPass: false,
-        judgeScore: null,
-        judgeReasoning: null,
-        outputSnippet: "",
-        costUsdEstimate: perFixtureCost,
-        durationMs: 0,
-        errorMessage:
-          result.reason instanceof Error ? result.reason.message : String(result.reason),
-      });
+      caseOutcomes.push(
+        erroredGuiOutcome({
+          caseName: fixture.id,
+          runIndex: 0,
+          costUsdEstimate: perFixtureCost,
+          errorMessage: errMsg(result.reason),
+        }),
+      );
       continue;
     }
 
@@ -222,7 +219,7 @@ export async function runSuiteForGui(opts: GuiRunOpts): Promise<GuiSuiteOutcome>
       programmaticPass: rowPassed,
       judgeScore: fr.judge.overall,
       judgeReasoning: reasoning,
-      outputSnippet: snippet.length > 1024 ? snippet.slice(0, 1024) + "…" : snippet,
+      outputSnippet: truncateSnippet(snippet),
       costUsdEstimate: fr.cached ? perFixtureCost / 5 : perFixtureCost,
       durationMs,
       errorMessage: rowPassed ? null : `Scored ${fr.judge.overall}/5 — below ${PASS_FLOOR}/5 floor`,
@@ -237,12 +234,9 @@ export async function runSuiteForGui(opts: GuiRunOpts): Promise<GuiSuiteOutcome>
   const min = judgeScores.length > 0 ? Math.min(...judgeScores) : 0;
   const overallSuitePass = avg >= PASS_AVG && min >= PASS_FLOOR;
 
-  const passedRows = caseOutcomes.filter((c) => c.programmaticPass).length;
-  const passRate = caseOutcomes.length === 0 ? 0 : (passedRows / caseOutcomes.length) * 100;
-
   return {
     caseOutcomes,
-    passRate,
+    passRate: passRateOf(caseOutcomes),
     overallSuitePass,
     suiteAverageScore: avg,
   };
