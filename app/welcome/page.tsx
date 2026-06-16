@@ -463,6 +463,27 @@ function WelcomePageInner() {
     setTravelerTypes((prev) => prev.filter((t) => available.includes(t)));
   }, [travelCompany]);
 
+  // PHI-127: invalidate the cached neighbourhood picker when the destination
+  // changes mid-session (Back → edit destination, country-rec pick, parser
+  // re-entry). Without this the picker keeps the *previous* city's cards
+  // under the new city's heading, and the "Saved area" chip holds a stale
+  // neighbourhood. Track the previous destination; on a real change drop the
+  // cached cards + error + saved anchor and close the picker so the next
+  // open refetches for the new city. First run only records the baseline.
+  // Functional updaters keep this a no-op (React bails) when nothing is
+  // cached, so per-keystroke destination edits don't churn renders.
+  const prevNeighborhoodDestRef = useRef<string | null>(null);
+  useEffect(() => {
+    const dest = destination.trim().toLowerCase();
+    const prev = prevNeighborhoodDestRef.current;
+    prevNeighborhoodDestRef.current = dest;
+    if (prev === null || prev === dest) return;
+    setNeighborhoodCards((c) => (c.length > 0 ? [] : c));
+    setNeighborhoodsError((e) => (e ? null : e));
+    setAnchorNeighborhood((a) => (a ? "" : a));
+    setNeighborhoodPickerOpen((open) => (open ? false : open));
+  }, [destination]);
+
   // PHI-44: auto-dismiss the "refreshing your picks" note after 4s so it
   // doesn't linger past the new stream's first cards arriving.
   useEffect(() => {
