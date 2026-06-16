@@ -1,6 +1,7 @@
 "use client";
 
 import type { MutableRefObject } from "react";
+import { getMustDosPlaceholder } from "@/lib/must-dos-placeholders";
 
 type PopularPickRow = {
   name: string;
@@ -120,7 +121,9 @@ export function Step4MustDos({
                   <textarea
                     value={userSeededText}
                     onChange={(e) => setUserSeededText(e.target.value)}
-                    placeholder={`e.g.\nCervejaria Ramiro\nSunset at Miradouro da Senhora do Monte\nTime Out Market`}
+                    // PHI-129: destination-aware examples (was hardcoded
+                    // Lisbon). Mirrors PHI-80's hotel-placeholder approach.
+                    placeholder={getMustDosPlaceholder(destination)}
                     rows={6}
                     className="w-full min-h-[160px] bg-white border border-[#b8b3a9] focus:border-[#1a6b7f] outline-none rounded-xl px-4 py-3 text-[var(--text-primary)] text-base placeholder-[#9ca3af] transition-colors resize-y"
                   />
