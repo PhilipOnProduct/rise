@@ -484,6 +484,21 @@ function WelcomePageInner() {
     setNeighborhoodPickerOpen((open) => (open ? false : open));
   }, [destination]);
 
+  // PHI-126: when the has-children signal changes elsewhere — e.g. the user
+  // declares kids on step 3 then navigates Back to the step-2 picker — drop
+  // any cached neighbourhood cards so the next open refetches the correct
+  // has_children shard. Keyed on composition only; the saved anchor stays
+  // (same city, the area is still a valid choice). The in-picker toggle
+  // clears + refetches directly, so this effect is a harmless no-op there.
+  const prevNeighborhoodHasKidsRef = useRef<boolean | null>(null);
+  useEffect(() => {
+    const hasKids = childrenAges.length > 0;
+    const prev = prevNeighborhoodHasKidsRef.current;
+    prevNeighborhoodHasKidsRef.current = hasKids;
+    if (prev === null || prev === hasKids) return;
+    setNeighborhoodCards((c) => (c.length > 0 ? [] : c));
+  }, [childrenAges]);
+
   // PHI-44: auto-dismiss the "refreshing your picks" note after 4s so it
   // doesn't linger past the new stream's first cards arriving.
   useEffect(() => {
@@ -1236,24 +1251,30 @@ function WelcomePageInner() {
     goTo(4);
   }
 
-  // PHI-100: open the soft neighbourhood picker. No Anthropic call on
-  // mount of step 2 — only here, on explicit user click. Idempotent: if
-  // we already have cards for the current destination we skip the fetch.
-  async function openNeighborhoodPicker() {
+  // PHI-100 / PHI-126: fetch the neighbourhood cards. The composition signal
+  // (has_children) is taken EXPLICITLY rather than read from `childrenAges`
+  // state, so the in-picker "Travelling with children?" toggle can refetch
+  // with a new value without waiting for the state flush (stale-closure-
+  // safe). The /api/neighborhoods route only checks childrenAges.length > 0
+  // to pick the cache shard + engage the family-mode prompt, so a single
+  // sentinel entry is enough when we know there are kids but not their ages.
+  async function fetchNeighborhoods(hasChildren: boolean) {
     const dest = destination.trim();
     if (!dest) return;
-    setNeighborhoodPickerOpen(true);
-    setNeighborhoodsError(null);
-    if (neighborhoodCards.length > 0) return;
     setNeighborhoodsLoading(true);
+    setNeighborhoodsError(null);
     try {
-      // PHI-107: thread childrenAges so the route shards the cache and
-      // engages the system prompt's family-mode rules. Empty/null array
-      // hits the non-family cache row, byte-identical to pre-PHI-107.
       const res = await fetch("/api/neighborhoods", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ destination: dest, childrenAges }),
+        body: JSON.stringify({
+          destination: dest,
+          childrenAges: hasChildren
+            ? childrenAges.length > 0
+              ? childrenAges
+              : [""]
+            : [],
+        }),
       });
       if (!res.ok) {
         setNeighborhoodsError("Couldn't load neighbourhoods. Try again?");
@@ -1270,6 +1291,41 @@ function WelcomePageInner() {
     } finally {
       setNeighborhoodsLoading(false);
     }
+  }
+
+  // PHI-100: open the soft neighbourhood picker. No Anthropic call on mount
+  // of step 2 — only here, on explicit user click. Idempotent: if we already
+  // have cards for the current (destination, composition) shard we skip the
+  // fetch. The PHI-126 composition-invalidation effect clears the cache when
+  // the has-children signal flips, so reopening after declaring kids on
+  // step 3 refetches the family shard rather than serving stale cards.
+  async function openNeighborhoodPicker() {
+    const dest = destination.trim();
+    if (!dest) return;
+    setNeighborhoodPickerOpen(true);
+    setNeighborhoodsError(null);
+    if (neighborhoodCards.length > 0) return;
+    // PHI-126: bias by whatever composition we know so far. On the parser
+    // path childrenAges is already populated; on the structured path it's
+    // empty here (composition is step 3) until the user flags kids via the
+    // in-picker toggle below.
+    await fetchNeighborhoods(childrenAges.length > 0);
+  }
+
+  // PHI-126: the structured-wizard picker runs at step 2, before step 3
+  // captures composition — so the family shard never fired on that path
+  // (childrenAges was always empty when the picker fetched). This lets the
+  // traveller flag "travelling with children" right in the picker. It writes
+  // through to the shared childrenAges state (single source of truth — also
+  // pre-fills step 3 with one age-unset child, exactly like the step-3 "add
+  // child" control) and refetches for the correct has_children shard.
+  // Passing hasKids explicitly avoids the stale closure on childrenAges.
+  function setPickerTravellingWithChildren(hasKids: boolean) {
+    const prevHasKids = childrenAges.length > 0;
+    if (hasKids === prevHasKids) return;
+    setChildrenAges(hasKids ? [""] : []);
+    setNeighborhoodCards([]);
+    void fetchNeighborhoods(hasKids);
   }
 
   // PHI-100: pick a neighbourhood card. Hotel and anchor are mutually
@@ -2153,6 +2209,8 @@ function WelcomePageInner() {
               neighborhoodCards={neighborhoodCards}
               pickNeighborhood={pickNeighborhood}
               setNeighborhoodPickerOpen={setNeighborhoodPickerOpen}
+              travellingWithChildren={childrenAges.length > 0}
+              onTravellingWithChildrenChange={setPickerTravellingWithChildren}
             />
           )}
           {step === 2 && parsedLegs.length >= 2 && (

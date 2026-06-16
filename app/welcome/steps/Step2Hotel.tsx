@@ -111,6 +111,10 @@ type Step2NeighborhoodPickerProps = {
   neighborhoodCards: NeighborhoodCard[];
   pickNeighborhood: (name: string) => void;
   setNeighborhoodPickerOpen: (v: boolean) => void;
+  // PHI-126: composition signal + setter so the picker can bias by family
+  // even though composition is captured one step later (step 3).
+  travellingWithChildren: boolean;
+  onTravellingWithChildrenChange: (hasKids: boolean) => void;
 };
 
 export function Step2NeighborhoodPicker({
@@ -122,6 +126,8 @@ export function Step2NeighborhoodPicker({
   neighborhoodCards,
   pickNeighborhood,
   setNeighborhoodPickerOpen,
+  travellingWithChildren,
+  onTravellingWithChildrenChange,
 }: Step2NeighborhoodPickerProps) {
   return (
             <div className="flex flex-col gap-5" data-testid="neighborhood-picker">
@@ -129,6 +135,51 @@ export function Step2NeighborhoodPicker({
                 Pick where to base yourself in {cityLabel(destination)}. Each card shows
                 the trade-off a local would tell a friend — pick what fits.
               </p>
+              {/* PHI-126: composition is captured one step later (step 3), so
+                  without an inline signal here the family shard never fired on
+                  the structured path. This Yes/No writes through to the shared
+                  childrenAges state (pre-fills step 3) and refetches the cards
+                  for the correct has_children shard. */}
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-[#e8e4de] bg-white px-4 py-3">
+                  <span className="text-sm font-medium text-[var(--text-primary)]">
+                    Travelling with children?
+                  </span>
+                  <div
+                    className="flex gap-1 shrink-0"
+                    role="group"
+                    aria-label="Travelling with children?"
+                  >
+                    {[
+                      { label: "No", value: false },
+                      { label: "Yes", value: true },
+                    ].map((opt) => {
+                      const active = travellingWithChildren === opt.value;
+                      return (
+                        <button
+                          key={opt.label}
+                          type="button"
+                          onClick={() => onTravellingWithChildrenChange(opt.value)}
+                          aria-pressed={active}
+                          data-testid={`neighborhood-kids-${opt.label.toLowerCase()}`}
+                          className={`min-w-[3rem] px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
+                            active
+                              ? "bg-[#1a6b7f] text-white"
+                              : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                {travellingWithChildren && (
+                  <p className="text-xs text-[var(--text-muted)]">
+                    We&apos;ll lean toward pram-friendly, quieter areas near green space.
+                  </p>
+                )}
+              </div>
               {neighborhoodsLoading && (
                 <div className="text-sm text-[var(--text-muted)]">
                   Generating neighbourhoods…
