@@ -658,6 +658,78 @@ function WelcomePageInner() {
     };
   }, [step, destination, departureDate, returnDate, flexMode, flexMonth, flexNights, travelCompany, travelerTypes, budgetTier]);
 
+  // PHI-128: the step-6 itinerary preview is generated once and cached in
+  // `itineraryPreview` (+ rise_itinerary in localStorage). The generate
+  // effect below bails when a preview already exists, so editing the trip
+  // via Back — destination, dates, composition, hotel, must-dos, … — would
+  // leave the OLD itinerary on the account step (Priya saw the Bergmans'
+  // Rome family plan on her solo-Lisbon trip). Track a signature of the
+  // trip-definition inputs; on a real change, drop the cached preview +
+  // placement_notes + time_sensitive_alerts (and the mirrored localStorage
+  // keys) so re-entering step 6 regenerates cleanly for the current inputs.
+  // Sibling of PHI-72, which fixed the same staleness class on first
+  // /itinerary visit.
+  //
+  // Excludes activityFeedback by design: re-rating on step 5 is a separate
+  // interaction this issue doesn't cover, and including it would churn the
+  // cache on every thumbs-up. Leg ids from buildLegsForApi() are random
+  // (crypto.randomUUID), so we sign the stable source state (parsedLegs /
+  // legHotels), never the built legs. Functional updaters make every clear
+  // a no-op (React bails) when nothing is cached, so the many input changes
+  // during the forward flow don't churn renders.
+  const prevItinerarySigRef = useRef<string | null>(null);
+  useEffect(() => {
+    const sig = JSON.stringify({
+      destination: destination.trim().toLowerCase(),
+      flexMode,
+      flexMonth,
+      flexNights,
+      departureDate,
+      returnDate,
+      travelCompany,
+      adultCount,
+      childrenAges,
+      travelerTypes,
+      budgetTier,
+      hotel: hotel.trim().toLowerCase(),
+      anchorNeighborhood,
+      inspiration: inspiration.trim().toLowerCase(),
+      userSeeded: splitSeededActivities(userSeededText),
+      legs: parsedLegs.map((l) => ({ name: l.place.name, nights: l.nights })),
+      legHotels,
+    });
+    const prev = prevItinerarySigRef.current;
+    prevItinerarySigRef.current = sig;
+    if (prev === null || prev === sig) return;
+    setItineraryPreview((p) => (p ? null : p));
+    setItineraryPlacementNotes((n) => (n ? null : n));
+    setItineraryTimeSensitiveAlerts((a) => (a ? null : a));
+    itineraryViewedFiredRef.current = false;
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("rise_itinerary");
+      localStorage.removeItem("rise_itinerary_placement_notes");
+      localStorage.removeItem("rise_itinerary_time_sensitive_alerts");
+    }
+  }, [
+    destination,
+    flexMode,
+    flexMonth,
+    flexNights,
+    departureDate,
+    returnDate,
+    travelCompany,
+    adultCount,
+    childrenAges,
+    travelerTypes,
+    budgetTier,
+    hotel,
+    anchorNeighborhood,
+    inspiration,
+    userSeededText,
+    parsedLegs,
+    legHotels,
+  ]);
+
   // PHI-31 Part 2 slice 2: generate the itinerary preview when entering
   // the account step, so the user sees the actual product output BEFORE
   // the signup form. This is the activation lever: 4 of 5 personas in the
