@@ -1,6 +1,7 @@
 "use client";
 
 import type { ItineraryDay } from "@/types/itinerary";
+import { cityLabel } from "@/lib/destination-label";
 import { formatDateRange } from "./itinerary-helpers";
 import type { TravelConnector } from "./itinerary-types";
 
@@ -27,7 +28,7 @@ export function ItineraryHeader({ destination, departureDate, returnDate, hotel,
           <div className="pt-10 pb-2">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h1 className="text-3xl font-extrabold tracking-tight text-[var(--text-primary)]">{destination}</h1>
+                <h1 className="text-3xl font-extrabold tracking-tight text-[var(--text-primary)]">{cityLabel(destination)}</h1>
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[var(--text-muted)] text-sm mt-1">
                   {departureDate && returnDate && (
                     <span>{formatDateRange(departureDate, returnDate)}</span>

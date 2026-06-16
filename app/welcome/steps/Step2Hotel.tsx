@@ -3,6 +3,7 @@
 import type { Dispatch, SetStateAction } from "react";
 import PlacesAutocomplete from "@/app/components/PlacesAutocomplete";
 import { getHotelPlaceholder } from "@/lib/hotel-placeholders";
+import { cityLabel } from "@/lib/destination-label";
 import type { NeighborhoodCard } from "@/lib/neighborhood-gen-prompt";
 import type { PlaceRef } from "@/lib/trip-schema";
 
@@ -125,7 +126,7 @@ export function Step2NeighborhoodPicker({
   return (
             <div className="flex flex-col gap-5" data-testid="neighborhood-picker">
               <p className="text-[var(--text-secondary)]">
-                Pick where to base yourself in {destination}. Each card shows
+                Pick where to base yourself in {cityLabel(destination)}. Each card shows
                 the trade-off a local would tell a friend — pick what fits.
               </p>
               {neighborhoodsLoading && (

@@ -1,4 +1,5 @@
 import { cleanUserSeededActivities } from "@/lib/itinerary-gen-prompt";
+import { cityLabel } from "@/lib/destination-label";
 import type { ParsedActivity } from "./welcome-types";
 
 export function tomorrow() {
@@ -138,9 +139,11 @@ export function previewLoadingLabel(destination: string, travelCompany: string):
     family: "family",
     friends: "friends",
   };
+  // PHI-130: clean city label for display; full string stays in state.
+  const city = cityLabel(destination);
   const label = companyLabel[travelCompany];
-  if (label) return `Planning your ${label} trip to ${destination}…`;
-  return `Planning your trip to ${destination}…`;
+  if (label) return `Planning your ${label} trip to ${city}…`;
+  return `Planning your trip to ${city}…`;
 }
 
 export function parseActivities(text: string): ParsedActivity[] {

@@ -6,6 +6,7 @@ import { track } from "@vercel/analytics";
 import type { TripIntent } from "@/lib/trip-intent";
 import { newLegId, type PlaceRef, type TripLeg } from "@/lib/trip-schema";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
+import { cityLabel } from "@/lib/destination-label";
 import type { NeighborhoodCard } from "@/lib/neighborhood-gen-prompt";
 import { LandingFreeForm } from "./LandingFreeForm";
 import { LandingStructured } from "./LandingStructured";
@@ -2012,15 +2013,17 @@ function WelcomePageInner() {
     1: "When are you going?",
     2: "Where are you staying?",
     3: "Tell us about yourself.",
-    35: `Where in ${destination}?`,
+    // PHI-130: show the clean city label in headings, not the verbose
+    // geocoded string. The full `destination` is preserved for prompts.
+    35: `Where in ${cityLabel(destination)}?`,
     // PHI-90: new must-dos step heading. Optional — user can skip.
     4: "Anything you already want to do?",
-    5: `Activities for your ${destination} trip.`,
+    5: `Activities for your ${cityLabel(destination)} trip.`,
     6: accountStepHeading,
   };
 
   const subs: Record<number, string> = {
-    1: `Great choice. Now let's lock in the dates for ${destination}.`,
+    1: `Great choice. Now let's lock in the dates for ${cityLabel(destination)}.`,
     2: "Your hotel helps us give better local advice — skip if you haven\u2019t booked yet.",
     3: "A few quick questions so we can personalise your experience.",
     35: "Pick a city or region \u2014 we'll personalise the rest from there.",

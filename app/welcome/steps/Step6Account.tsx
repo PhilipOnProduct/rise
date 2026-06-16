@@ -1,6 +1,7 @@
 "use client";
 
 import type { PlaceRef } from "@/lib/trip-schema";
+import { cityLabel } from "@/lib/destination-label";
 import { PreviewDayCard } from "../PreviewDayCard";
 import type { ActivityFeedbackEntry, PreviewDay } from "../welcome-types";
 
@@ -115,7 +116,7 @@ export function Step6Account({
                   <div className="rounded-2xl border border-[#e8e4de] bg-white p-6 flex items-center gap-3 text-[var(--text-secondary)]">
                     <div className="w-4 h-4 rounded-full border-2 border-[#1a6b7f] border-t-transparent animate-spin" />
                     <span>
-                      Building your day-by-day itinerary for {destination}…
+                      Building your day-by-day itinerary for {cityLabel(destination)}…
                     </span>
                   </div>
                 )}
