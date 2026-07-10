@@ -16,6 +16,7 @@ import { getSupabaseServerClient } from "@/lib/supabase-server";
 import { checkApiLimit } from "@/lib/log-api-usage";
 import { logAiInteraction } from "@/lib/ai-logger";
 import type { Activity, ItineraryDay } from "@/types/itinerary";
+import { dbErr } from "@/lib/db-utils";
 import {
   type Coords,
   type ConnectorRow,
@@ -69,7 +70,7 @@ export async function GET() {
     .order("sequence_index");
 
   if (error) {
-    console.error("[travel GET]", error.message);
+    console.error("[travel GET]", dbErr(error));
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
@@ -255,7 +256,7 @@ async function handleFullCompute(
     .delete()
     .eq("traveler_id", travelerId);
 
-  if (delErr) console.error("[travel] delete error:", delErr.message);
+  if (delErr) console.error("[travel] delete error:", dbErr(delErr));
 
   if (allConnectors.length > 0) {
     const { error: insErr } = await supabase
@@ -263,7 +264,7 @@ async function handleFullCompute(
       .insert(allConnectors);
 
     if (insErr) {
-      console.error("[travel] insert error:", insErr.message);
+      console.error("[travel] insert error:", dbErr(insErr));
       return NextResponse.json({ error: "Failed to store connectors" }, { status: 500 });
     }
   }

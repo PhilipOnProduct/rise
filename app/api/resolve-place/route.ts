@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { logApiUsage } from "@/lib/log-api-usage";
+import { checkApiLimit, logApiUsage } from "@/lib/log-api-usage";
 import type { PlaceRef, PlaceType } from "@/lib/trip-schema";
 
 /**
@@ -64,6 +64,14 @@ export async function POST(req: NextRequest) {
   // is good enough at disambiguating. We avoid hard-coded biases here to
   // keep the endpoint generic.
   const textQuery = name.trim();
+
+  // Hard-limit check BEFORE the billable call. This route soft-degrades by
+  // contract (never breaks onboarding), so an exceeded limit returns the
+  // same 200 + null shape as every other failure path rather than a 429.
+  const limit = await checkApiLimit("google");
+  if (!limit.allowed) {
+    return NextResponse.json({ resolved: null, reason: "limit_exceeded" }, { status: 200 });
+  }
 
   try {
     const res = await fetch("https://places.googleapis.com/v1/places:searchText", {

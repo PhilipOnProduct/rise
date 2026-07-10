@@ -17,7 +17,6 @@ export default function CityGuidePage() {
   useEffect(() => {
     try {
       const stored = localStorage.getItem("rated_tips");
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage hydration on mount; SSR renders the empty fallback
       if (stored) setRatedTips(new Set(JSON.parse(stored)));
     } catch {}
   }, []);
@@ -26,24 +25,30 @@ export default function CityGuidePage() {
     fetch(`/api/guides?city=${encodeURIComponent(city)}`)
       .then((r) => r.json())
       .then((data: Tip[]) => {
-        setTips(data);
-        setLoading(false);
+        setTips(Array.isArray(data) ? data : []);
         data.forEach((tip) => {
           fetch(`/api/tips/${tip.id}/view`, { method: "POST" }).catch(() => {});
         });
-      });
+      })
+      .catch(() => {}) // failed load falls through to the empty state
+      .finally(() => setLoading(false));
   }, [city]);
 
   async function handleRate(tipId: string) {
     if (ratedTips.has(tipId) || ratingInProgress.has(tipId)) return;
     setRatingInProgress((s) => new Set(s).add(tipId));
-    const res = await fetch(`/api/tips/${tipId}/rate`, { method: "POST" });
-    if (res.ok) {
-      const newRated = new Set(ratedTips).add(tipId);
-      setRatedTips(newRated);
-      try { localStorage.setItem("rated_tips", JSON.stringify([...newRated])); } catch {}
+    try {
+      const res = await fetch(`/api/tips/${tipId}/rate`, { method: "POST" });
+      if (res.ok) {
+        const newRated = new Set(ratedTips).add(tipId);
+        setRatedTips(newRated);
+        try { localStorage.setItem("rated_tips", JSON.stringify([...newRated])); } catch {}
+      }
+    } catch {
+      // network failure — leave the tip unrated so the user can retry
+    } finally {
+      setRatingInProgress((s) => { const n = new Set(s); n.delete(tipId); return n; });
     }
-    setRatingInProgress((s) => { const n = new Set(s); n.delete(tipId); return n; });
   }
 
   const byCategory = CATEGORIES.reduce<Record<Category, Tip[]>>((acc, cat) => {

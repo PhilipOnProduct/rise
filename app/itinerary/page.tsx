@@ -292,8 +292,13 @@ export default function ItineraryViewPage() {
     }
 
     async function generate(t: StoredTraveler) {
-      const feedbackRaw = localStorage.getItem("rise_activity_feedback");
-      const activityFeedback = feedbackRaw ? (JSON.parse(feedbackRaw) as unknown[]) : [];
+      let activityFeedback: unknown[] = [];
+      try {
+        const feedbackRaw = localStorage.getItem("rise_activity_feedback");
+        if (feedbackRaw) activityFeedback = JSON.parse(feedbackRaw) as unknown[];
+      } catch {
+        // Corrupt cache entry — generate without feedback rather than failing.
+      }
 
       const res = await fetch("/api/itinerary/generate", {
         method: "POST",
@@ -488,7 +493,11 @@ export default function ItineraryViewPage() {
 
     for (const el of elements) observer.observe(el);
     return () => observer.disconnect();
-  }, [loading, days]);
+    // Keyed on days.length (like the connector-load effect above): day anchor
+    // ids only change when the day count does, so per-edit `days` array
+    // replacement shouldn't tear down and re-create the observer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, days.length]);
 
   // ── Scroll to day ────────────────────────────────────────────────────────
 

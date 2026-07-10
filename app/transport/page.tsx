@@ -31,7 +31,6 @@ export default function TransportPage() {
       const raw = localStorage.getItem("rise_traveler");
       if (raw) {
         const t = JSON.parse(raw);
-        // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage hydration on mount; SSR renders the defaults
         if (t.travelerCount) setTravelerCount(t.travelerCount);
         if (t.childrenAges?.length) setChildrenAges(t.childrenAges);
         if (t.destination && !city) setCity(t.destination);
@@ -45,28 +44,36 @@ export default function TransportPage() {
     setResult("");
     setLoading(true);
 
-    const res = await fetch("/api/transport", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        airport,
-        hotel,
-        city,
-        travelerCount,
-        childrenAges,
-      }),
-    });
+    try {
+      const res = await fetch("/api/transport", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          airport,
+          hotel,
+          city,
+          travelerCount,
+          childrenAges,
+        }),
+      });
 
-    if (!res.body) { setLoading(false); return; }
+      if (!res.ok || !res.body) {
+        setResult("Sorry — transport advice is unavailable right now. Please try again in a moment.");
+        return;
+      }
 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      setResult((prev) => prev + decoder.decode(value));
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        setResult((prev) => prev + decoder.decode(value));
+      }
+    } catch {
+      setResult("Sorry — transport advice is unavailable right now. Please try again in a moment.");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   const inputCls = "w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-5 py-4 text-[var(--text-primary)] placeholder-[#9ca3af] transition-colors text-sm";

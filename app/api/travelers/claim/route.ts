@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isUuid } from "@/lib/db-utils";
+import { isUuid, dbErr } from "@/lib/db-utils";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
 import { getSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
@@ -114,7 +114,7 @@ export async function POST(req: NextRequest) {
       .eq("id", accountTravelerId)
       .maybeSingle();
     if (fetchErr) {
-      console.error("[travelers/claim] use_saved fetch:", fetchErr.message);
+      console.error("[travelers/claim] use_saved fetch:", dbErr(fetchErr));
       return NextResponse.json({ error: fetchErr.message }, { status: 500 });
     }
     if (!row || row.auth_user_id !== user.id) {
@@ -127,7 +127,7 @@ export async function POST(req: NextRequest) {
       .update(updates)
       .eq("id", accountTravelerId);
     if (upErr) {
-      console.error("[travelers/claim] use_saved update:", upErr.message);
+      console.error("[travelers/claim] use_saved update:", dbErr(upErr));
       return NextResponse.json({ error: upErr.message }, { status: 500 });
     }
     primaryId = accountTravelerId;
@@ -147,7 +147,7 @@ export async function POST(req: NextRequest) {
         .eq("id", targetId)
         .maybeSingle();
       if (fetchErr) {
-        console.error("[travelers/claim] local fetch:", fetchErr.message);
+        console.error("[travelers/claim] local fetch:", dbErr(fetchErr));
         return NextResponse.json({ error: fetchErr.message }, { status: 500 });
       }
       if (!row) {
@@ -165,7 +165,7 @@ export async function POST(req: NextRequest) {
           .update(updates)
           .eq("id", targetId);
         if (upErr) {
-          console.error("[travelers/claim] local update:", upErr.message);
+          console.error("[travelers/claim] local update:", dbErr(upErr));
           return NextResponse.json({ error: upErr.message }, { status: 500 });
         }
       }
@@ -225,7 +225,7 @@ export async function POST(req: NextRequest) {
         .select("id")
         .single();
       if (insErr || !inserted) {
-        console.error("[travelers/claim] insert:", insErr?.message);
+        console.error("[travelers/claim] insert:", dbErr(insErr));
         return NextResponse.json(
           { error: insErr?.message ?? "insert failed" },
           { status: 500 }
@@ -247,7 +247,7 @@ export async function POST(req: NextRequest) {
       .eq("auth_user_id", user.id)
       .neq("id", primaryId);
     if (demoteErr) {
-      console.error("[travelers/claim] demote others:", demoteErr.message);
+      console.error("[travelers/claim] demote others:", dbErr(demoteErr));
       // Non-fatal — primary is still set on the chosen row, and the
       // dashboard tie-breaks on claimed_at when more than one row has
       // is_primary=true.

@@ -6,8 +6,10 @@ import Link from "next/link";
 type ProviderStatus = {
   warningLevel: "ok" | "warning" | "exceeded";
   percentUsed: number;
-  spentUsd: number;
-  limitUsd: number;
+  // Dollar figures are only returned to admin-cookie requests — the public
+  // banner never receives them (see /api/usage/status).
+  spentUsd?: number;
+  limitUsd?: number;
 };
 
 export default function ApiLimitBanner() {

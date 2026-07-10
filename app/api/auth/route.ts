@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { signSiteAuth, safeRelativePath } from "@/lib/auth";
+import { signSiteAuth, safeRelativePath, constantTimeEquals } from "@/lib/auth";
 
 const COOKIE = "site_auth";
 
@@ -113,7 +113,8 @@ export async function POST(req: NextRequest) {
   // error page — blocks open redirects to attacker origins.
   const redirectTo = safeRelativePath(body.get("redirect_to") as string | null);
 
-  if (password && password === process.env.SITE_PASSWORD) {
+  const sitePassword = process.env.SITE_PASSWORD;
+  if (password && sitePassword && constantTimeEquals(password, sitePassword)) {
     const res = NextResponse.redirect(new URL(redirectTo, req.url), { status: 303 });
     res.cookies.set(COOKIE, await signSiteAuth(), {
       httpOnly: true,

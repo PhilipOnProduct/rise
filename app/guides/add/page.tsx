@@ -26,21 +26,25 @@ export default function AddGuidePage() {
     setLoading(true);
     setError("");
 
-    const res = await fetch("/api/guides", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
-    });
+    try {
+      const res = await fetch("/api/guides", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
 
-    if (!res.ok) {
-      const { error } = await res.json();
-      setError(error ?? "Something went wrong.");
+      if (!res.ok) {
+        const { error } = await res.json().catch(() => ({ error: null }));
+        setError(error ?? "Something went wrong.");
+        return;
+      }
+
+      setSubmitted(true);
+    } catch {
+      setError("Something went wrong. Check your connection and try again.");
+    } finally {
       setLoading(false);
-      return;
     }
-
-    setSubmitted(true);
-    setLoading(false);
   }
 
   const inputCls = "w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-5 py-4 text-[var(--text-primary)] placeholder-[#9ca3af] transition-colors text-sm";
@@ -54,10 +58,10 @@ export default function AddGuidePage() {
           <p className="text-[var(--text-secondary)] mb-2">Your tip for <span className="text-[var(--text-primary)] font-semibold">{form.city}</span> has been added.</p>
           <p className="text-[#1a6b7f] text-sm font-semibold mb-10">+10 points added to your guide profile</p>
           <div className="flex flex-col gap-3">
-            <a href={`/guides/${form.city.toLowerCase().trim()}`}
+            <Link href={`/guides/${encodeURIComponent(form.city.toLowerCase().trim())}`}
               className="w-full rounded-2xl bg-[#1a6b7f] text-white font-bold py-4 text-base hover:bg-[#155a6b] transition-colors">
               See all {form.city} tips →
-            </a>
+            </Link>
             <button
               onClick={() => { setSubmitted(false); setForm({ name: "", email: "", city: "", category: "", title: "", description: "" }); }}
               className="w-full rounded-2xl border border-[#d4cfc5] text-[var(--text-primary)] font-semibold py-4 text-base hover:border-[#b8b3a9] transition-colors">

@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabase-admin";
 import { isAdminRequest, adminForbiddenResponse } from "@/lib/auth";
+import { dbErr } from "@/lib/db-utils";
 
 export async function GET(req: NextRequest) {
   if (!isAdminRequest(req)) return adminForbiddenResponse();
@@ -21,7 +22,7 @@ export async function GET(req: NextRequest) {
     .order("created_at", { ascending: false });
 
   if (error) {
-    console.error("[travel-admin]", error.message);
+    console.error("[travel-admin]", dbErr(error));
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 

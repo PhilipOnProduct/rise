@@ -53,7 +53,6 @@ export default function ProfilePage() {
       const raw = localStorage.getItem("rise_traveler");
       if (raw) {
         const t = JSON.parse(raw);
-        // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage hydration on mount; SSR renders the defaults
         if (t.travelerCount) setTravelerCount(t.travelerCount);
         if (t.childrenAges?.length) setChildrenAges(t.childrenAges);
       }
@@ -65,28 +64,37 @@ export default function ProfilePage() {
     setRecommendations("");
     setLoading(true);
 
-    await fetch("/api/profile", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(profile),
-    });
+    try {
+      // Best-effort profile save — recommendations shouldn't fail if it does.
+      await fetch("/api/profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(profile),
+      }).catch(() => {});
 
-    const res = await fetch("/api/recommendations", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...profile, travelerCount, childrenAges }),
-    });
+      const res = await fetch("/api/recommendations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...profile, travelerCount, childrenAges }),
+      });
 
-    if (!res.body) { setLoading(false); return; }
+      if (!res.ok || !res.body) {
+        setRecommendations("Sorry — recommendations are unavailable right now. Please try again in a moment.");
+        return;
+      }
 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      setRecommendations((prev) => prev + decoder.decode(value));
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        setRecommendations((prev) => prev + decoder.decode(value));
+      }
+    } catch {
+      setRecommendations("Sorry — recommendations are unavailable right now. Please try again in a moment.");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   const inputCls = "w-full bg-white border border-[#d4cfc5] focus:border-[#1a6b7f] outline-none rounded-xl px-5 py-4 text-[var(--text-primary)] placeholder-[#9ca3af] transition-colors text-sm";

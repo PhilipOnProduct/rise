@@ -67,7 +67,7 @@ export function TravelConnectorRow({ connector }: { connector: TravelConnector }
     <div className="mx-1 my-1.5 text-xs text-[var(--text-secondary)] flex items-center gap-2 flex-wrap px-2 py-1 border-l-2 border-[#e8e4de]">
       {segments.map((seg, i) => (
         <span key={i}>
-          {i > 0 && <span className="text-[#d4cfc5] mr-2">·</span>}
+          {i > 0 && <span className="text-[var(--text-muted)] mr-2">·</span>}
           <span title={seg.label} aria-label={seg.label}>{seg.icon}</span> {seg.text}
         </span>
       ))}

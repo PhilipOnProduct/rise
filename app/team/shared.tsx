@@ -1,12 +1,16 @@
 "use client";
 
+import { memo } from "react";
 import { AGENTS, CARD_TYPE_STYLES } from "./team-constants";
 import type { AgentId, CardType } from "./team-types";
 
 // ── Markdown renderer ─────────────────────────────────────────────────────────
 // Lightweight inline markdown → React for agent/coach/PM chat bubbles.
+// Memoised: team discussions re-render the whole tab on every stream chunk,
+// and without memo every mounted (non-streaming) bubble re-parses its full
+// markdown each time.
 
-export function MarkdownText({ text, className }: { text: string; className?: string }) {
+export const MarkdownText = memo(function MarkdownText({ text, className }: { text: string; className?: string }) {
   const lines = text.split("\n");
   const elements: React.ReactNode[] = [];
 
@@ -50,7 +54,7 @@ export function MarkdownText({ text, className }: { text: string; className?: st
   }
 
   return <div className={className ?? "text-sm text-[var(--text-primary)] leading-relaxed"}>{elements}</div>;
-}
+});
 
 // ── Shared sub-components ──────────────────────────────────────────────────────
 

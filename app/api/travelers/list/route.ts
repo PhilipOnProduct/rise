@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
+import { dbErr } from "@/lib/db-utils";
 
 /**
  * PHI-60: list every `travelers` row owned by the signed-in user.
@@ -31,7 +32,7 @@ export async function GET() {
     .order("created_at", { ascending: false });
 
   if (error) {
-    console.error("[travelers/list] GET:", error.message);
+    console.error("[travelers/list] GET:", dbErr(error));
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 

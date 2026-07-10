@@ -68,9 +68,12 @@ Return ONLY valid JSON — no markdown, no code fences:
       // Fallback: try extracting JSON between first { and last }
       const start = jsonStr.indexOf("{");
       const end = jsonStr.lastIndexOf("}");
-      if (start !== -1 && end !== -1) {
+      if (start === -1 || end === -1) {
+        return NextResponse.json({ error: "Judge returned malformed JSON" }, { status: 500 });
+      }
+      try {
         result = JSON.parse(jsonStr.slice(start, end + 1));
-      } else {
+      } catch {
         return NextResponse.json({ error: "Judge returned malformed JSON" }, { status: 500 });
       }
     }

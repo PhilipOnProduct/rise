@@ -6,6 +6,7 @@ import { getSupabaseAdminClient } from "@/lib/supabase-admin";
 // runs without a Supabase session — use the service-role admin client.
 const supabase = () => getSupabaseAdminClient();
 import { isAdminRequest, adminForbiddenResponse } from "@/lib/auth";
+import { dbErr } from "@/lib/db-utils";
 
 const MAX_FEEDBACK_LEN = 4000;
 const MAX_PAGE_LEN = 500;
@@ -25,7 +26,7 @@ export async function POST(req: NextRequest) {
   });
 
   if (error) {
-    console.error("[feedback] Supabase insert error:", error);
+    console.error("[feedback] Supabase insert error:", dbErr(error));
     return NextResponse.json({ error: "Failed to save feedback" }, { status: 500 });
   }
 
@@ -41,7 +42,7 @@ export async function GET(req: NextRequest) {
     .limit(10);
 
   if (error) {
-    console.error("[feedback] Supabase select error:", error);
+    console.error("[feedback] Supabase select error:", dbErr(error));
     return NextResponse.json({ error: "Failed to load feedback" }, { status: 500 });
   }
 
