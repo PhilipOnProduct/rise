@@ -1,13 +1,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { supabase } from "@/lib/supabase";
 import { CardDetailPanel } from "./CardDetailPanel";
 import { KanbanTab } from "./KanbanTab";
 import { PMTab } from "./PMTab";
 import { ProductCoachTab } from "./ProductCoachTab";
 import { ProductTeamTab } from "./ProductTeamTab";
-import { updateObjectiveField } from "./team-data";
+import { loadObjective, updateObjectiveField } from "./team-data";
 import type { Discussion, Objective } from "./team-types";
 
 // ── Page ───────────────────────────────────────────────────────────────────────
@@ -41,12 +40,8 @@ export default function TeamPage() {
   function handleDiscussionSaved(objectiveId: string, discussion: Discussion, prd: string | null) {
     // Save discussion to the card
     void (async () => {
-      const { data } = await supabase
-        .from("objectives")
-        .select("discussions, prd")
-        .eq("id", objectiveId)
-        .single();
-      const existing: Discussion[] = (data?.discussions as Discussion[]) ?? [];
+      const card = await loadObjective(objectiveId);
+      const existing: Discussion[] = card?.discussions ?? [];
       const updated = [...existing, discussion];
       const fields: Record<string, unknown> = { discussions: updated };
       if (prd) fields.prd = prd;

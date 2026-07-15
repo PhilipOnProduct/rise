@@ -1,5 +1,3 @@
-import { dbErr } from "@/lib/db-utils";
-import { supabase } from "@/lib/supabase";
 import type {
   CardType,
   CoachMessage,
@@ -47,23 +45,71 @@ export async function streamChat(
   if (text) onChunk(text);
 }
 
-// ── Supabase helpers ───────────────────────────────────────────────────────────
+// ── Data helpers ───────────────────────────────────────────────────────────────
+//
+// These used to call Supabase directly from the browser with the anon key.
+// The team tables now have RLS enabled with no policies (migration 0020),
+// so all reads/writes go through the /api/team/* routes, which run on the
+// service-role admin client behind the site-password perimeter.
 
-const OBJECTIVE_COLUMNS = "id, title, description, status, prd, card_type, pm_summary, claude_code_result, discussions, created_at";
+async function apiJson<T>(
+  label: string,
+  input: string,
+  init?: RequestInit
+): Promise<T | null> {
+  try {
+    const res = await fetch(input, init);
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      console.error(`[${label}] request failed`, res.status, body?.error ?? "");
+      return null;
+    }
+    return (await res.json()) as T;
+  } catch (err) {
+    console.error(`[${label}] request error`, err);
+    return null;
+  }
+}
+
+const JSON_HEADERS = { "Content-Type": "application/json" };
 
 export async function saveTeamConversation(problem: string, msgs: TeamMessages): Promise<string | null> {
-  const { data, error } = await supabase
-    .from("team_conversations")
-    .insert({ type: "team", title: problem, messages: msgs })
-    .select("id")
-    .single();
-  if (error) { console.error("[team] save error", dbErr(error)); return null; }
-  return data.id as string;
+  const data = await apiJson<{ id: string }>("team", "/api/team/conversations", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ type: "team", title: problem, messages: msgs }),
+  });
+  return data?.id ?? null;
 }
 
 export async function updateTeamPrd(id: string, prd: string): Promise<void> {
-  const { error } = await supabase.from("team_conversations").update({ prd }).eq("id", id);
-  if (error) console.error("[team] prd update error", dbErr(error));
+  await apiJson("team", "/api/team/conversations", {
+    method: "PATCH",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ id, prd }),
+  });
+}
+
+async function upsertConversation(
+  type: "coach" | "pm",
+  id: string | null,
+  firstMessage: string,
+  history: CoachMessage[]
+): Promise<string | null> {
+  if (id) {
+    await apiJson(type, "/api/team/conversations", {
+      method: "PATCH",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ id, messages: { history } }),
+    });
+    return id;
+  }
+  const data = await apiJson<{ id: string }>(type, "/api/team/conversations", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ type, title: firstMessage.slice(0, 60), messages: { history } }),
+  });
+  return data?.id ?? null;
 }
 
 export async function upsertCoachConversation(
@@ -71,21 +117,7 @@ export async function upsertCoachConversation(
   firstMessage: string,
   history: CoachMessage[]
 ): Promise<string | null> {
-  if (id) {
-    const { error } = await supabase
-      .from("team_conversations")
-      .update({ messages: { history } })
-      .eq("id", id);
-    if (error) console.error("[coach] update error", dbErr(error));
-    return id;
-  }
-  const { data, error } = await supabase
-    .from("team_conversations")
-    .insert({ type: "coach", title: firstMessage.slice(0, 60), messages: { history } })
-    .select("id")
-    .single();
-  if (error) { console.error("[coach] insert error", dbErr(error)); return null; }
-  return data.id as string;
+  return upsertConversation("coach", id, firstMessage, history);
 }
 
 export async function upsertPMConversation(
@@ -93,34 +125,28 @@ export async function upsertPMConversation(
   firstMessage: string,
   history: CoachMessage[]
 ): Promise<string | null> {
-  if (id) {
-    const { error } = await supabase
-      .from("team_conversations")
-      .update({ messages: { history } })
-      .eq("id", id);
-    if (error) console.error("[pm] update error", dbErr(error));
-    return id;
-  }
-  const { data, error } = await supabase
-    .from("team_conversations")
-    .insert({ type: "pm", title: firstMessage.slice(0, 60), messages: { history } })
-    .select("id")
-    .single();
-  if (error) { console.error("[pm] insert error", dbErr(error)); return null; }
-  return data.id as string;
+  return upsertConversation("pm", id, firstMessage, history);
 }
 
-export async function loadObjectives(): Promise<Objective[]> {
-  const { data, error } = await supabase
-    .from("objectives")
-    .select(OBJECTIVE_COLUMNS)
-    .order("created_at", { ascending: false });
-  if (error) { console.error("[objectives] load error", dbErr(error)); return []; }
-  return (data ?? []).map((row) => ({
+function normalizeObjective(row: Objective): Objective {
+  return {
     ...row,
     card_type: row.card_type ?? "objective",
     discussions: row.discussions ?? [],
-  })) as Objective[];
+  };
+}
+
+export async function loadObjectives(): Promise<Objective[]> {
+  const data = await apiJson<Objective[]>("objectives", "/api/team/objectives");
+  return (data ?? []).map(normalizeObjective);
+}
+
+export async function loadObjective(id: string): Promise<Objective | null> {
+  const data = await apiJson<Objective>(
+    "objectives",
+    `/api/team/objectives?id=${encodeURIComponent(id)}`
+  );
+  return data ? normalizeObjective(data) : null;
 }
 
 export async function saveObjectiveWithDetails(
@@ -131,93 +157,82 @@ export async function saveObjectiveWithDetails(
   cardType?: CardType,
   pmSummary?: string | null,
 ): Promise<Objective | null> {
-  const { data, error } = await supabase
-    .from("objectives")
-    .insert({
+  const data = await apiJson<Objective>("objectives", "/api/team/objectives", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
       title,
       description: description ?? null,
       status,
       prd: prd ?? null,
       card_type: cardType ?? "objective",
       pm_summary: pmSummary ?? null,
-    })
-    .select(OBJECTIVE_COLUMNS)
-    .single();
-  if (error) { console.error("[objectives] save error", dbErr(error)); return null; }
-  return { ...data, card_type: data.card_type ?? "objective", discussions: data.discussions ?? [] } as Objective;
+    }),
+  });
+  return data ? normalizeObjective(data) : null;
 }
 
 export async function updateObjectiveStatus(id: string, status: ObjectiveStatus): Promise<void> {
-  const { error } = await supabase.from("objectives").update({ status }).eq("id", id);
-  if (error) console.error("[objectives] update error", dbErr(error));
+  await updateObjectiveField(id, { status });
 }
 
 export async function updateObjectivePrd(id: string, prd: string): Promise<void> {
-  const { error } = await supabase
-    .from("objectives")
-    .update({ prd, status: "refine" })
-    .eq("id", id);
-  if (error) console.error("[objectives] prd update error", dbErr(error));
+  await updateObjectiveField(id, { prd, status: "refine" });
 }
 
 export async function updateObjectiveField(id: string, fields: Partial<Record<string, unknown>>): Promise<void> {
-  const { error } = await supabase.from("objectives").update(fields).eq("id", id);
-  if (error) console.error("[objectives] field update error", dbErr(error));
+  await apiJson("objectives", "/api/team/objectives", {
+    method: "PATCH",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ id, fields }),
+  });
 }
 
 export async function deleteObjective(id: string): Promise<void> {
-  const { error } = await supabase.from("objectives").delete().eq("id", id);
-  if (error) console.error("[objectives] delete error", dbErr(error));
+  await apiJson("objectives", `/api/team/objectives?id=${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
 }
 
-
 export async function loadConversations(type: "team" | "coach" | "pm"): Promise<ConversationRow[]> {
-  const { data, error } = await supabase
-    .from("team_conversations")
-    .select("id, type, title, messages, prd, created_at")
-    .eq("type", type)
-    .order("created_at", { ascending: false })
-    .limit(10);
-  if (error) { console.error("[conversations] load error", dbErr(error)); return []; }
-  return data as ConversationRow[];
+  const data = await apiJson<ConversationRow[]>(
+    "conversations",
+    `/api/team/conversations?type=${type}`
+  );
+  return data ?? [];
 }
 
 export async function loadSarahMemory(): Promise<string> {
-  const { data, error } = await supabase
-    .from("agent_memory")
-    .select("content")
-    .eq("id", "sarah")
-    .single();
-  if (error) { console.error("[memory] load error", dbErr(error)); return ""; }
-  return (data?.content as string) ?? "";
+  const data = await apiJson<{ content: string }>("memory", "/api/team/memory");
+  return data?.content ?? "";
 }
 
 export async function saveSarahMemory(content: string): Promise<void> {
-  const { error } = await supabase
-    .from("agent_memory")
-    .upsert({ id: "sarah", content })
-    .eq("id", "sarah");
-  if (error) console.error("[memory] save error", dbErr(error));
+  await apiJson("memory", "/api/team/memory", {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ content }),
+  });
 }
 
 export async function savePrdFeedback(conversationId: string, feedback: string): Promise<void> {
-  const { error } = await supabase
-    .from("prd_feedback")
-    .insert({ conversation_id: conversationId, feedback });
-  if (error) console.error("[feedback] save error", dbErr(error));
+  await apiJson("feedback", "/api/team/prd-feedback", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ conversationId, feedback }),
+  });
 }
 
 export async function loadPrdFeedback(conversationId: string): Promise<PrdFeedback[]> {
-  const { data, error } = await supabase
-    .from("prd_feedback")
-    .select("id, conversation_id, feedback, created_at")
-    .eq("conversation_id", conversationId)
-    .order("created_at", { ascending: true });
-  if (error) { console.error("[feedback] load error", dbErr(error)); return []; }
-  return data as PrdFeedback[];
+  const data = await apiJson<PrdFeedback[]>(
+    "feedback",
+    `/api/team/prd-feedback?conversationId=${encodeURIComponent(conversationId)}`
+  );
+  return data ?? [];
 }
 
 export async function deleteConversation(id: string): Promise<void> {
-  const { error } = await supabase.from("team_conversations").delete().eq("id", id);
-  if (error) console.error("[conversations] delete error", dbErr(error));
+  await apiJson("conversations", `/api/team/conversations?id=${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
 }

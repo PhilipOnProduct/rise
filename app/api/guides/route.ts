@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-// TODO(PHI-C): grandfathered on the legacy anon client — guides/tips have
-// no RLS today. If these tables ever get policies (or tip writes become
-// user-scoped), migrate to getSupabaseServerClient() / the admin client
-// per the CLAUDE.md client conventions.
-import { supabase, CATEGORIES, type Category, awardGuidePoints } from "@/lib/guides";
+import { getSupabaseAdminClient } from "@/lib/supabase-admin";
+import { CATEGORIES, type Category } from "@/lib/guides";
+import { awardGuidePoints } from "@/lib/guides-server";
 
 export async function POST(req: NextRequest) {
+  const supabase = getSupabaseAdminClient();
   const { name, email, city, category, title, description } = await req.json();
 
   if (!name || !email || !city || !category || !title || !description) {
@@ -64,6 +63,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
+  const supabase = getSupabaseAdminClient();
   const city = req.nextUrl.searchParams.get("city");
 
   if (!city) {
