@@ -1,15 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-// TODO(PHI-C): grandfathered on the legacy anon client — guides/tips have
-// no RLS today. If these tables ever get policies (or tip writes become
-// user-scoped), migrate to getSupabaseServerClient() / the admin client
-// per the CLAUDE.md client conventions.
-import { supabase } from "@/lib/supabase";
-import { awardGuidePoints, incrementTipViews } from "@/lib/guides";
+import { getSupabaseAdminClient } from "@/lib/supabase-admin";
+import { awardGuidePoints, incrementTipViews } from "@/lib/guides-server";
 
 export async function POST(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const supabase = getSupabaseAdminClient();
   const { id } = await params;
 
   const { data: tip, error: fetchError } = await supabase
